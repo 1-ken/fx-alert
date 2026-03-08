@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getFirebaseAdminAuth, getFirebaseAdminDb } from "@/lib/firebase-admin";
-import { FieldValue } from "firebase-admin/firestore";
+import * as admin from "firebase-admin";
 
 export async function GET() {
   try {
@@ -58,9 +58,9 @@ export async function GET() {
         image: session.user.image ?? null,
         disabled: firebaseUser.disabled,
         provider: "google",
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        lastLoginAt: FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     } else {
       await userDocRef.set(
@@ -70,8 +70,8 @@ export async function GET() {
           image: session.user.image ?? null,
           disabled: firebaseUser.disabled,
           provider: "google",
-          updatedAt: FieldValue.serverTimestamp(),
-          lastLoginAt: FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true },
       );
