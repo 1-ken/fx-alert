@@ -11,7 +11,9 @@ export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user) {
+    const userId = session?.user?.id;
+
+    if (!userId) {
       return NextResponse.json(
         { message: "Unauthorized" },
         { status: 401 }
@@ -19,7 +21,7 @@ export async function GET(request: Request) {
     }
 
     // Filter notes by user
-    const userNotes = notes.filter(note => note.user_id === session.user.id);
+    const userNotes = notes.filter(note => note.user_id === userId);
 
     return NextResponse.json({ notes: userNotes });
   } catch (error) {
@@ -35,7 +37,9 @@ export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user) {
+    const userId = session?.user?.id;
+
+    if (!userId) {
       return NextResponse.json(
         { message: "Unauthorized" },
         { status: 401 }
@@ -57,7 +61,7 @@ export async function POST(request: Request) {
       id: String(nextId++),
       title,
       content,
-      user_id: session.user.id,
+      user_id: userId,
       created_at: now,
       updated_at: now,
     };
@@ -78,7 +82,9 @@ export async function PUT(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user) {
+    const userId = session?.user?.id;
+
+    if (!userId) {
       return NextResponse.json(
         { message: "Unauthorized" },
         { status: 401 }
@@ -96,7 +102,7 @@ export async function PUT(request: Request) {
     }
 
     const noteIndex = notes.findIndex(
-      note => note.id === id && note.user_id === session.user.id
+      note => note.id === id && note.user_id === userId
     );
 
     if (noteIndex === -1) {
@@ -127,7 +133,9 @@ export async function DELETE(request: Request) {
   try {
     const session = await getServerSession(authOptions);
     
-    if (!session?.user) {
+    const userId = session?.user?.id;
+
+    if (!userId) {
       return NextResponse.json(
         { message: "Unauthorized" },
         { status: 401 }
@@ -145,7 +153,7 @@ export async function DELETE(request: Request) {
     }
 
     const noteIndex = notes.findIndex(
-      note => note.id === id && note.user_id === session.user.id
+      note => note.id === id && note.user_id === userId
     );
 
     if (noteIndex === -1) {

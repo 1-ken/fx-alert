@@ -1,7 +1,7 @@
 {
-  "name": "Defoca",
-  "short_name": "Defoca",
-  "description": "Devolved defoca welfare management",
+  "name": "fx-alert",
+  "short_name": "fx-alert",
+  "description": "Get Instant Alerts for Your trading Pair",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -21,8 +21,8 @@
       "purpose": "maskable any"
     }
   ],
-  "categories": ["business", "productivity"],
+  "categories": ["business"],
   "lang": "en",
   "scope": "/",
-  "id": "defoca-app"
+  "id": "Fx-alert"
 }

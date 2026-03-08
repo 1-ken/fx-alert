@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { FirebaseError } from "firebase/app";
 import {
   signInWithCustomToken,
@@ -54,8 +54,14 @@ export function FirebaseAuthSync() {
 
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as
-            | { error?: string }
+            | { error?: string; errorCode?: string }
             | null;
+
+          if (payload?.errorCode === "auth/user-disabled") {
+            await firebaseSignOut(firebaseAuth).catch(() => undefined);
+            await signOut({ callbackUrl: "/login?error=disabled" });
+            return;
+          }
 
           throw new Error(payload?.error || "Unable to generate Firebase custom token.");
         }

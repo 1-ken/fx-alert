@@ -40,7 +40,15 @@ const navMain = [
 ];
 
 // Documents section: Add your own document types here
-const documents = [
+const documents: {
+  name: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+  items?: {
+    title: string;
+    url: string;
+  }[];
+}[] = [
   // Example:
   // {
   //   name: "Reports",
@@ -89,12 +97,13 @@ const settings = [
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: session } = useSession();
+  const roleName = (session as { role?: { name?: string } } | null)?.role?.name?.toLowerCase();
 
   // Get user data from session or use defaults
   const user = session?.user
     ? {
         name: session.user.name || "User",
-        email: session.user.phone || session.user.email || "",
+        email: session.user.email || "",
         avatar: session.user.image || "",
       }
     : {
@@ -106,7 +115,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   // Team data with logo and user name
   const team = {
     name: "Your App",
-    logo: "/icons/defoca-logo.webp",
+    logo: "/assets/fxlogo.webp",
     plan: user.name,
   };
 
@@ -120,7 +129,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={navMain} />
         {documents.length > 0 && <NavDocuments documents={documents} />}
         <NavResources resources={resources} />
-        {session?.role?.name?.toLowerCase() === "admin" && (
+        {roleName === "admin" && (
           <NavSettings settings={settings} />
         )}
       </SidebarContent>

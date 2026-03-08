@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import Image from "next/image";
+import { toast } from "sonner";
 import {
   FieldGroup,
 } from "@/components/ui/field";
@@ -19,7 +20,9 @@ export function LoginForm({
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const authError = searchParams.get("error");
   const { data: session, status } = useSession();
+  const hasShownErrorRef = useRef(false);
 
   // Redirect authenticated users away from login page
   useEffect(() => {
@@ -27,6 +30,15 @@ export function LoginForm({
       router.push(callbackUrl);
     }
   }, [status, session, router, callbackUrl]);
+
+  useEffect(() => {
+    if (authError !== "disabled" || hasShownErrorRef.current) {
+      return;
+    }
+
+    hasShownErrorRef.current = true;
+    toast.error("Your account is disabled. Contact the administrator.");
+  }, [authError]);
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
@@ -76,6 +88,11 @@ export function LoginForm({
                       Continue with your Google account
                     </p>
                   </div>
+                  {authError === "disabled" && (
+                    <p className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      Your account is disabled. Contact the administrator.
+                    </p>
+                  )}
                   <Button onClick={handleGoogleSignIn} disabled={isLoading}>
                     {isLoading ? "Please wait..." : "Continue with Google"}
                   </Button>
