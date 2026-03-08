@@ -31,12 +31,17 @@ export const UI_CONSTANTS = {
 
 // Authentication endpoints
 export const API_ENDPOINTS = {
-  AUTH: {
-    LOGIN: "/api/auth/login.php",
-    VERIFY_OTP: "/api/auth/verify_otp.php",
-    RESEND_OTP: "/api/auth/resend_otp.php",
-    REFRESH: "/api/auth/refresh.php",
-    LOGOUT: "/api/auth/logout.php",
+  ALERTS: {
+    LIST: "/api/v1/alerts",
+    CREATE: "/api/v1/alerts",
+    DELETE: "/api/v1/alerts",
+  },
+  STREAMING:{
+    SNAPSHOT:"/snapshot",
+    WEBSOCKET:"/ws/observe",
+    HEALTH:"/stream-health",
+
+
   },
   // Add your own API endpoints here
   NOTES: {
