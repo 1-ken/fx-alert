@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "NODE_OPTIONS='--dns-result-order=ipv4first --no-network-family-autoselection' next dev",
+    "build": "NODE_OPTIONS='--dns-result-order=ipv4first --no-network-family-autoselection' next build",
+    "start": "NODE_OPTIONS='--dns-result-order=ipv4first --no-network-family-autoselection' next start",
     "lint": "eslint"
   },
   "dependencies": {
@@ -36,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "firebase": "^12.10.0",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.556.0",
     "motion": "^12.23.25",

@@ -49,6 +49,15 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
+  // Increase timeout for external API calls (helps with OAuth)
+  httpAgentOptions: {
+    keepAlive: true,
+  },
 };
 
 export default nextConfig;
