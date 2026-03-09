@@ -65,7 +65,7 @@ function formatRelativeTime(isoDate: string | null): string {
 }
 
 export default function DashboardPage() {
-  const { snapshot, status, lastUpdatedAt, isSnapshotLoading, changeMap } = useObserverStream();
+  const { snapshot, status, lastUpdatedAt, lastStreamTickAt, isSnapshotLoading, changeMap } = useObserverStream();
   const { data: health } = useObserverHealth();
   const { alerts } = useObserverAlerts();
 
@@ -112,7 +112,10 @@ export default function DashboardPage() {
   const connectionLabel =
     status === "live" ? "Live" : status === "reconnecting" ? "Reconnecting" : "Offline";
 
+  const connectionStatusVariant = status === "live" ? "default" : "secondary";
+
   const streamHealthLabel = health?.status ?? "unknown";
+  const streamTickLabel = formatRelativeTime(lastStreamTickAt);
 
   return (
     <div className="relative min-h-screen bg-background pb-24">
@@ -132,14 +135,52 @@ export default function DashboardPage() {
                   >
                     {marketText}
                   </Badge>
-                  <span className="text-muted-foreground">• {connectionLabel}</span>
+                  <Badge
+                    variant={connectionStatusVariant}
+                    className={cn(
+                      "rounded-full px-2.5",
+                      status === "live" && "bg-green-500/15 text-green-700 dark:text-green-400",
+                      status === "reconnecting" && "animate-pulse",
+                      status === "offline" && "bg-red-500/15 text-red-700 dark:text-red-400"
+                    )}
+                  >
+                    {status === "live" && "🟢"} {connectionLabel}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    • Last stream tick: {streamTickLabel}
+                  </span>
                 </div>
               </div>
             </div>
             <ThemeSwitcher />
           </div>
         </header>
-
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Card className="gap-3 py-4">
+            <CardContent className="px-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Active alerts</p>
+              <p className="mt-1 text-2xl font-semibold">{alerts?.active.length ?? 0}</p>
+            </CardContent>
+          </Card>
+          <Card className="gap-3 py-4">
+            <CardContent className="px-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Triggered</p>
+              <p className="mt-1 text-2xl font-semibold">{alerts?.triggered.length ?? 0}</p>
+            </CardContent>
+          </Card>
+          {/* <Card className="gap-3 py-4">
+            <CardContent className="px-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Stream health</p>
+              <p className="mt-1 text-2xl font-semibold capitalize">{streamHealthLabel}</p>
+            </CardContent>
+          </Card> */}
+          {/* <Card className="gap-3 py-4">
+            <CardContent className="px-4">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Subscribers</p>
+              <p className="mt-1 text-2xl font-semibold">{health?.subscriber_count ?? 0}</p>
+            </CardContent>
+          </Card> */}
+        </section>
         <section className="rounded-xl border bg-card/70 p-4">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-wide text-muted-foreground">
@@ -219,50 +260,9 @@ export default function DashboardPage() {
           )}
         </section>
 
-        <Card className="rounded-2xl border-primary/25 bg-primary/10 py-4">
-          <CardContent className="flex items-center justify-between px-4">
-            <div className="flex items-center gap-3">
-              <div className="rounded-full bg-primary/15 p-3 text-primary">
-                <ChartBarSquareIcon className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Daily Trade Volume</p>
-                <p className="text-3xl font-bold tracking-tight">$12.4B</p>
-              </div>
-            </div>
-            <div className="text-right text-sm text-muted-foreground">
-              <p>+4.5%</p>
-              <p>{formatRelativeTime(lastUpdatedAt)}</p>
-            </div>
-          </CardContent>
-        </Card>
+        
 
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Card className="gap-3 py-4">
-            <CardContent className="px-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Active alerts</p>
-              <p className="mt-1 text-2xl font-semibold">{alerts?.active.length ?? 0}</p>
-            </CardContent>
-          </Card>
-          <Card className="gap-3 py-4">
-            <CardContent className="px-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Triggered</p>
-              <p className="mt-1 text-2xl font-semibold">{alerts?.triggered.length ?? 0}</p>
-            </CardContent>
-          </Card>
-          <Card className="gap-3 py-4">
-            <CardContent className="px-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Stream health</p>
-              <p className="mt-1 text-2xl font-semibold capitalize">{streamHealthLabel}</p>
-            </CardContent>
-          </Card>
-          <Card className="gap-3 py-4">
-            <CardContent className="px-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Subscribers</p>
-              <p className="mt-1 text-2xl font-semibold">{health?.subscriber_count ?? 0}</p>
-            </CardContent>
-          </Card>
-        </section>
+        
 
         <footer className="flex items-center justify-between rounded-xl border bg-card/70 p-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">

@@ -7,8 +7,9 @@
 
 // Base URL from environment variable
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+export const EXPLICIT_OBSERVER_WS_URL = process.env.NEXT_PUBLIC_OBSERVER_WS_URL?.trim() || "";
 export const OBSERVER_WS_BASE_URL =
-  process.env.NEXT_PUBLIC_OBSERVER_WS_URL || "ws://51.254.201.253:8000";
+  EXPLICIT_OBSERVER_WS_URL || "ws://51.254.201.253:8000";
 
 /**
  * UI Constants

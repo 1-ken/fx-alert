@@ -1,5 +1,6 @@
 import {
   API_ENDPOINTS,
+  EXPLICIT_OBSERVER_WS_URL,
   getApiUrl,
   normalizeObserverWebSocketUrl,
 } from "@/lib/constants";
@@ -33,6 +34,10 @@ export async function proxyObserverRequest(
 }
 
 export async function getResolvedObserverWsUrl(): Promise<string> {
+  if (EXPLICIT_OBSERVER_WS_URL) {
+    return normalizeObserverWebSocketUrl(EXPLICIT_OBSERVER_WS_URL);
+  }
+
   try {
     const configResponse = await fetch(getObserverApiUrl(API_ENDPOINTS.STREAMING.CLIENT_CONFIG), {
       cache: "no-store",
