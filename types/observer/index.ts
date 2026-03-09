@@ -46,9 +46,10 @@ export interface AlertDeleteResponse {
 
 export interface ForexPair {
   pair: string;
-  bid: number;
-  ask: number;
-  spread: number;
+  price: number;
+  bid?: number;
+  ask?: number;
+  spread?: number;
 }
 
 export interface MarketSnapshot {

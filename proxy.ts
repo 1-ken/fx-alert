@@ -2,63 +2,70 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
-export async function proxy(request: NextRequest) {
+/**
+ * Authentication middleware for FX Alert frontend
+ * 
+ * Handles:
+ * - Page-level authentication and redirects
+ * - Root path routing based on auth state
+ * - Login/logout flow
+ * 
+ * Note: API routes are excluded from middleware and handle their own authentication
+ */
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Define public routes that don't require authentication
-  const publicRoutes = ['/login', '/api/auth'];
-  
-  // Check if the current path is public
-  const isPublicRoute = publicRoutes.some(route => 
-    pathname.startsWith(route)
-  );
+  // Public routes that don't require authentication
+  const publicPageRoutes = ['/login'];
+  const isPublicPage = publicPageRoutes.some(route => pathname.startsWith(route));
 
-  // Get the token from the request
+  // Get authentication token
   const token = await getToken({ 
     req: request, 
     secret: process.env.NEXTAUTH_SECRET 
   });
 
-  // If route requires authentication but user is not authenticated
-  if (!isPublicRoute && !token) {
+  const isAuthenticated = !!token;
+
+  // Handle root path routing
+  if (pathname === '/') {
+    if (isAuthenticated) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // If user is authenticated and trying to access login page, redirect to dashboard
-  if (token && (pathname === '/login' || pathname.startsWith('/login'))) {
+  // Redirect authenticated users away from login page
+  if (isAuthenticated && pathname.startsWith('/login')) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // If user is authenticated and accessing root, redirect to dashboard
-  if (token && pathname === '/') {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+  // Protect all non-public pages - require authentication
+  if (!isPublicPage && !isAuthenticated) {
+    const loginUrl = new URL('/login', request.url);
+    // Preserve the attempted URL for redirect after login
+    loginUrl.searchParams.set('callbackUrl', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  // If user is not authenticated and accessing root, redirect to login
-  if (!token && pathname === '/') {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-
-  // Allow access to public routes and authenticated users
   return NextResponse.next();
 }
 
-// Configure which routes the middleware should run on
+// Export as default for Next.js proxy
+export default middleware;
+
+/**
+ * Middleware matcher configuration
+ * 
+ * Runs middleware on all routes except:
+ * - /api/* - API routes handle their own authentication
+ * - /_next/* - Next.js internals
+ * - /favicon.ico, /assets/*, /icons/* - Static files
+ * - /sw.js, /manifest.json - PWA files
+ * - SEO files (robots.txt, sitemap.xml)
+ */
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api/auth (NextAuth API routes - allow these)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - assets (static assets from public folder)
-     * - icons (static icons from public folder)
-     * - sw.js, manifest.json (PWA files)
-     * - public folder
-     * - _vercel (Vercel internal routes)
-     * - robots.txt, sitemap.xml (SEO files)
-     */
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|assets|icons|sw.js|manifest.json|_vercel|robots.txt|sitemap.xml).*)",
+    '/((?!api|_next/static|_next/image|favicon.ico|assets|icons|sw.js|manifest.json|_vercel|robots.txt|sitemap.xml).*)',
   ],
 };

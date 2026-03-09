@@ -86,3 +86,34 @@ export function getObserverWebSocketUrl(path = API_ENDPOINTS.STREAMING.WEBSOCKET
 
   return `${cleanBaseUrl}${cleanPath}`;
 }
+
+export function normalizeObserverWebSocketUrl(
+  rawUrl?: string,
+  path = API_ENDPOINTS.STREAMING.WEBSOCKET
+): string {
+  const fallbackUrl = getObserverWebSocketUrl(path);
+
+  if (!rawUrl?.trim()) {
+    return fallbackUrl;
+  }
+
+  try {
+    const url = new URL(rawUrl);
+
+    if (url.protocol === "http:") {
+      url.protocol = "ws:";
+    } else if (url.protocol === "https:") {
+      url.protocol = "wss:";
+    } else if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      return fallbackUrl;
+    }
+
+    if (!url.pathname || url.pathname === "/") {
+      url.pathname = path.startsWith("/") ? path : `/${path}`;
+    }
+
+    return url.toString();
+  } catch {
+    return fallbackUrl;
+  }
+}

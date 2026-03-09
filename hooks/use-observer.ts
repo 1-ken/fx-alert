@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
-import { API_ENDPOINTS } from "@/lib/constants";
+import { API_ENDPOINTS, normalizeObserverWebSocketUrl } from "@/lib/constants";
 import type {
   Alert,
   AlertUpsertInput,
@@ -12,6 +12,80 @@ import type {
   StreamHealth,
   StreamPayload,
 } from "@/types/observer";
+
+function normalizePairSymbol(pair: string): string {
+  const compactPair = pair.replace(/[^a-z]/gi, "").toUpperCase();
+
+  if (compactPair.length === 6) {
+    return `${compactPair.slice(0, 3)}/${compactPair.slice(3)}`;
+  }
+
+  return pair.trim().toUpperCase();
+}
+
+function parseNumericValue(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const rawPairs = Array.isArray(record.pairs) ? record.pairs : [];
+
+  const pairs = rawPairs
+    .map((rawPair) => {
+      if (!rawPair || typeof rawPair !== "object") {
+        return null;
+      }
+
+      const pairRecord = rawPair as Record<string, unknown>;
+      const pair = typeof pairRecord.pair === "string" ? pairRecord.pair : null;
+
+      if (!pair) {
+        return null;
+      }
+
+      const bid = parseNumericValue(pairRecord.bid);
+      const ask = parseNumericValue(pairRecord.ask);
+      const spread = parseNumericValue(pairRecord.spread);
+      const price =
+        parseNumericValue(pairRecord.price) ?? bid ?? ask ?? null;
+
+      if (price === null) {
+        return null;
+      }
+
+      return {
+        pair: normalizePairSymbol(pair),
+        price,
+        ...(bid !== null ? { bid } : {}),
+        ...(ask !== null ? { ask } : {}),
+        ...(spread !== null ? { spread } : {}),
+      };
+    })
+    .filter((pair): pair is MarketSnapshot["pairs"][number] => pair !== null);
+
+  const marketStatus = record.market_status === "open" ? "open" : "closed";
+  const ts = typeof record.ts === "string" ? record.ts : new Date().toISOString();
+
+  return {
+    market_status: marketStatus,
+    pairs,
+    ts,
+  };
+}
 
 const fetcher = async <T>(url: string): Promise<T> => {
   const response = await fetch(url);
@@ -123,18 +197,18 @@ export function useObserverStream() {
   const [changeMap, setChangeMap] = useState<
     Record<string, { delta: number; deltaPercent: number }>
   >({});
-  const previousBidMapRef = useRef<Map<string, number>>(new Map());
+  const previousPriceMapRef = useRef<Map<string, number>>(new Map());
 
   const { data: clientConfig } = useObserverClientConfig();
   const snapshotSWR = useObserverSnapshot(fallbackEnabled);
   const { mutate: mutateSnapshot } = snapshotSWR;
+  const normalizedSnapshot = useMemo(
+    () => normalizeMarketSnapshot(snapshotSWR.data),
+    [snapshotSWR.data]
+  );
 
   const wsUrl = useMemo(() => {
-    if (clientConfig?.wsUrl) {
-      return clientConfig.wsUrl;
-    }
-
-    return undefined;
+    return normalizeObserverWebSocketUrl(clientConfig?.wsUrl);
   }, [clientConfig?.wsUrl]);
 
   useEffect(() => {
@@ -168,21 +242,26 @@ export function useObserverStream() {
       socket.onmessage = async (event) => {
         try {
           const payload = JSON.parse(event.data) as StreamPayload;
+          const normalizedPayload = normalizeMarketSnapshot(payload);
+
+          if (!normalizedPayload) {
+            return;
+          }
 
           const nextChangeMap: Record<string, { delta: number; deltaPercent: number }> = {};
 
-          for (const pair of payload.pairs) {
+          for (const pair of normalizedPayload.pairs) {
             const pairKey = pair.pair.toUpperCase();
-            const previousBid = previousBidMapRef.current.get(pairKey);
-            const delta = previousBid ? pair.bid - previousBid : 0;
-            const deltaPercent = previousBid ? (delta / previousBid) * 100 : 0;
+            const previousPrice = previousPriceMapRef.current.get(pairKey);
+            const delta = previousPrice ? pair.price - previousPrice : 0;
+            const deltaPercent = previousPrice ? (delta / previousPrice) * 100 : 0;
 
             nextChangeMap[pairKey] = { delta, deltaPercent };
-            previousBidMapRef.current.set(pairKey, pair.bid);
+            previousPriceMapRef.current.set(pairKey, pair.price);
           }
 
           setChangeMap(nextChangeMap);
-          await mutateSnapshot(payload, { revalidate: false });
+          await mutateSnapshot(normalizedPayload, { revalidate: false });
         } catch {
           // ignore malformed messages
         }
@@ -221,11 +300,11 @@ export function useObserverStream() {
   }, [mutateSnapshot, wsUrl]);
 
   return {
-    snapshot: snapshotSWR.data,
+    snapshot: normalizedSnapshot,
     snapshotError: snapshotSWR.error,
     isSnapshotLoading: snapshotSWR.isLoading,
     status,
-    lastUpdatedAt: snapshotSWR.data?.ts ?? null,
+    lastUpdatedAt: normalizedSnapshot?.ts ?? null,
     changeMap,
     refreshSnapshot: snapshotSWR.mutate,
   };

@@ -1,4 +1,8 @@
-import { API_ENDPOINTS, getApiUrl, getObserverWebSocketUrl } from "@/lib/constants";
+import {
+  API_ENDPOINTS,
+  getApiUrl,
+  normalizeObserverWebSocketUrl,
+} from "@/lib/constants";
 
 export function getObserverApiUrl(endpoint: string): string {
   return getApiUrl(endpoint);
@@ -35,12 +39,12 @@ export async function getResolvedObserverWsUrl(): Promise<string> {
     });
 
     if (!configResponse.ok) {
-      return getObserverWebSocketUrl();
+      return normalizeObserverWebSocketUrl();
     }
 
     const config = (await configResponse.json()) as { wsUrl?: string };
-    return config.wsUrl || getObserverWebSocketUrl();
+    return normalizeObserverWebSocketUrl(config.wsUrl);
   } catch {
-    return getObserverWebSocketUrl();
+    return normalizeObserverWebSocketUrl();
   }
 }

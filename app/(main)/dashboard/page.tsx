@@ -25,6 +25,10 @@ function formatPairLabel(pair: string): string {
   return pair;
 }
 
+function normalizePairSearchValue(value: string): string {
+  return value.replace(/[^a-z]/gi, "").toUpperCase();
+}
+
 function formatPrice(price: number): string {
   if (!Number.isFinite(price)) {
     return "0.0000";
@@ -70,7 +74,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedQuery(query.trim().toUpperCase());
+      setDebouncedQuery(normalizePairSearchValue(query.trim()));
     }, 300);
 
     return () => {
@@ -84,7 +88,9 @@ export default function DashboardPage() {
       return pairs;
     }
 
-    return pairs.filter((item) => item.pair.toUpperCase().includes(debouncedQuery));
+    return pairs.filter((item) =>
+      normalizePairSearchValue(item.pair).includes(debouncedQuery)
+    );
   }, [debouncedQuery, snapshot?.pairs]);
 
   const cards = useMemo(() => {
@@ -184,16 +190,12 @@ export default function DashboardPage() {
                       </div>
                     </CardHeader>
                     <CardContent className="px-4">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div>
                         <div>
-                          <p className="text-sm text-muted-foreground">Bid</p>
+                          <p className="text-sm text-muted-foreground">Price</p>
                           <p className={cn("font-mono text-3xl", isUp ? "text-primary" : "text-destructive")}>
-                            {formatPrice(item.bid)}
+                            {formatPrice(item.price)}
                           </p>
-                        </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Ask</p>
-                          <p className="font-mono text-3xl text-foreground">{formatPrice(item.ask)}</p>
                         </div>
                       </div>
 
