@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   HomeModernIcon,
-  DocumentTextIcon,
-  BookOpenIcon,
+  BellIcon,
+  CreditCardIcon,
   CogIcon,
 } from "@heroicons/react/24/outline";
 import { cn } from "@/lib/utils";
@@ -22,19 +22,19 @@ export function BottomNav() {
 
   const navItems: NavItem[] = [
     {
-      label: "Home",
+      label: "Dashboard",
       href: "/dashboard",
       icon: HomeModernIcon,
     },
     {
-      label: "Notes",
-      href: "/notes",
-      icon: DocumentTextIcon,
+      label: "Alerts",
+      href: "#",
+      icon: BellIcon,
     },
     {
-      label: "Docs",
+      label: "Portfolio",
       href: "#",
-      icon: BookOpenIcon,
+      icon: CreditCardIcon,
     },
     {
       label: "Settings",
@@ -64,8 +64,8 @@ export function BottomNav() {
               className={cn(
                 "flex flex-col items-center justify-center flex-1 h-full transition-colors",
                 active
-                  ? "text-green-600 dark:text-green-500"
-                  : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               <Icon className="h-6 w-6" />

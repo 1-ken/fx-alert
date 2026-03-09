@@ -7,6 +7,8 @@
 
 // Base URL from environment variable
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+export const OBSERVER_WS_BASE_URL =
+  process.env.NEXT_PUBLIC_OBSERVER_WS_URL || "ws://51.254.201.253:8000";
 
 /**
  * UI Constants
@@ -36,12 +38,17 @@ export const API_ENDPOINTS = {
     CREATE: "/api/v1/alerts",
     DELETE: "/api/v1/alerts",
   },
-  STREAMING:{
-    SNAPSHOT:"/snapshot",
-    WEBSOCKET:"/ws/observe",
-    HEALTH:"/stream-health",
-
-
+  STREAMING: {
+    SNAPSHOT: "/snapshot",
+    WEBSOCKET: "/ws/observe",
+    HEALTH: "/stream-health",
+    CLIENT_CONFIG: "/client-config",
+  },
+  OBSERVER_PROXY: {
+    ALERTS: "/api/observer/alerts",
+    SNAPSHOT: "/api/observer/snapshot",
+    HEALTH: "/api/observer/stream-health",
+    CLIENT_CONFIG: "/api/observer/client-config",
   },
   // Add your own API endpoints here
   NOTES: {
@@ -69,4 +76,13 @@ export function getApiUrl(endpoint: string): string {
     : API_BASE_URL;
   
   return `${cleanBaseUrl}/${cleanEndpoint}`;
+}
+
+export function getObserverWebSocketUrl(path = API_ENDPOINTS.STREAMING.WEBSOCKET): string {
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const cleanBaseUrl = OBSERVER_WS_BASE_URL.endsWith("/")
+    ? OBSERVER_WS_BASE_URL.slice(0, -1)
+    : OBSERVER_WS_BASE_URL;
+
+  return `${cleanBaseUrl}${cleanPath}`;
 }
