@@ -52,10 +52,7 @@ export const API_ENDPOINTS = {
     CLIENT_CONFIG: "/api/observer/client-config",
   },
   // Add your own API endpoints here
-  NOTES: {
-    LIST: "/api/notes",
-    MANAGE: "/api/notes",
-  },
+ 
 } as const;
 
 /**

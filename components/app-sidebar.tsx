@@ -5,7 +5,6 @@ import { useSession } from "next-auth/react";
 import {
   BellAlertIcon,
   HomeModernIcon,
-  DocumentTextIcon,
   BookOpenIcon,
   CogIcon,
 } from "@heroicons/react/24/outline";
@@ -25,18 +24,13 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "./ui/separator";
 
-// Platform section: Dashboard, Notes (Example CRUD)
+// Platform section
 const navMain = [
   {
     title: "Dashboard",
     url: "/dashboard",
     icon: HomeModernIcon,
     isActive: true,
-  },
-  {
-    title: "Notes",
-    url: "/notes",
-    icon: DocumentTextIcon,
   },
   {
     title: "Alerts",
