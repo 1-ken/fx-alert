@@ -1,10 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   BellAlertIcon,
   BellIcon,
-  ChartBarSquareIcon,
   MagnifyingGlassIcon,
   SignalIcon,
 } from "@heroicons/react/24/outline";
@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { BottomNav } from "@/components/mobile/bottom-nav";
 import { cn } from "@/lib/utils";
-import { useObserverAlerts, useObserverHealth, useObserverStream } from "@/hooks/use-observer";
+import { useObserverAlerts, useObserverStream } from "@/hooks/use-observer";
 
 function formatPairLabel(pair: string): string {
   const cleanPair = pair.replace("/", "").toUpperCase();
@@ -66,7 +66,6 @@ function formatRelativeTime(isoDate: string | null): string {
 
 export default function DashboardPage() {
   const { snapshot, status, lastUpdatedAt, lastStreamTickAt, isSnapshotLoading, changeMap } = useObserverStream();
-  const { data: health } = useObserverHealth();
   const { alerts } = useObserverAlerts();
 
   const [query, setQuery] = useState("");
@@ -114,7 +113,6 @@ export default function DashboardPage() {
 
   const connectionStatusVariant = status === "live" ? "default" : "secondary";
 
-  const streamHealthLabel = health?.status ?? "unknown";
   const streamTickLabel = formatRelativeTime(lastStreamTickAt);
 
   return (
@@ -244,12 +242,10 @@ export default function DashboardPage() {
                         <p className={cn("text-sm font-semibold", isUp ? "text-primary" : "text-destructive")}>
                           {isUp ? "▲" : "▼"} {Math.abs(item.deltaPercent).toFixed(2)}%
                         </p>
-                        <Button
-                          size="icon"
-                          variant="secondary"
-                          aria-label={`Create alert for ${item.pair}`}
-                        >
-                          <BellIcon className="h-4 w-4" />
+                        <Button asChild size="icon" variant="secondary">
+                          <Link href={`/alerts?pair=${encodeURIComponent(item.pair)}`} aria-label={`Create alert for ${item.pair}`}>
+                            <BellIcon className="h-4 w-4" />
+                          </Link>
                         </Button>
                       </div>
                     </CardContent>
@@ -274,6 +270,15 @@ export default function DashboardPage() {
       </div>
 
       <BottomNav />
+
+      <div className="fixed right-4 top-1/2 z-40 -translate-y-1/2">
+        <Button asChild size="lg" className="h-auto rounded-full px-4 py-3 shadow-xl">
+          <Link href="/alerts" className="flex items-center gap-3">
+            <BellAlertIcon className="h-5 w-5" />
+            <span className="hidden sm:inline">Create Alert</span>
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }

@@ -28,7 +28,7 @@ export function BottomNav() {
     },
     {
       label: "Alerts",
-      href: "#",
+      href: "/alerts",
       icon: BellIcon,
     },
     {

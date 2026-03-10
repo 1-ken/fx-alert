@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useSession } from "next-auth/react";
 import {
+  BellAlertIcon,
   HomeModernIcon,
   DocumentTextIcon,
   BookOpenIcon,
@@ -36,6 +37,11 @@ const navMain = [
     title: "Notes",
     url: "/notes",
     icon: DocumentTextIcon,
+  },
+  {
+    title: "Alerts",
+    url: "/alerts",
+    icon: BellAlertIcon,
   },
 ];
 
