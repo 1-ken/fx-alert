@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { CreateAlertForm } from "@/components/observer/create-alert-form";
+import { CreateAlertForm } from "@/components/alerts/create-alert-form";
 
 export default function AlertsPage() {
   const searchParams = useSearchParams();

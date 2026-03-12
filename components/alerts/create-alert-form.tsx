@@ -37,8 +37,9 @@ import {
   InputGroupInput,
   InputGroupText,
 } from "@/components/ui/input-group";
-import { useObserverAlerts, useObserverSnapshot } from "@/hooks/use-observer";
-import type { AlertChannel, AlertCondition } from "@/types/observer";
+import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
+import type { AlertChannel, AlertCondition } from "@/types/alerts";
 import { cn } from "@/lib/utils";
 
 const channelOptions = [
