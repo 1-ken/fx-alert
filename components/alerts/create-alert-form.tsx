@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
+import { useSession } from "next-auth/react";
 import {
+  ArrowLeftIcon,
   BellAlertIcon,
   PhoneIcon,
   XMarkIcon,
@@ -29,8 +31,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   InputGroup,
   InputGroupAddon,
@@ -46,7 +48,10 @@ const channelOptions = [
   { value: "email" as const, label: "Email" },
   { value: "sms" as const, label: "SMS" },
   { value: "call" as const, label: "Voice Call" },
+  { value: "all" as const, label: "All Channels" },
 ];
+
+type NotifyVia = (typeof channelOptions)[number]["value"];
 
 const conditionOptions: Array<{
   value: AlertCondition;
@@ -113,12 +118,13 @@ const alertFormSchema = z
       .min(1, "Target price is required")
       .refine((value) => Number.isFinite(parseNumericString(value)), "Enter a valid price"),
     condition: z.enum(["above", "below", "equal"]),
-    channels: z.array(z.enum(["email", "sms", "call"])).min(1, "Select at least one notification channel"),
+    notifyVia: z.enum(["email", "sms", "call", "all"]),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
+    custom_message: z.string().trim().max(500, "Custom message must be 500 characters or less").optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.channels.includes("email") && !value.email) {
+    if ((value.notifyVia === "email" || value.notifyVia === "all") && !value.email) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["email"],
@@ -126,7 +132,7 @@ const alertFormSchema = z
       });
     }
 
-    if ((value.channels.includes("sms") || value.channels.includes("call")) && !value.phone) {
+    if ((value.notifyVia === "sms" || value.notifyVia === "call" || value.notifyVia === "all") && !value.phone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["phone"],
@@ -151,6 +157,7 @@ interface CreateAlertFormProps {
 
 export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   const router = useRouter();
+  const { data: session } = useSession();
   const { createAlert } = useObserverAlerts();
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,14 +179,29 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
       pair: initialPair ? normalizePair(initialPair) : pairs[0] ?? "EUR/USD",
       target_price: "",
       condition: "above",
-      channels: ["email"],
+      notifyVia: "email",
       email: "",
       phone: "",
+      custom_message: "",
     },
   });
 
+  useEffect(() => {
+    const sessionEmail = session?.user?.email?.trim();
+    if (!sessionEmail) {
+      return;
+    }
+
+    const currentEmail = form.getValues("email")?.trim();
+    if (!currentEmail) {
+      form.setValue("email", sessionEmail, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [form, session?.user?.email]);
+
   const selectedPair = form.watch("pair");
-  const selectedChannels = form.watch("channels");
+  const notifyVia = form.watch("notifyVia");
+  const showEmailInput = notifyVia === "email" || notifyVia === "all";
+  const showPhoneInput = notifyVia === "sms" || notifyVia === "call" || notifyVia === "all";
   const livePrice = selectedPair ? pairPriceMap.get(selectedPair) : undefined;
 
   async function onSubmit(values: AlertFormValues) {
@@ -187,20 +209,23 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
 
     try {
       const price = parseNumericString(values.target_price);
+      const channelsToCreate: AlertChannel[] =
+        values.notifyVia === "all" ? ["email", "sms", "call"] : [values.notifyVia];
 
-      for (const channel of values.channels) {
+      for (const channel of channelsToCreate) {
         await createAlert({
           pair: normalizePair(values.pair).replace("/", ""),
           target_price: price,
           condition: values.condition,
-          channel: channel as AlertChannel,
+          channel,
           email: channel === "email" ? values.email : undefined,
           phone: channel === "sms" || channel === "call" ? values.phone : undefined,
+          custom_message: values.custom_message || undefined,
         });
       }
 
-      if (values.channels.length > 1) {
-        toast.success(`${values.channels.length} alerts created successfully`);
+      if (channelsToCreate.length > 1) {
+        toast.success(`${channelsToCreate.length} alerts created successfully`);
       }
 
       router.push("/dashboard");
@@ -218,6 +243,13 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
         <CardHeader className="border-b border-slate-800 pb-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
+              <Link
+                href="/dashboard"
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-white"
+                aria-label="Back to dashboard"
+              >
+                <ArrowLeftIcon className="h-5 w-5" />
+              </Link>
               <div className="rounded-full bg-blue-500/10 p-2 text-blue-400">
                 <BellAlertIcon className="h-5 w-5" />
               </div>
@@ -335,42 +367,25 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
 
               <FormField
                 control={form.control}
-                name="channels"
-                render={() => (
+                name="notifyVia"
+                render={({ field }) => (
                   <FormItem>
                     <FormLabel className="text-slate-300">Notify me via</FormLabel>
-                    <div className="flex flex-wrap gap-4">
+                    <div className="grid grid-cols-2 gap-3">
                       {channelOptions.map((channel) => (
-                        <FormField
+                        <button
                           key={channel.value}
-                          control={form.control}
-                          name="channels"
-                          render={({ field }) => {
-                            const checked = field.value?.includes(channel.value);
-
-                            return (
-                              <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                                <FormControl>
-                                  <Checkbox
-                                    checked={checked}
-                                    onCheckedChange={(nextChecked) => {
-                                      if (nextChecked) {
-                                        field.onChange([...field.value, channel.value]);
-                                        return;
-                                      }
-
-                                      field.onChange(field.value.filter((value) => value !== channel.value));
-                                    }}
-                                    className="border-slate-600 data-[state=checked]:bg-white data-[state=checked]:text-slate-950"
-                                  />
-                                </FormControl>
-                                <FormLabel className="text-sm font-normal text-slate-200">
-                                  {channel.label}
-                                </FormLabel>
-                              </FormItem>
-                            );
-                          }}
-                        />
+                          type="button"
+                          onClick={() => field.onChange(channel.value)}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-sm transition",
+                            field.value === channel.value
+                              ? "border-blue-500/50 bg-blue-500/10 text-white"
+                              : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600"
+                          )}
+                        >
+                          {channel.label}
+                        </button>
                       ))}
                     </div>
                     <FormMessage />
@@ -378,49 +393,77 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-slate-300">Email Address</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="email"
-                        placeholder="investor@example.com"
-                        className="h-12 border-slate-800 bg-slate-950 text-slate-100 placeholder:text-slate-500"
-                        {...field}
-                      />
-                    </FormControl>
-                    {!selectedChannels.includes("email") ? null : (
-                      <p className="text-xs text-slate-400">Required when Email is selected.</p>
-                    )}
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {showEmailInput ? (
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-300">Email Address</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          placeholder="investor@example.com"
+                          className="h-12 border-slate-800 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+                          readOnly
+                          {...field}
+                        />
+                      </FormControl>
+                      <p className="text-xs text-slate-400">
+                        Using your signed-in session email.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
+
+              {showPhoneInput ? (
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-slate-300">
+                        {notifyVia === "sms" ? "SMS Number (International)" : "Phone Number (International)"}
+                      </FormLabel>
+                      <FormControl>
+                        <InputGroup className="h-12 border-slate-800 bg-slate-950">
+                          <InputGroupAddon align="inline-start" className="pl-4 text-slate-400">
+                            <PhoneIcon className="h-4 w-4" />
+                          </InputGroupAddon>
+                          <InputGroupInput
+                            placeholder="+1 234 567 8900"
+                            className="h-12 text-base text-slate-100"
+                            {...field}
+                          />
+                        </InputGroup>
+                      </FormControl>
+                      <p className="text-xs text-slate-400">
+                        {notifyVia === "all"
+                          ? "Used for both SMS and Voice Call alerts."
+                          : "Required for this notification channel."}
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
 
               <FormField
                 control={form.control}
-                name="phone"
+                name="custom_message"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-slate-300">Phone Number (International)</FormLabel>
+                    <FormLabel className="text-slate-300">Custom Message <span className="text-slate-500 font-normal">(optional)</span></FormLabel>
                     <FormControl>
-                      <InputGroup className="h-12 border-slate-800 bg-slate-950">
-                        <InputGroupAddon align="inline-start" className="pl-4 text-slate-400">
-                          <PhoneIcon className="h-4 w-4" />
-                        </InputGroupAddon>
-                        <InputGroupInput
-                          placeholder="+1 234 567 8900"
-                          className="h-12 text-base text-slate-100"
-                          {...field}
-                        />
-                      </InputGroup>
+                      <Textarea
+                        placeholder="e.g. EUR/USD has hit your target, time to act!"
+                        className="min-h-22 resize-none border-slate-800 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+                        {...field}
+                      />
                     </FormControl>
-                    {(selectedChannels.includes("sms") || selectedChannels.includes("call")) ? (
-                      <p className="text-xs text-slate-400">Required for SMS and Voice Call alerts.</p>
-                    ) : null}
+                    <p className="text-xs text-slate-400">This message will be included in your alert notification.</p>
                     <FormMessage />
                   </FormItem>
                 )}

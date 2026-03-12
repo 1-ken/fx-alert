@@ -162,18 +162,22 @@ export function DashboardPageContent() {
         </header>
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Card className="gap-3 py-4">
-            <CardContent className="px-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Active alerts</p>
-              <p className="mt-1 text-2xl font-semibold">{alerts?.active.length ?? 0}</p>
-            </CardContent>
-          </Card>
-          <Card className="gap-3 py-4">
-            <CardContent className="px-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Triggered</p>
-              <p className="mt-1 text-2xl font-semibold">{alerts?.triggered.length ?? 0}</p>
-            </CardContent>
-          </Card>
+          <Link href="/alerts/list?status=active" className="block">
+            <Card className="gap-3 py-4 transition hover:border-primary/40 hover:bg-card cursor-pointer">
+              <CardContent className="px-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Active alerts</p>
+                <p className="mt-1 text-2xl font-semibold">{alerts?.active.length ?? 0}</p>
+              </CardContent>
+            </Card>
+          </Link>
+          <Link href="/alerts/list?status=triggered" className="block">
+            <Card className="gap-3 py-4 transition hover:border-primary/40 hover:bg-card cursor-pointer">
+              <CardContent className="px-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Triggered</p>
+                <p className="mt-1 text-2xl font-semibold">{alerts?.triggered.length ?? 0}</p>
+              </CardContent>
+            </Card>
+          </Link>
         </section>
 
         <section className="rounded-xl border bg-card/70 p-4">
