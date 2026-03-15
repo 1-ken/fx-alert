@@ -1,20 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { useSession } from "next-auth/react";
-import {
-  ArrowLeftIcon,
-  BellAlertIcon,
-  PhoneIcon,
-  XMarkIcon,
-} from "@heroicons/react/24/outline";
+import { PhoneIcon } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Form,
   FormControl,
@@ -23,13 +16,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -50,8 +36,6 @@ const channelOptions = [
   { value: "call" as const, label: "Voice Call" },
   { value: "all" as const, label: "All Channels" },
 ];
-
-type NotifyVia = (typeof channelOptions)[number]["value"];
 
 const conditionOptions: Array<{
   value: AlertCondition;
@@ -199,10 +183,50 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   }, [form, session?.user?.email]);
 
   const selectedPair = form.watch("pair");
+  const [pairSearch, setPairSearch] = useState(() => selectedPair || "");
+  const [isPairInputFocused, setIsPairInputFocused] = useState(false);
+  const pairSearchText = useMemo(
+    () => pairSearch.replace(/[^a-z]/gi, "").toUpperCase(),
+    [pairSearch]
+  );
+
+  const filteredPairs = useMemo(() => {
+    if (!pairSearchText) {
+      return [];
+    }
+
+    return pairs
+      .filter((pair) => {
+        const compactPair = pair.replace("/", "");
+        return pair.includes(pairSearchText) || compactPair.includes(pairSearchText);
+      })
+      .sort((pairA, pairB) => {
+        const compactA = pairA.replace("/", "");
+        const compactB = pairB.replace("/", "");
+        const aStarts = compactA.startsWith(pairSearchText) ? 1 : 0;
+        const bStarts = compactB.startsWith(pairSearchText) ? 1 : 0;
+
+        if (aStarts !== bStarts) {
+          return bStarts - aStarts;
+        }
+
+        return pairA.localeCompare(pairB);
+      })
+      .slice(0, 8);
+  }, [pairSearchText, pairs]);
+
+  const showPairSuggestions = isPairInputFocused && pairSearchText.length >= 2;
+
   const notifyVia = form.watch("notifyVia");
   const showEmailInput = notifyVia === "email" || notifyVia === "all";
   const showPhoneInput = notifyVia === "sms" || notifyVia === "call" || notifyVia === "all";
   const livePrice = selectedPair ? pairPriceMap.get(selectedPair) : undefined;
+
+  useEffect(() => {
+    if (!pairSearch && selectedPair) {
+      setPairSearch(selectedPair);
+    }
+  }, [pairSearch, selectedPair]);
 
   async function onSubmit(values: AlertFormValues) {
     setIsSubmitting(true);
@@ -238,55 +262,62 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-md items-center justify-center px-4 py-8">
-      <Card className="w-full overflow-hidden border-primary/15 bg-slate-950 text-slate-50 shadow-2xl">
-        <CardHeader className="border-b border-slate-800 pb-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Link
-                href="/dashboard"
-                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-white"
-                aria-label="Back to dashboard"
-              >
-                <ArrowLeftIcon className="h-5 w-5" />
-              </Link>
-              <div className="rounded-full bg-blue-500/10 p-2 text-blue-400">
-                <BellAlertIcon className="h-5 w-5" />
-              </div>
-              <CardTitle className="text-2xl font-semibold">Create New Alert</CardTitle>
-            </div>
-            <Link
-              href="/dashboard"
-              className="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-white"
-              aria-label="Close create alert form"
-            >
-              <XMarkIcon className="h-5 w-5" />
-            </Link>
-          </div>
-        </CardHeader>
-
-        <CardContent className="p-5">
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
               <FormField
                 control={form.control}
                 name="pair"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-slate-300">Select Pair</FormLabel>
+                    <FormLabel>Search Pair</FormLabel>
                     <FormControl>
-                      <Select value={field.value} onValueChange={field.onChange}>
-                        <SelectTrigger className="h-12 border-slate-800 bg-slate-900 text-slate-100">
-                          <SelectValue placeholder="Choose a pair" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {pairs.map((pair) => (
-                            <SelectItem key={pair} value={pair}>
-                              {formatPairLabel(pair)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-2">
+                        <Input
+                          value={pairSearch}
+                          onFocus={() => setIsPairInputFocused(true)}
+                          onBlur={() => setIsPairInputFocused(false)}
+                          onChange={(event) => {
+                            const rawInput = event.target.value;
+                            const normalizedInput = normalizePair(rawInput);
+                            const exactPair = pairs.find((pair) => pair === normalizedInput);
+
+                            setPairSearch(rawInput.toUpperCase());
+                            field.onChange(exactPair ?? "");
+                          }}
+                          placeholder="Type pair, e.g. EURUSD or EUR/USD"
+                          className="h-12 border-border bg-background"
+                        />
+
+                        {showPairSuggestions ? (
+                          <div className="max-h-44 overflow-y-auto rounded-md border border-border bg-card p-1 shadow-sm">
+                            {filteredPairs.length > 0 ? (
+                              filteredPairs.map((pair) => (
+                                <button
+                                  key={pair}
+                                  type="button"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => {
+                                    setPairSearch(pair);
+                                    field.onChange(pair);
+                                    form.clearErrors("pair");
+                                    setIsPairInputFocused(false);
+                                  }}
+                                  className={cn(
+                                    "flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition",
+                                    field.value === pair
+                                      ? "bg-primary/10 text-foreground"
+                                      : "text-foreground hover:bg-accent hover:text-accent-foreground"
+                                  )}
+                                >
+                                  {formatPairLabel(pair)}
+                                </button>
+                              ))
+                            ) : (
+                              <p className="px-3 py-2 text-sm text-muted-foreground">No pairs found for this search.</p>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -298,13 +329,13 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 name="target_price"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-slate-300">Target Price</FormLabel>
+                    <FormLabel>Target Price</FormLabel>
                     <FormControl>
-                      <InputGroup className="h-12 border-slate-800 bg-slate-950">
+                      <InputGroup className="h-12 border-border bg-background">
                         <InputGroupInput
                           inputMode="decimal"
                           placeholder={livePrice ? livePrice.toString() : "1.0845"}
-                          className="h-12 text-base text-slate-100"
+                          className="h-12 text-base"
                           {...field}
                         />
                         <InputGroupAddon align="inline-end" className="pr-4">
@@ -322,7 +353,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 name="condition"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-slate-300">Condition</FormLabel>
+                    <FormLabel>Condition</FormLabel>
                     <div className="space-y-3">
                       {conditionOptions.map((option) => {
                         const active = field.value === option.value;
@@ -335,26 +366,26 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                             className={cn(
                               "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition",
                               active
-                                ? "border-blue-500/40 bg-blue-500/10 text-white"
-                                : "border-slate-800 bg-slate-900/60 text-slate-200 hover:border-slate-700"
+                                ? "border-primary/40 bg-primary/10 text-foreground"
+                                : "border-border bg-card/60 text-foreground hover:border-primary/30 hover:bg-accent/40"
                             )}
                           >
                             <span
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded-full border",
-                                active ? "border-blue-400" : "border-slate-600"
+                                active ? "border-primary" : "border-muted-foreground/40"
                               )}
                             >
                               <span
                                 className={cn(
                                   "h-2.5 w-2.5 rounded-full",
-                                  active ? "bg-white" : "bg-transparent"
+                                  active ? "bg-primary" : "bg-transparent"
                                 )}
                               />
                             </span>
                             <span className="space-y-1">
                               <span className="block text-sm font-medium">{option.label}</span>
-                              <span className="block text-xs text-slate-400">{option.description}</span>
+                              <span className="block text-xs text-muted-foreground">{option.description}</span>
                             </span>
                           </button>
                         );
@@ -370,7 +401,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 name="notifyVia"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-slate-300">Notify me via</FormLabel>
+                    <FormLabel>Notify me via</FormLabel>
                     <div className="grid grid-cols-2 gap-3">
                       {channelOptions.map((channel) => (
                         <button
@@ -380,8 +411,8 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                           className={cn(
                             "rounded-lg border px-3 py-2 text-sm transition",
                             field.value === channel.value
-                              ? "border-blue-500/50 bg-blue-500/10 text-white"
-                              : "border-slate-700 bg-slate-900 text-slate-200 hover:border-slate-600"
+                              ? "border-primary/40 bg-primary/10 text-foreground"
+                              : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
                           )}
                         >
                           {channel.label}
@@ -399,17 +430,17 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                   name="email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-slate-300">Email Address</FormLabel>
+                      <FormLabel>Email Address</FormLabel>
                       <FormControl>
                         <Input
                           type="email"
                           placeholder="investor@example.com"
-                          className="h-12 border-slate-800 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+                          className="h-12 border-border bg-background"
                           readOnly
                           {...field}
                         />
                       </FormControl>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-muted-foreground">
                         Using your signed-in session email.
                       </p>
                       <FormMessage />
@@ -424,22 +455,22 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                   name="phone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-slate-300">
+                      <FormLabel>
                         {notifyVia === "sms" ? "SMS Number (International)" : "Phone Number (International)"}
                       </FormLabel>
                       <FormControl>
-                        <InputGroup className="h-12 border-slate-800 bg-slate-950">
-                          <InputGroupAddon align="inline-start" className="pl-4 text-slate-400">
+                        <InputGroup className="h-12 border-border bg-background">
+                          <InputGroupAddon align="inline-start" className="pl-4 text-muted-foreground">
                             <PhoneIcon className="h-4 w-4" />
                           </InputGroupAddon>
                           <InputGroupInput
                             placeholder="+1 234 567 8900"
-                            className="h-12 text-base text-slate-100"
+                            className="h-12 text-base"
                             {...field}
                           />
                         </InputGroup>
                       </FormControl>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-muted-foreground">
                         {notifyVia === "all"
                           ? "Used for both SMS and Voice Call alerts."
                           : "Required for this notification channel."}
@@ -455,24 +486,24 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 name="custom_message"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-slate-300">Custom Message <span className="text-slate-500 font-normal">(optional)</span></FormLabel>
+                    <FormLabel>Custom Message <span className="font-normal text-muted-foreground">(optional)</span></FormLabel>
                     <FormControl>
                       <Textarea
                         placeholder="e.g. EUR/USD has hit your target, time to act!"
-                        className="min-h-22 resize-none border-slate-800 bg-slate-950 text-slate-100 placeholder:text-slate-500"
+                        className="min-h-22 resize-none border-border bg-background"
                         {...field}
                       />
                     </FormControl>
-                    <p className="text-xs text-slate-400">This message will be included in your alert notification.</p>
+                    <p className="text-xs text-muted-foreground">This message will be included in your alert notification.</p>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              <div className="space-y-3 border-t border-slate-800 pt-5">
+              <div className="space-y-3 border-t border-border pt-5">
                 <Button
                   type="submit"
-                  className="h-12 w-full bg-blue-500 text-white hover:bg-blue-400"
+                  className="h-12 w-full"
                   disabled={isSubmitting}
                 >
                   {isSubmitting ? "Creating Alert..." : "Create Alert"}
@@ -480,16 +511,13 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-12 w-full border-slate-800 bg-transparent text-slate-200 hover:bg-slate-900 hover:text-white"
+                  className="h-12 w-full"
                   onClick={() => router.push("/dashboard")}
                 >
                   Cancel
                 </Button>
               </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </div>
+      </form>
+    </Form>
   );
 }
