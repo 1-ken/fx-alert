@@ -8,18 +8,59 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 
-type AlertStatusFilter = "all" | "active" | "triggered";
+type AlertStatusFilter =
+  | "all"
+  | "active"
+  | "triggered"
+  | "triggered-today"
+  | "triggered-5m";
 
 interface AlertsListPageProps {
   initialStatus?: string;
 }
 
 function normalizeStatus(value?: string): AlertStatusFilter {
-  if (value === "active" || value === "triggered") {
+  if (
+    value === "active" ||
+    value === "triggered" ||
+    value === "triggered-today" ||
+    value === "triggered-5m"
+  ) {
     return value;
   }
 
   return "all";
+}
+
+function isTriggeredToday(triggeredAt: string | null): boolean {
+  if (!triggeredAt) {
+    return false;
+  }
+
+  const date = new Date(triggeredAt);
+  const now = new Date();
+
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
+function isTriggeredInLastFiveMinutes(triggeredAt: string | null): boolean {
+  if (!triggeredAt) {
+    return false;
+  }
+
+  const triggeredAtMs = new Date(triggeredAt).getTime();
+  if (!Number.isFinite(triggeredAtMs)) {
+    return false;
+  }
+
+  const nowMs = Date.now();
+  const fiveMinutesMs = 5 * 60 * 1000;
+
+  return triggeredAtMs <= nowMs && nowMs - triggeredAtMs <= fiveMinutesMs;
 }
 
 function formatPairLabel(pair: string): string {
@@ -46,6 +87,35 @@ function formatCondition(condition: string): string {
 export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
   const status = normalizeStatus(initialStatus);
   const { alerts, isLoading } = useObserverAlerts();
+  const isTriggeredView =
+    status === "triggered" ||
+    status === "triggered-today" ||
+    status === "triggered-5m";
+
+  const triggeredSorted = useMemo(() => {
+    if (!alerts) {
+      return [];
+    }
+
+    return [...alerts.triggered].sort((a, b) => {
+      const aTime = a.triggered_at ? new Date(a.triggered_at).getTime() : 0;
+      const bTime = b.triggered_at ? new Date(b.triggered_at).getTime() : 0;
+      return bTime - aTime;
+    });
+  }, [alerts]);
+
+  const triggeredToday = useMemo(
+    () => triggeredSorted.filter((alert) => isTriggeredToday(alert.triggered_at)),
+    [triggeredSorted]
+  );
+
+  const triggeredLastFiveMinutes = useMemo(
+    () =>
+      triggeredSorted.filter((alert) =>
+        isTriggeredInLastFiveMinutes(alert.triggered_at)
+      ),
+    [triggeredSorted]
+  );
 
   const listedAlerts = useMemo(() => {
     if (!alerts) {
@@ -57,11 +127,19 @@ export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
     }
 
     if (status === "triggered") {
-      return alerts.triggered;
+      return triggeredSorted;
+    }
+
+    if (status === "triggered-today") {
+      return triggeredToday;
+    }
+
+    if (status === "triggered-5m") {
+      return triggeredLastFiveMinutes;
     }
 
     return alerts.all;
-  }, [alerts, status]);
+  }, [alerts, status, triggeredLastFiveMinutes, triggeredSorted, triggeredToday]);
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-8">
@@ -82,16 +160,28 @@ export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant={status === "all" ? "default" : "outline"} size="sm">
               <Link href="/alerts/list?status=all">All ({alerts?.all.length ?? 0})</Link>
             </Button>
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
               <Link href="/alerts/list?status=active">Active ({alerts?.active.length ?? 0})</Link>
             </Button>
-            <Button asChild variant={status === "triggered" ? "default" : "outline"} size="sm">
-              <Link href="/alerts/list?status=triggered">Triggered ({alerts?.triggered.length ?? 0})</Link>
-            </Button>
+            </div>
+            {isTriggeredView ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
+                  <Link href="/alerts/list?status=triggered">Triggered ({triggeredSorted.length})</Link>
+                </Button>
+                <Button asChild variant={status === "triggered-today" ? "default" : "outline"} size="sm">
+                  <Link href="/alerts/list?status=triggered-today">Triggered today ({triggeredToday.length})</Link>
+                </Button>
+                <Button asChild variant={status === "triggered-5m" ? "default" : "outline"} size="sm">
+                  <Link href="/alerts/list?status=triggered-5m">Triggered 5m ({triggeredLastFiveMinutes.length})</Link>
+                </Button>
+              </div>
+            ) : null}
           </div>
         </div>
       </header>
