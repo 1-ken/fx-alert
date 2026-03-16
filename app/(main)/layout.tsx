@@ -2,9 +2,13 @@
 
 import React from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef } from "react";
 import { Spinner } from "@/components/ui/spinner";
+import { GlobalCreateAlertFab } from "@/components/global-create-alert-fab";
+import { OfflineSyncBanner } from "@/components/offline-sync-banner";
+
+const LAST_ROUTE_STORAGE_KEY = "fx-alert:last-main-route";
 
 export default function MainLayout({
   children,
@@ -13,6 +17,13 @@ export default function MainLayout({
 }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const hasRestoredRoute = useRef(false);
+  const currentRoute = useMemo(() => {
+    const query = searchParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
 
   useEffect(() => {
     if (status === "loading") return; // Still loading
@@ -22,6 +33,27 @@ export default function MainLayout({
       return;
     }
   }, [session, status, router]);
+
+  useEffect(() => {
+    if (status !== "authenticated" || hasRestoredRoute.current) {
+      return;
+    }
+
+    const storedRoute = window.localStorage.getItem(LAST_ROUTE_STORAGE_KEY);
+    hasRestoredRoute.current = true;
+
+    if (storedRoute && storedRoute !== currentRoute) {
+      router.replace(storedRoute);
+    }
+  }, [currentRoute, router, status]);
+
+  useEffect(() => {
+    if (status !== "authenticated" || !hasRestoredRoute.current) {
+      return;
+    }
+
+    window.localStorage.setItem(LAST_ROUTE_STORAGE_KEY, currentRoute);
+  }, [currentRoute, status]);
 
   // Show loading while checking authentication
   if (status === "loading") {
@@ -41,6 +73,10 @@ export default function MainLayout({
   }
 
   return (
-    <>{children}</>
+    <>
+      <OfflineSyncBanner />
+      {children}
+      <GlobalCreateAlertFab />
+    </>
   );
 }

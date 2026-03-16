@@ -34,8 +34,9 @@ const channelOptions = [
   { value: "email" as const, label: "Email" },
   { value: "sms" as const, label: "SMS" },
   { value: "call" as const, label: "Voice Call" },
-  { value: "all" as const, label: "All Channels" },
 ];
+
+const allChannels: AlertChannel[] = ["email", "sms", "call"];
 
 const conditionOptions: Array<{
   value: AlertCondition;
@@ -102,13 +103,34 @@ const alertFormSchema = z
       .min(1, "Target price is required")
       .refine((value) => Number.isFinite(parseNumericString(value)), "Enter a valid price"),
     condition: z.enum(["above", "below", "equal"]),
-    notifyVia: z.enum(["email", "sms", "call", "all"]),
+    notifyVia: z.array(z.enum(["email", "sms", "call"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
     custom_message: z.string().trim().max(500, "Custom message must be 500 characters or less").optional(),
   })
   .superRefine((value, ctx) => {
-    if ((value.notifyVia === "email" || value.notifyVia === "all") && !value.email) {
+    const selectedChannels = value.notifyVia;
+    const selectedSet = new Set(selectedChannels);
+    const selectedCount = selectedSet.size;
+    const selectedAllChannels = allChannels.every((channel) => selectedSet.has(channel));
+
+    if (selectedCount === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["notifyVia"],
+        message: "Select notification channels",
+      });
+    }
+
+    if (selectedCount !== 2 && !selectedAllChannels) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["notifyVia"],
+        message: "Select exactly 2 channels, or use All channels",
+      });
+    }
+
+    if (selectedSet.has("email") && !value.email) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["email"],
@@ -116,7 +138,7 @@ const alertFormSchema = z
       });
     }
 
-    if ((value.notifyVia === "sms" || value.notifyVia === "call" || value.notifyVia === "all") && !value.phone) {
+    if ((selectedSet.has("sms") || selectedSet.has("call")) && !value.phone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["phone"],
@@ -163,7 +185,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
       pair: initialPair ? normalizePair(initialPair) : pairs[0] ?? "EUR/USD",
       target_price: "",
       condition: "above",
-      notifyVia: "email",
+      notifyVia: ["email", "sms"],
       email: "",
       phone: "",
       custom_message: "",
@@ -218,8 +240,10 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   const showPairSuggestions = isPairInputFocused && pairSearchText.length >= 2;
 
   const notifyVia = form.watch("notifyVia");
-  const showEmailInput = notifyVia === "email" || notifyVia === "all";
-  const showPhoneInput = notifyVia === "sms" || notifyVia === "call" || notifyVia === "all";
+  const selectedChannelSet = useMemo(() => new Set(notifyVia), [notifyVia]);
+  const selectedAllChannels = allChannels.every((channel) => selectedChannelSet.has(channel));
+  const showEmailInput = selectedChannelSet.has("email");
+  const showPhoneInput = selectedChannelSet.has("sms") || selectedChannelSet.has("call");
   const livePrice = selectedPair ? pairPriceMap.get(selectedPair) : undefined;
 
   useEffect(() => {
@@ -233,8 +257,9 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
 
     try {
       const price = parseNumericString(values.target_price);
-      const channelsToCreate: AlertChannel[] =
-        values.notifyVia === "all" ? ["email", "sms", "call"] : [values.notifyVia];
+      const channelsToCreate = allChannels.filter((channel, index, array) => {
+        return values.notifyVia.includes(channel) && array.indexOf(channel) === index;
+      });
 
       for (const channel of channelsToCreate) {
         await createAlert({
@@ -402,15 +427,42 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Notify me via</FormLabel>
+                    <Button
+                      type="button"
+                      variant={selectedAllChannels ? "default" : "outline"}
+                      className="mb-3 w-full"
+                      onClick={() => {
+                        field.onChange(allChannels);
+                        form.clearErrors("notifyVia");
+                      }}
+                    >
+                      All channels
+                    </Button>
                     <div className="grid grid-cols-2 gap-3">
                       {channelOptions.map((channel) => (
                         <button
                           key={channel.value}
                           type="button"
-                          onClick={() => field.onChange(channel.value)}
+                          onClick={() => {
+                            const selected = new Set(field.value);
+
+                            if (selected.has(channel.value)) {
+                              selected.delete(channel.value);
+                            } else {
+                              if (selected.size >= 2) {
+                                toast.error("You can select exactly 2 channels, or choose All channels");
+                                return;
+                              }
+
+                              selected.add(channel.value);
+                            }
+
+                            field.onChange(Array.from(selected));
+                            form.clearErrors("notifyVia");
+                          }}
                           className={cn(
                             "rounded-lg border px-3 py-2 text-sm transition",
-                            field.value === channel.value
+                            selectedChannelSet.has(channel.value)
                               ? "border-primary/40 bg-primary/10 text-foreground"
                               : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
                           )}
@@ -419,6 +471,9 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                         </button>
                       ))}
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Select exactly 2 channels, or tap All channels.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -456,7 +511,9 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {notifyVia === "sms" ? "SMS Number (International)" : "Phone Number (International)"}
+                        {selectedChannelSet.has("sms") && !selectedChannelSet.has("call")
+                          ? "SMS Number (International)"
+                          : "Phone Number (International)"}
                       </FormLabel>
                       <FormControl>
                         <InputGroup className="h-12 border-border bg-background">
@@ -471,7 +528,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                         </InputGroup>
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        {notifyVia === "all"
+                        {selectedChannelSet.has("sms") && selectedChannelSet.has("call")
                           ? "Used for both SMS and Voice Call alerts."
                           : "Required for this notification channel."}
                       </p>

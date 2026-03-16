@@ -267,15 +267,6 @@ export function DashboardPageContent() {
       </div>
 
       <BottomNav />
-
-      <div className="fixed right-4 top-1/2 z-40 -translate-y-1/2">
-        <Button asChild size="lg" className="h-auto rounded-full px-4 py-3 shadow-xl">
-          <Link href="/alerts" className="flex items-center gap-3">
-            <BellAlertIcon className="h-5 w-5" />
-            <span className="hidden sm:inline">Create Alert</span>
-          </Link>
-        </Button>
-      </div>
     </div>
   );
 }

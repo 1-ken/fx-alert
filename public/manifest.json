@@ -2,7 +2,7 @@
   "name": "fx-alert",
   "short_name": "fx-alert",
   "description": "Get Instant Alerts for Your trading Pair",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
