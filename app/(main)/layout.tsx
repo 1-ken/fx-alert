@@ -3,7 +3,7 @@
 import React from "react";
 import { useSession } from "next-auth/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Suspense } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { GlobalCreateAlertFab } from "@/components/global-create-alert-fab";
@@ -53,15 +53,35 @@ export default function MainLayout({
 }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const [isOnline, setIsOnline] = useState(() => {
+    if (typeof window === "undefined") {
+      return true;
+    }
+
+    return window.navigator.onLine;
+  });
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     if (status === "loading") return; // Still loading
 
-    if (!session) {
+    if (!session && isOnline) {
       router.push("/login");
       return;
     }
-  }, [session, status, router]);
+  }, [isOnline, session, status, router]);
 
   // Show loading while checking authentication
   if (status === "loading") {
@@ -76,14 +96,14 @@ export default function MainLayout({
   }
 
   // Don't render anything if user is not authenticated
-  if (!session) {
+  if (!session && isOnline) {
     return null;
   }
 
   return (
     <>
       <Suspense fallback={null}>
-        <RoutePersistence enabled={status === "authenticated"} />
+        <RoutePersistence enabled={status === "authenticated" || !isOnline} />
       </Suspense>
       <OfflineSyncBanner />
       {children}

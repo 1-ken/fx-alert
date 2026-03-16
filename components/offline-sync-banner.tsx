@@ -10,6 +10,7 @@ export function OfflineSyncBanner() {
 
     return window.navigator.onLine;
   });
+  const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -24,7 +25,22 @@ export function OfflineSyncBanner() {
     };
   }, []);
 
-  if (isOnline) {
+  useEffect(() => {
+    if (isOnline) {
+      setShowBanner(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setShowBanner(true);
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isOnline]);
+
+  if (isOnline || !showBanner) {
     return null;
   }
 
