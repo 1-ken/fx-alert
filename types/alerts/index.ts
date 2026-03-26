@@ -1,12 +1,19 @@
 export type AlertCondition = "above" | "below" | "equal";
 export type AlertStatus = "active" | "triggered" | "disabled";
 export type AlertChannel = "email" | "sms" | "call";
+export type AlertType = "price" | "candle_close";
+export type CandleDirection = "above" | "below";
 
 export interface Alert {
   id: string;
   pair: string;
-  target_price: number;
-  condition: AlertCondition;
+  alert_type: AlertType;
+  target_price: number | null;
+  condition: AlertCondition | null;
+  interval: string | null;
+  direction: CandleDirection | null;
+  threshold: number | null;
+  last_evaluated_candle_time: string | null;
   status: AlertStatus;
   channel: AlertChannel;
   email?: string;
@@ -14,7 +21,7 @@ export interface Alert {
   custom_message?: string;
   created_at: string;
   triggered_at: string | null;
-  last_checked_price: number;
+  last_checked_price: number | null;
 }
 
 export interface AlertsResponse {
@@ -25,9 +32,13 @@ export interface AlertsResponse {
 }
 
 export interface AlertUpsertInput {
+  alert_type: AlertType;
   pair: string;
-  target_price: number;
-  condition: AlertCondition;
+  target_price?: number;
+  condition?: AlertCondition;
+  interval?: string;
+  direction?: CandleDirection;
+  threshold?: number;
   channel: AlertChannel;
   email?: string;
   phone?: string;

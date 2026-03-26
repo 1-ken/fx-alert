@@ -27,8 +27,9 @@ import {
 } from "@/components/ui/input-group";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
-import type { AlertChannel, AlertCondition } from "@/types/alerts";
+import type { AlertChannel, AlertCondition, AlertType, CandleDirection } from "@/types/alerts";
 import { cn } from "@/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const channelOptions = [
   { value: "email" as const, label: "Email" },
@@ -59,6 +60,25 @@ const conditionOptions: Array<{
     description: "Trigger when market price reaches your exact target.",
   },
 ];
+
+const candleDirectionOptions: Array<{
+  value: CandleDirection;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "above",
+    label: "Candle closes above",
+    description: "Trigger when selected interval candle closes above threshold.",
+  },
+  {
+    value: "below",
+    label: "Candle closes below",
+    description: "Trigger when selected interval candle closes below threshold.",
+  },
+];
+
+const candleIntervalOptions = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
 
 const fallbackPairs = [
   "EUR/USD",
@@ -97,12 +117,13 @@ function parseNumericString(value: string): number {
 
 const alertFormSchema = z
   .object({
+    alert_type: z.enum(["price", "candle_close"]),
     pair: z.string().min(1, "Please select a pair"),
-    target_price: z
-      .string()
-      .min(1, "Target price is required")
-      .refine((value) => Number.isFinite(parseNumericString(value)), "Enter a valid price"),
-    condition: z.enum(["above", "below", "equal"]),
+    target_price: z.string().optional(),
+    condition: z.enum(["above", "below", "equal"]).optional(),
+    interval: z.string().optional(),
+    direction: z.enum(["above", "below"]).optional(),
+    threshold: z.string().optional(),
     notifyVia: z.array(z.enum(["email", "sms", "call"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
@@ -111,10 +132,8 @@ const alertFormSchema = z
   .superRefine((value, ctx) => {
     const selectedChannels = value.notifyVia;
     const selectedSet = new Set(selectedChannels);
-    const selectedCount = selectedSet.size;
-    const selectedAllChannels = allChannels.every((channel) => selectedSet.has(channel));
 
-    if (selectedCount === 0) {
+    if (selectedSet.size === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["notifyVia"],
@@ -122,12 +141,48 @@ const alertFormSchema = z
       });
     }
 
-    if (selectedCount !== 2 && !selectedAllChannels) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["notifyVia"],
-        message: "Select exactly 2 channels, or use All channels",
-      });
+    if (value.alert_type === "price") {
+      if (!value.target_price || !Number.isFinite(parseNumericString(value.target_price))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["target_price"],
+          message: "Enter a valid target price",
+        });
+      }
+
+      if (!value.condition) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["condition"],
+          message: "Select a condition",
+        });
+      }
+    }
+
+    if (value.alert_type === "candle_close") {
+      if (!value.interval) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["interval"],
+          message: "Select a candle interval",
+        });
+      }
+
+      if (!value.direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["direction"],
+          message: "Select candle close direction",
+        });
+      }
+
+      if (!value.threshold || !Number.isFinite(parseNumericString(value.threshold))) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["threshold"],
+          message: "Enter a valid threshold",
+        });
+      }
     }
 
     if (selectedSet.has("email") && !value.email) {
@@ -182,9 +237,13 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   const form = useForm<AlertFormValues>({
     resolver: zodResolver(alertFormSchema),
     defaultValues: {
+      alert_type: "price",
       pair: initialPair ? normalizePair(initialPair) : pairs[0] ?? "EUR/USD",
       target_price: "",
       condition: "above",
+      interval: "1m",
+      direction: "above",
+      threshold: "",
       notifyVia: ["email", "sms"],
       email: "",
       phone: "",
@@ -205,6 +264,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   }, [form, session?.user?.email]);
 
   const selectedPair = form.watch("pair");
+  const selectedAlertType = form.watch("alert_type");
   const [pairSearch, setPairSearch] = useState(() => selectedPair || "");
   const [isPairInputFocused, setIsPairInputFocused] = useState(false);
   const pairSearchText = useMemo(
@@ -252,25 +312,46 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
     }
   }, [pairSearch, selectedPair]);
 
+  useEffect(() => {
+    if (!form.getValues("pair") && pairs.length > 0) {
+      form.setValue("pair", pairs[0], { shouldDirty: false });
+      setPairSearch(pairs[0]);
+    }
+  }, [form, pairs]);
+
   async function onSubmit(values: AlertFormValues) {
     setIsSubmitting(true);
 
     try {
-      const price = parseNumericString(values.target_price);
+      const alertType = values.alert_type as AlertType;
       const channelsToCreate = allChannels.filter((channel, index, array) => {
         return values.notifyVia.includes(channel) && array.indexOf(channel) === index;
       });
 
       for (const channel of channelsToCreate) {
-        await createAlert({
+        const basePayload = {
+          alert_type: alertType,
           pair: normalizePair(values.pair).replace("/", ""),
-          target_price: price,
-          condition: values.condition,
           channel,
           email: channel === "email" ? values.email : undefined,
           phone: channel === "sms" || channel === "call" ? values.phone : undefined,
           custom_message: values.custom_message || undefined,
-        });
+        };
+
+        if (alertType === "price") {
+          await createAlert({
+            ...basePayload,
+            target_price: parseNumericString(values.target_price ?? ""),
+            condition: values.condition,
+          });
+        } else {
+          await createAlert({
+            ...basePayload,
+            interval: values.interval,
+            direction: values.direction,
+            threshold: parseNumericString(values.threshold ?? ""),
+          });
+        }
       }
 
       if (channelsToCreate.length > 1) {
@@ -289,6 +370,31 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+              <FormField
+                control={form.control}
+                name="alert_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Alert Type</FormLabel>
+                    <FormControl>
+                      <Tabs
+                        value={field.value}
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          form.clearErrors(["target_price", "condition", "interval", "direction", "threshold"]);
+                        }}
+                      >
+                        <TabsList className="grid w-full grid-cols-2 h-12">
+                          <TabsTrigger value="price">Price Alert</TabsTrigger>
+                          <TabsTrigger value="candle_close">Candle Close Alert</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="pair"
@@ -349,77 +455,187 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="target_price"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Target Price</FormLabel>
-                    <FormControl>
-                      <InputGroup className="h-12 border-border bg-background">
-                        <InputGroupInput
-                          inputMode="decimal"
-                          placeholder={livePrice ? livePrice.toString() : "1.0845"}
-                          className="h-12 text-base"
-                          {...field}
-                        />
-                        <InputGroupAddon align="inline-end" className="pr-4">
-                          <InputGroupText>USD</InputGroupText>
-                        </InputGroupAddon>
-                      </InputGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {selectedAlertType === "price" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="target_price"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Target Price</FormLabel>
+                        <FormControl>
+                          <InputGroup className="h-12 border-border bg-background">
+                            <InputGroupInput
+                              inputMode="decimal"
+                              placeholder={livePrice ? livePrice.toString() : "1.0845"}
+                              className="h-12 text-base"
+                              {...field}
+                            />
+                            <InputGroupAddon align="inline-end" className="pr-4">
+                              <InputGroupText>USD</InputGroupText>
+                            </InputGroupAddon>
+                          </InputGroup>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <FormField
-                control={form.control}
-                name="condition"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Condition</FormLabel>
-                    <div className="space-y-3">
-                      {conditionOptions.map((option) => {
-                        const active = field.value === option.value;
+                  <FormField
+                    control={form.control}
+                    name="condition"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Condition</FormLabel>
+                        <div className="space-y-3">
+                          {conditionOptions.map((option) => {
+                            const active = field.value === option.value;
 
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => field.onChange(option.value)}
-                            className={cn(
-                              "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition",
-                              active
-                                ? "border-primary/40 bg-primary/10 text-foreground"
-                                : "border-border bg-card/60 text-foreground hover:border-primary/30 hover:bg-accent/40"
-                            )}
-                          >
-                            <span
-                              className={cn(
-                                "flex h-5 w-5 items-center justify-center rounded-full border",
-                                active ? "border-primary" : "border-muted-foreground/40"
-                              )}
-                            >
-                              <span
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => field.onChange(option.value)}
                                 className={cn(
-                                  "h-2.5 w-2.5 rounded-full",
-                                  active ? "bg-primary" : "bg-transparent"
+                                  "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card/60 text-foreground hover:border-primary/30 hover:bg-accent/40"
                                 )}
-                              />
-                            </span>
-                            <span className="space-y-1">
-                              <span className="block text-sm font-medium">{option.label}</span>
-                              <span className="block text-xs text-muted-foreground">{option.description}</span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-5 w-5 items-center justify-center rounded-full border",
+                                    active ? "border-primary" : "border-muted-foreground/40"
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      "h-2.5 w-2.5 rounded-full",
+                                      active ? "bg-primary" : "bg-transparent"
+                                    )}
+                                  />
+                                </span>
+                                <span className="space-y-1">
+                                  <span className="block text-sm font-medium">{option.label}</span>
+                                  <span className="block text-xs text-muted-foreground">{option.description}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="interval"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Candle Interval</FormLabel>
+                        <div className="grid grid-cols-4 gap-2">
+                          {candleIntervalOptions.map((interval) => {
+                            const active = field.value === interval;
+
+                            return (
+                              <button
+                                key={interval}
+                                type="button"
+                                onClick={() => field.onChange(interval)}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
+                                )}
+                              >
+                                {interval}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="threshold"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Threshold</FormLabel>
+                        <FormControl>
+                          <InputGroup className="h-12 border-border bg-background">
+                            <InputGroupInput
+                              inputMode="decimal"
+                              placeholder={livePrice ? livePrice.toString() : "1.0845"}
+                              className="h-12 text-base"
+                              {...field}
+                            />
+                            <InputGroupAddon align="inline-end" className="pr-4">
+                              <InputGroupText>USD</InputGroupText>
+                            </InputGroupAddon>
+                          </InputGroup>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Candle Close Direction</FormLabel>
+                        <div className="space-y-3">
+                          {candleDirectionOptions.map((option) => {
+                            const active = field.value === option.value;
+
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => field.onChange(option.value)}
+                                className={cn(
+                                  "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card/60 text-foreground hover:border-primary/30 hover:bg-accent/40"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-5 w-5 items-center justify-center rounded-full border",
+                                    active ? "border-primary" : "border-muted-foreground/40"
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      "h-2.5 w-2.5 rounded-full",
+                                      active ? "bg-primary" : "bg-transparent"
+                                    )}
+                                  />
+                                </span>
+                                <span className="space-y-1">
+                                  <span className="block text-sm font-medium">{option.label}</span>
+                                  <span className="block text-xs text-muted-foreground">{option.description}</span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
 
               <FormField
                 control={form.control}
@@ -449,11 +665,6 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                             if (selected.has(channel.value)) {
                               selected.delete(channel.value);
                             } else {
-                              if (selected.size >= 2) {
-                                toast.error("You can select exactly 2 channels, or choose All channels");
-                                return;
-                              }
-
                               selected.add(channel.value);
                             }
 
@@ -472,7 +683,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                       ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Select exactly 2 channels, or tap All channels.
+                      Select one or more channels.
                     </p>
                     <FormMessage />
                   </FormItem>

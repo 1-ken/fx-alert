@@ -5,10 +5,26 @@ import { API_ENDPOINTS } from "@/lib/constants";
 import { fetcher } from "@/hooks/use-observer";
 import type {
   Alert,
+  AlertCondition,
+  AlertType,
   AlertUpsertInput,
   AlertUpsertResponse,
   AlertsResponse,
+  CandleDirection,
 } from "@/types/alerts";
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
 
 function normalizeAlert(rawAlert: unknown): Alert | null {
   if (!rawAlert || typeof rawAlert !== "object") {
@@ -23,15 +39,27 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     return null;
   }
 
+  const alertType: AlertType = record.alert_type === "candle_close" ? "candle_close" : "price";
+  const condition: AlertCondition | null =
+    record.condition === "above" || record.condition === "below" || record.condition === "equal"
+      ? record.condition
+      : null;
+  const direction: CandleDirection | null =
+    record.direction === "above" || record.direction === "below" ? record.direction : null;
+
   return {
     id,
     pair,
-    target_price:
-      typeof record.target_price === "number" ? record.target_price : Number(record.target_price ?? 0),
-    condition:
-      record.condition === "above" || record.condition === "below" || record.condition === "equal"
-        ? record.condition
-        : "equal",
+    alert_type: alertType,
+    target_price: toNullableNumber(record.target_price),
+    condition,
+    interval: typeof record.interval === "string" ? record.interval : null,
+    direction,
+    threshold: toNullableNumber(record.threshold),
+    last_evaluated_candle_time:
+      typeof record.last_evaluated_candle_time === "string"
+        ? record.last_evaluated_candle_time
+        : null,
     status:
       record.status === "active" || record.status === "triggered" || record.status === "disabled"
         ? record.status
@@ -42,10 +70,7 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     custom_message: typeof record.custom_message === "string" ? record.custom_message : "",
     created_at: typeof record.created_at === "string" ? record.created_at : "",
     triggered_at: typeof record.triggered_at === "string" ? record.triggered_at : null,
-    last_checked_price:
-      typeof record.last_checked_price === "number"
-        ? record.last_checked_price
-        : Number(record.last_checked_price ?? 0),
+    last_checked_price: toNullableNumber(record.last_checked_price),
   };
 }
 

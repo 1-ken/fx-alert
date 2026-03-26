@@ -15,8 +15,11 @@ type AlertStatusFilter =
   | "triggered-today"
   | "triggered-5m";
 
+type AlertTypeFilter = "all" | "price" | "candle_close";
+
 interface AlertsListPageProps {
   initialStatus?: string;
+  initialType?: string;
 }
 
 function normalizeStatus(value?: string): AlertStatusFilter {
@@ -26,6 +29,14 @@ function normalizeStatus(value?: string): AlertStatusFilter {
     value === "triggered-today" ||
     value === "triggered-5m"
   ) {
+    return value;
+  }
+
+  return "all";
+}
+
+function normalizeType(value?: string): AlertTypeFilter {
+  if (value === "price" || value === "candle_close") {
     return value;
   }
 
@@ -84,8 +95,21 @@ function formatCondition(condition: string): string {
   return "Equals";
 }
 
-export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
+function formatDirection(direction: string | null): string {
+  if (direction === "above") {
+    return "Above";
+  }
+
+  if (direction === "below") {
+    return "Below";
+  }
+
+  return "-";
+}
+
+export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
   const status = normalizeStatus(initialStatus);
+  const type = normalizeType(initialType);
   const { alerts, isLoading } = useObserverAlerts();
   const isTriggeredView =
     status === "triggered" ||
@@ -141,6 +165,35 @@ export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
     return alerts.all;
   }, [alerts, status, triggeredLastFiveMinutes, triggeredSorted, triggeredToday]);
 
+  const typeFilteredAlerts = useMemo(() => {
+    if (type === "all") {
+      return listedAlerts;
+    }
+
+    return listedAlerts.filter((alert) => alert.alert_type === type);
+  }, [listedAlerts, type]);
+
+  const typeCounts = useMemo(() => {
+    const source = alerts?.all ?? [];
+
+    return {
+      all: source.length,
+      price: source.filter((alert) => alert.alert_type === "price").length,
+      candle_close: source.filter((alert) => alert.alert_type === "candle_close").length,
+    };
+  }, [alerts?.all]);
+
+  const hrefFor = (nextStatus: AlertStatusFilter, nextType: AlertTypeFilter) => {
+    const params = new URLSearchParams();
+    params.set("status", nextStatus);
+
+    if (nextType !== "all") {
+      params.set("type", nextType);
+    }
+
+    return `/alerts/list?${params.toString()}`;
+  };
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-8">
       <header className="rounded-xl border bg-card/80 p-4">
@@ -162,23 +215,34 @@ export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
 
           <div className="flex flex-col items-start gap-2 sm:items-end">
             <div className="flex flex-wrap items-center gap-2">
+              <Button asChild variant={type === "all" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "all")}>All types ({typeCounts.all})</Link>
+              </Button>
+              <Button asChild variant={type === "price" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "price")}>Price ({typeCounts.price})</Link>
+              </Button>
+              <Button asChild variant={type === "candle_close" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "candle_close")}>Candle close ({typeCounts.candle_close})</Link>
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant={status === "all" ? "default" : "outline"} size="sm">
-              <Link href="/alerts/list?status=all">All ({alerts?.all.length ?? 0})</Link>
+              <Link href={hrefFor("all", type)}>All ({alerts?.all.length ?? 0})</Link>
             </Button>
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
-              <Link href="/alerts/list?status=active">Active ({alerts?.active.length ?? 0})</Link>
+              <Link href={hrefFor("active", type)}>Active ({alerts?.active.length ?? 0})</Link>
             </Button>
             </div>
             {isTriggeredView ? (
               <div className="flex flex-wrap items-center gap-2">
                 <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
-                  <Link href="/alerts/list?status=triggered">Triggered ({triggeredSorted.length})</Link>
+                  <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
                 </Button>
                 <Button asChild variant={status === "triggered-today" ? "default" : "outline"} size="sm">
-                  <Link href="/alerts/list?status=triggered-today">Triggered today ({triggeredToday.length})</Link>
+                  <Link href={hrefFor("triggered-today", type)}>Triggered today ({triggeredToday.length})</Link>
                 </Button>
                 <Button asChild variant={status === "triggered-5m" ? "default" : "outline"} size="sm">
-                  <Link href="/alerts/list?status=triggered-5m">Triggered 5m ({triggeredLastFiveMinutes.length})</Link>
+                  <Link href={hrefFor("triggered-5m", type)}>Triggered 5m ({triggeredLastFiveMinutes.length})</Link>
                 </Button>
               </div>
             ) : null}
@@ -192,7 +256,7 @@ export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
             Loading alerts...
           </CardContent>
         </Card>
-      ) : listedAlerts.length === 0 ? (
+      ) : typeFilteredAlerts.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             No alerts found for this view.
@@ -200,20 +264,40 @@ export function AlertsListPage({ initialStatus }: AlertsListPageProps) {
         </Card>
       ) : (
         <div className="space-y-3">
-          {listedAlerts.map((alert) => (
+          {typeFilteredAlerts.map((alert) => (
             <Card key={alert.id}>
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
-                  <Badge variant={alert.status === "active" ? "default" : "secondary"}>
-                    {alert.status}
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{alert.alert_type === "candle_close" ? "candle close" : "price"}</Badge>
+                    <Badge variant={alert.status === "active" ? "default" : "secondary"}>
+                      {alert.status}
+                    </Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-1 text-sm text-muted-foreground">
-                <p>
-                  Condition: <span className="text-foreground">{formatCondition(alert.condition)} {alert.target_price}</span>
-                </p>
+                {alert.alert_type === "price" ? (
+                  <p>
+                    Condition:{" "}
+                    <span className="text-foreground">
+                      {formatCondition(alert.condition ?? "equal")} {alert.target_price ?? "-"}
+                    </span>
+                  </p>
+                ) : (
+                  <>
+                    <p>
+                      Interval: <span className="text-foreground">{alert.interval ?? "-"}</span>
+                    </p>
+                    <p>
+                      Direction: <span className="text-foreground">{formatDirection(alert.direction)}</span>
+                    </p>
+                    <p>
+                      Threshold: <span className="text-foreground">{alert.threshold ?? "-"}</span>
+                    </p>
+                  </>
+                )}
                 <p>
                   Channel: <span className="text-foreground uppercase">{alert.channel}</span>
                 </p>
