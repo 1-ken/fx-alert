@@ -1,4 +1,5 @@
 import useSWR from "swr";
+import { useMemo } from "react";
 import { API_ENDPOINTS } from "@/lib/constants";
 import { fetcher } from "@/hooks/use-observer";
 import type { MarketSnapshot } from "@/types/snapshot";
@@ -32,10 +33,20 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
   }
 
   const record = payload as Record<string, unknown>;
-  const rawPairs = Array.isArray(record.pairs) ? record.pairs : [];
+  const pairsRecord =
+    record.pairs && typeof record.pairs === "object"
+      ? (record.pairs as Record<string, unknown>)
+      : null;
+
+  const rawPairs = Array.isArray(record.pairs)
+    ? record.pairs
+    : [
+        ...(Array.isArray(pairsRecord?.currencies) ? pairsRecord.currencies : []),
+        ...(Array.isArray(pairsRecord?.commodities) ? pairsRecord.commodities : []),
+      ];
 
   const pairs = rawPairs
-    .map((rawPair) => {
+    .map<MarketSnapshot["pairs"][number] | null>((rawPair) => {
       if (!rawPair || typeof rawPair !== "object") {
         return null;
       }
@@ -50,18 +61,31 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
       const bid = parseNumericValue(pairRecord.bid);
       const ask = parseNumericValue(pairRecord.ask);
       const spread = parseNumericValue(pairRecord.spread);
+      const change = parseNumericValue(pairRecord.change);
       const price = parseNumericValue(pairRecord.price) ?? bid ?? ask ?? null;
+      const commonName =
+        typeof pairRecord.common_name === "string" && pairRecord.common_name.trim().length > 0
+          ? pairRecord.common_name.trim()
+          : undefined;
 
       if (price === null) {
         return null;
       }
 
+      const category =
+        Array.isArray(pairsRecord?.commodities) && pairsRecord.commodities.includes(rawPair)
+          ? "commodity"
+          : "currency";
+
       return {
         pair: normalizePairSymbol(pair),
         price,
+        ...(change !== null ? { change } : {}),
         ...(bid !== null ? { bid } : {}),
         ...(ask !== null ? { ask } : {}),
         ...(spread !== null ? { spread } : {}),
+        ...(commonName ? { common_name: commonName } : {}),
+        category,
       };
     })
     .filter((pair): pair is MarketSnapshot["pairs"][number] => pair !== null);
@@ -77,8 +101,15 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
 }
 
 export function useObserverSnapshot(enablePolling: boolean) {
-  return useSWR<MarketSnapshot>(API_ENDPOINTS.OBSERVER_PROXY.SNAPSHOT, fetcher, {
+  const swr = useSWR<unknown>(API_ENDPOINTS.OBSERVER_PROXY.SNAPSHOT, fetcher, {
     revalidateOnFocus: false,
     refreshInterval: enablePolling ? 5_000 : 0,
   });
+
+  const normalizedData = useMemo(() => normalizeMarketSnapshot(swr.data), [swr.data]);
+
+  return {
+    ...swr,
+    data: normalizedData,
+  };
 }

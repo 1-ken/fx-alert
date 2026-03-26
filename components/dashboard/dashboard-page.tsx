@@ -68,6 +68,7 @@ function formatRelativeTime(isoDate: string | null): string {
 export function DashboardPageContent() {
   const {
     snapshot,
+    alerts: streamAlerts,
     status,
     lastUpdatedAt,
     lastStreamTickAt,
@@ -101,12 +102,19 @@ export function DashboardPageContent() {
   }, [debouncedQuery, snapshot?.pairs]);
 
   const cards = useMemo(() => {
-    return filteredPairs.map((item) => {
+    return filteredPairs.map((item, index) => {
       const key = item.pair.toUpperCase();
       const movement = changeMap[key] ?? { delta: 0, deltaPercent: 0 };
+      const instrumentKey = [
+        item.pair,
+        item.common_name ?? "",
+        item.category ?? "",
+        String(index),
+      ].join("|");
 
       return {
         ...item,
+        instrumentKey,
         delta: movement.delta,
         deltaPercent: movement.deltaPercent,
       };
@@ -115,6 +123,8 @@ export function DashboardPageContent() {
 
   const isMarketOpen = snapshot?.market_status === "open";
   const marketText = isMarketOpen ? "MARKET OPEN" : "MARKET CLOSED";
+  const activeAlertsCount = streamAlerts.active.length || alerts?.active.length || 0;
+  const triggeredAlertsCount = streamAlerts.triggered.length || alerts?.triggered.length || 0;
 
   const connectionLabel =
     status === "live" ? "Live" : status === "reconnecting" ? "Reconnecting" : "Offline";
@@ -166,7 +176,7 @@ export function DashboardPageContent() {
             <Card className="gap-3 py-4 transition hover:border-primary/40 hover:bg-card cursor-pointer">
               <CardContent className="px-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Active alerts</p>
-                <p className="mt-1 text-2xl font-semibold">{alerts?.active.length ?? 0}</p>
+                <p className="mt-1 text-2xl font-semibold">{activeAlertsCount}</p>
               </CardContent>
             </Card>
           </Link>
@@ -174,7 +184,7 @@ export function DashboardPageContent() {
             <Card className="gap-3 py-4 transition hover:border-primary/40 hover:bg-card cursor-pointer">
               <CardContent className="px-4">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Triggered</p>
-                <p className="mt-1 text-2xl font-semibold">{alerts?.triggered.length ?? 0}</p>
+                <p className="mt-1 text-2xl font-semibold">{triggeredAlertsCount}</p>
               </CardContent>
             </Card>
           </Link>
@@ -186,7 +196,7 @@ export function DashboardPageContent() {
               LIVE PRICE GRID
             </h2>
             <Badge variant="outline" className="rounded-full px-3 py-1">
-              {cards.length} pairs
+              {cards.length} instruments
             </Badge>
           </div>
 
@@ -213,7 +223,7 @@ export function DashboardPageContent() {
                 const isUp = item.delta >= 0;
 
                 return (
-                  <Card key={item.pair} className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5">
+                  <Card key={item.instrumentKey} className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5">
                     <CardHeader className="px-4">
                       <div className="flex items-start justify-between gap-2">
                         <CardTitle className="text-2xl font-semibold tracking-tight">

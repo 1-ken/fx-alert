@@ -18,7 +18,7 @@ export function ThemeSwitcher() {
     return (
       <div className="flex items-center gap-2">
         <SunIcon className="h-4 w-4 text-muted-foreground" />
-        <Switch disabled />
+        <Switch checked={false} disabled />
         <MoonIcon className="h-4 w-4 text-muted-foreground" />
       </div>
     );

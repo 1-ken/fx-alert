@@ -3,9 +3,12 @@ import type { Alert } from "@/types/alerts";
 export interface ForexPair {
   pair: string;
   price: number;
+  change?: number;
   bid?: number;
   ask?: number;
   spread?: number;
+  common_name?: string;
+  category?: "currency" | "commodity";
 }
 
 export interface MarketSnapshot {

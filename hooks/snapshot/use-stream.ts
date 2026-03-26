@@ -4,6 +4,7 @@ import {
   normalizeObserverWebSocketUrl,
 } from "@/lib/constants";
 import { useObserverClientConfig } from "@/hooks/use-observer";
+import { normalizeAlertsResponse } from "@/hooks/alerts/use-alerts";
 import {
   normalizeMarketSnapshot,
   useObserverSnapshot,
@@ -14,6 +15,9 @@ export function useObserverStream() {
   const [status, setStatus] = useState<"live" | "reconnecting" | "offline">("reconnecting");
   const [fallbackEnabled, setFallbackEnabled] = useState<boolean>(false);
   const [lastStreamTickAt, setLastStreamTickAt] = useState<string | null>(null);
+  const [streamAlerts, setStreamAlerts] = useState(() =>
+    normalizeAlertsResponse(undefined)
+  );
   const [changeMap, setChangeMap] = useState<
     Record<string, { delta: number; deltaPercent: number }>
   >({});
@@ -51,7 +55,9 @@ export function useObserverStream() {
       }
 
       if (socket) {
-        socket.close();
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+          socket.close();
+        }
       }
 
       setStatus(reconnectAttempts === 0 ? "reconnecting" : "offline");
@@ -66,9 +72,14 @@ export function useObserverStream() {
       };
 
       socket.onmessage = async (event) => {
+        if (isClosed) {
+          return;
+        }
+
         try {
           const payload = JSON.parse(event.data) as StreamPayload;
           const normalizedPayload = normalizeMarketSnapshot(payload);
+          const normalizedAlerts = normalizeAlertsResponse(payload.alerts);
 
           if (!normalizedPayload) {
             console.warn("[WebSocket] ⚠️ Received invalid payload");
@@ -80,6 +91,7 @@ export function useObserverStream() {
           );
 
           setLastStreamTickAt(normalizedPayload.ts ?? new Date().toISOString());
+          setStreamAlerts(normalizedAlerts);
 
           const nextChangeMap: Record<string, { delta: number; deltaPercent: number }> = {};
 
@@ -101,6 +113,10 @@ export function useObserverStream() {
       };
 
       socket.onerror = (error) => {
+        if (isClosed) {
+          return;
+        }
+
         console.error("[WebSocket] ❌ Connection error:", error);
         setStatus("offline");
         setFallbackEnabled(true);
@@ -132,13 +148,21 @@ export function useObserverStream() {
         clearTimeout(reconnectTimer);
       }
       if (socket) {
-        socket.close();
+        socket.onopen = null;
+        socket.onmessage = null;
+        socket.onerror = null;
+        socket.onclose = null;
+
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+          socket.close();
+        }
       }
     };
   }, [mutateSnapshot, wsUrl]);
 
   return {
     snapshot: normalizedSnapshot,
+    alerts: streamAlerts,
     snapshotError: snapshotSWR.error,
     isSnapshotLoading: snapshotSWR.isLoading,
     status,

@@ -57,9 +57,10 @@ export function BottomNav() {
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.href);
+          const itemKey = `${item.label}-${item.href}`;
           return (
             <Link
-              key={item.href}
+              key={itemKey}
               href={item.href}
               className={cn(
                 "flex flex-col items-center justify-center flex-1 h-full transition-colors",
