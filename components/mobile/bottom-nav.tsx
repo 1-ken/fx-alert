@@ -38,7 +38,7 @@ export function BottomNav() {
     },
     {
       label: "Settings",
-      href: "#",
+      href: "/settings",
       icon: CogIcon,
     },
   ];

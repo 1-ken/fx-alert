@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { useSession } from "next-auth/react";
 import { PhoneIcon } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import {
@@ -27,17 +26,15 @@ import {
 } from "@/components/ui/input-group";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
-import type { AlertChannel, AlertCondition, AlertType, CandleDirection } from "@/types/alerts";
+import type { AlertCondition, AlertType, CandleDirection } from "@/types/alerts";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const channelOptions = [
-  { value: "email" as const, label: "Email" },
-  { value: "sms" as const, label: "SMS" },
-  { value: "call" as const, label: "Voice Call" },
-];
+const ALERT_DEFAULT_PHONE_STORAGE_KEY = "fx-alert:default-sms-phone";
 
-const allChannels: AlertChannel[] = ["email", "sms", "call"];
+const channelOptions = [
+  { value: "sms" as const, label: "SMS" },
+];
 
 const conditionOptions: Array<{
   value: AlertCondition;
@@ -124,7 +121,7 @@ const alertFormSchema = z
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
-    notifyVia: z.array(z.enum(["email", "sms", "call"])),
+    notifyVia: z.array(z.enum(["sms"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
     custom_message: z.string().trim().max(500, "Custom message must be 500 characters or less").optional(),
@@ -185,19 +182,11 @@ const alertFormSchema = z
       }
     }
 
-    if (selectedSet.has("email") && !value.email) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["email"],
-        message: "Email is required when Email notifications are selected",
-      });
-    }
-
-    if ((selectedSet.has("sms") || selectedSet.has("call")) && !value.phone) {
+    if (selectedSet.has("sms") && !value.phone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["phone"],
-        message: "Phone number is required for SMS or Voice Call notifications",
+        message: "Phone number is required for SMS notifications",
       });
     }
 
@@ -212,13 +201,8 @@ const alertFormSchema = z
 
 type AlertFormValues = z.infer<typeof alertFormSchema>;
 
-interface CreateAlertFormProps {
-  initialPair?: string;
-}
-
-export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
+export function CreateAlertForm() {
   const router = useRouter();
-  const { data: session } = useSession();
   const { createAlert } = useObserverAlerts();
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -238,13 +222,13 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
     resolver: zodResolver(alertFormSchema),
     defaultValues: {
       alert_type: "price",
-      pair: initialPair ? normalizePair(initialPair) : pairs[0] ?? "EUR/USD",
+      pair: "",
       target_price: "",
       condition: "above",
       interval: "1m",
       direction: "above",
       threshold: "",
-      notifyVia: ["email", "sms"],
+      notifyVia: ["sms"],
       email: "",
       phone: "",
       custom_message: "",
@@ -252,16 +236,16 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
   });
 
   useEffect(() => {
-    const sessionEmail = session?.user?.email?.trim();
-    if (!sessionEmail) {
+    const currentPhone = form.getValues("phone")?.trim();
+    if (currentPhone) {
       return;
     }
 
-    const currentEmail = form.getValues("email")?.trim();
-    if (!currentEmail) {
-      form.setValue("email", sessionEmail, { shouldDirty: false, shouldValidate: true });
+    const savedPhone = window.localStorage.getItem(ALERT_DEFAULT_PHONE_STORAGE_KEY)?.trim();
+    if (savedPhone) {
+      form.setValue("phone", savedPhone, { shouldDirty: false, shouldValidate: true });
     }
-  }, [form, session?.user?.email]);
+  }, [form]);
 
   const selectedPair = form.watch("pair");
   const selectedAlertType = form.watch("alert_type");
@@ -301,9 +285,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
 
   const notifyVia = form.watch("notifyVia");
   const selectedChannelSet = useMemo(() => new Set(notifyVia), [notifyVia]);
-  const selectedAllChannels = allChannels.every((channel) => selectedChannelSet.has(channel));
-  const showEmailInput = selectedChannelSet.has("email");
-  const showPhoneInput = selectedChannelSet.has("sms") || selectedChannelSet.has("call");
+  const showPhoneInput = selectedChannelSet.has("sms");
   const livePrice = selectedPair ? pairPriceMap.get(selectedPair) : undefined;
 
   useEffect(() => {
@@ -312,29 +294,20 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
     }
   }, [pairSearch, selectedPair]);
 
-  useEffect(() => {
-    if (!form.getValues("pair") && pairs.length > 0) {
-      form.setValue("pair", pairs[0], { shouldDirty: false });
-      setPairSearch(pairs[0]);
-    }
-  }, [form, pairs]);
-
   async function onSubmit(values: AlertFormValues) {
     setIsSubmitting(true);
 
     try {
       const alertType = values.alert_type as AlertType;
-      const channelsToCreate = allChannels.filter((channel, index, array) => {
-        return values.notifyVia.includes(channel) && array.indexOf(channel) === index;
-      });
+      const channelsToCreate: Array<"sms"> = values.notifyVia.includes("sms") ? ["sms"] : [];
 
       for (const channel of channelsToCreate) {
         const basePayload = {
           alert_type: alertType,
           pair: normalizePair(values.pair).replace("/", ""),
           channel,
-          email: channel === "email" ? values.email : undefined,
-          phone: channel === "sms" || channel === "call" ? values.phone : undefined,
+          email: undefined,
+          phone: values.phone,
           custom_message: values.custom_message || undefined,
         };
 
@@ -643,37 +616,18 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Notify me via</FormLabel>
-                    <Button
-                      type="button"
-                      variant={selectedAllChannels ? "default" : "outline"}
-                      className="mb-3 w-full"
-                      onClick={() => {
-                        field.onChange(allChannels);
-                        form.clearErrors("notifyVia");
-                      }}
-                    >
-                      All channels
-                    </Button>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                       {channelOptions.map((channel) => (
                         <button
                           key={channel.value}
                           type="button"
                           onClick={() => {
-                            const selected = new Set(field.value);
-
-                            if (selected.has(channel.value)) {
-                              selected.delete(channel.value);
-                            } else {
-                              selected.add(channel.value);
-                            }
-
-                            field.onChange(Array.from(selected));
+                            field.onChange([channel.value]);
                             form.clearErrors("notifyVia");
                           }}
                           className={cn(
                             "rounded-lg border px-3 py-2 text-sm transition",
-                            selectedChannelSet.has(channel.value)
+                            true
                               ? "border-primary/40 bg-primary/10 text-foreground"
                               : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
                           )}
@@ -683,37 +637,12 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                       ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Select one or more channels.
+                      SMS only (testing mode).
                     </p>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-              {showEmailInput ? (
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email Address</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="investor@example.com"
-                          className="h-12 border-border bg-background"
-                          readOnly
-                          {...field}
-                        />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        Using your signed-in session email.
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              ) : null}
 
               {showPhoneInput ? (
                 <FormField
@@ -722,9 +651,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {selectedChannelSet.has("sms") && !selectedChannelSet.has("call")
-                          ? "SMS Number (International)"
-                          : "Phone Number (International)"}
+                        SMS Number (International)
                       </FormLabel>
                       <FormControl>
                         <InputGroup className="h-12 border-border bg-background">
@@ -739,9 +666,7 @@ export function CreateAlertForm({ initialPair }: CreateAlertFormProps) {
                         </InputGroup>
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        {selectedChannelSet.has("sms") && selectedChannelSet.has("call")
-                          ? "Used for both SMS and Voice Call alerts."
-                          : "Required for this notification channel."}
+                        Required for SMS alerts.
                       </p>
                       <FormMessage />
                     </FormItem>

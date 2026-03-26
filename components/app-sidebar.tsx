@@ -76,20 +76,16 @@ const resources = [
   },
 ];
 
-// Settings section: Admin only (example)
+// Settings section
 const settings = [
   {
     name: "Settings",
-    url: "#",
+    url: "/settings",
     icon: CogIcon,
     items: [
       {
-        title: "Profile",
-        url: "#",
-      },
-      {
-        title: "Preferences",
-        url: "#",
+        title: "Default SMS Number",
+        url: "/settings",
       },
     ],
   },
@@ -97,7 +93,6 @@ const settings = [
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { data: session } = useSession();
-  const roleName = (session as { role?: { name?: string } } | null)?.role?.name?.toLowerCase();
 
   // Get user data from session or use defaults
   const user = session?.user
@@ -129,9 +124,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavMain items={navMain} />
         {documents.length > 0 && <NavDocuments documents={documents} />}
         <NavResources resources={resources} />
-        {roleName === "admin" && (
-          <NavSettings settings={settings} />
-        )}
+        <NavSettings settings={settings} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser />

@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   BellAlertIcon,
@@ -10,9 +9,6 @@ import {
 import { CreateAlertForm } from "@/components/alerts/create-alert-form";
 
 export default function AlertsPage() {
-  const searchParams = useSearchParams();
-  const initialPair = searchParams.get("pair") ?? undefined;
-
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-8 text-foreground">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -42,7 +38,7 @@ export default function AlertsPage() {
         </Link>
       </div>
 
-      <CreateAlertForm initialPair={initialPair} />
+      <CreateAlertForm />
     </div>
   );
 }
