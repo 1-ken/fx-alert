@@ -107,6 +107,47 @@ function formatDirection(direction: string | null): string {
   return "-";
 }
 
+function formatDateTime(value: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString();
+}
+
+function formatTriggerDuration(createdAt: string, triggeredAt: string | null): string {
+  if (!triggeredAt) {
+    return "Not triggered yet";
+  }
+
+  const createdMs = new Date(createdAt).getTime();
+  const triggeredMs = new Date(triggeredAt).getTime();
+
+  if (!Number.isFinite(createdMs) || !Number.isFinite(triggeredMs) || triggeredMs < createdMs) {
+    return "-";
+  }
+
+  const durationMs = triggeredMs - createdMs;
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+
+  return parts.join(" ");
+}
+
 export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
   const status = normalizeStatus(initialStatus);
   const type = normalizeType(initialType);
@@ -316,6 +357,15 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                     Message: <span className="text-foreground">{alert.custom_message}</span>
                   </p>
                 ) : null}
+                <p>
+                  Created: <span className="text-foreground">{formatDateTime(alert.created_at)}</span>
+                </p>
+                <p>
+                  Triggered: <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
+                </p>
+                <p>
+                  Time to trigger: <span className="text-foreground">{formatTriggerDuration(alert.created_at, alert.triggered_at)}</span>
+                </p>
               </CardContent>
             </Card>
           ))}

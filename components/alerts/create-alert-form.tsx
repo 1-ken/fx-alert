@@ -91,21 +91,21 @@ const fallbackPairs = [
 ];
 
 function formatPairLabel(pair: string): string {
-  const compact = pair.replace("/", "").toUpperCase();
-  if (compact.length === 6) {
+  const compact = pair.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  if (compact.length === 6 && /^[A-Z]{6}$/.test(compact)) {
     return `${compact.slice(0, 3)}/${compact.slice(3)} (${compact.slice(0, 3)} / ${compact.slice(3)} Dollar)`;
   }
 
-  return pair;
+  return compact;
 }
 
 function normalizePair(pair: string): string {
-  const compact = pair.replace(/[^a-z]/gi, "").toUpperCase();
-  if (compact.length === 6) {
+  const compact = pair.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  if (compact.length === 6 && /^[A-Z]{6}$/.test(compact)) {
     return `${compact.slice(0, 3)}/${compact.slice(3)}`;
   }
 
-  return pair.toUpperCase();
+  return compact;
 }
 
 function parseNumericString(value: string): number {
@@ -252,7 +252,7 @@ export function CreateAlertForm() {
   const [pairSearch, setPairSearch] = useState(() => selectedPair || "");
   const [isPairInputFocused, setIsPairInputFocused] = useState(false);
   const pairSearchText = useMemo(
-    () => pairSearch.replace(/[^a-z]/gi, "").toUpperCase(),
+    () => pairSearch.replace(/[^a-z0-9]/gi, "").toUpperCase(),
     [pairSearch]
   );
 
@@ -263,12 +263,19 @@ export function CreateAlertForm() {
 
     return pairs
       .filter((pair) => {
-        const compactPair = pair.replace("/", "");
-        return pair.includes(pairSearchText) || compactPair.includes(pairSearchText);
+        const normalizedPair = pair.replace(/[^a-z0-9]/gi, "").toUpperCase();
+        return normalizedPair.includes(pairSearchText);
       })
       .sort((pairA, pairB) => {
-        const compactA = pairA.replace("/", "");
-        const compactB = pairB.replace("/", "");
+        const compactA = pairA.replace(/[^a-z0-9]/gi, "").toUpperCase();
+        const compactB = pairB.replace(/[^a-z0-9]/gi, "").toUpperCase();
+        const aExact = compactA === pairSearchText ? 1 : 0;
+        const bExact = compactB === pairSearchText ? 1 : 0;
+
+        if (aExact !== bExact) {
+          return bExact - aExact;
+        }
+
         const aStarts = compactA.startsWith(pairSearchText) ? 1 : 0;
         const bStarts = compactB.startsWith(pairSearchText) ? 1 : 0;
 

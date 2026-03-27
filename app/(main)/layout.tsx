@@ -106,7 +106,7 @@ export default function MainLayout({
         <RoutePersistence enabled={status === "authenticated" || !isOnline} />
       </Suspense>
       <OfflineSyncBanner />
-      {children}
+      <div className="pt-[max(env(safe-area-inset-top),0.75rem)] pb-24">{children}</div>
       <GlobalCreateAlertFab />
     </>
   );

@@ -23,11 +23,11 @@ function formatPairLabel(pair: string): string {
   if (cleanPair.length === 6) {
     return `${cleanPair.slice(0, 3)}/${cleanPair.slice(3)}`;
   }
-  return pair;
+  return cleanPair;
 }
 
 function normalizePairSearchValue(value: string): string {
-  return value.replace(/[^a-z]/gi, "").toUpperCase();
+  return value.replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
 
 function formatPrice(price: number): string {
@@ -190,7 +190,7 @@ export function DashboardPageContent() {
           </Link>
         </section>
 
-        <section className="rounded-xl border bg-card/70 p-4">
+        
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-wide text-muted-foreground">
               LIVE PRICE GRID
@@ -265,7 +265,7 @@ export function DashboardPageContent() {
               })}
             </div>
           )}
-        </section>
+        
 
         <footer className="flex items-center justify-between rounded-xl border bg-card/70 p-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
