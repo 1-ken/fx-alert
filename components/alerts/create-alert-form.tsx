@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   InputGroup,
   InputGroupAddon,
@@ -706,12 +707,20 @@ export function CreateAlertForm() {
                   className="h-12 w-full"
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? "Creating Alert..." : "Create Alert"}
+                  {isSubmitting ? (
+                    <>
+                      <Spinner className="mr-2 h-4 w-4" />
+                      Creating Alert...
+                    </>
+                  ) : (
+                    "Create Alert"
+                  )}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   className="h-12 w-full"
+                  disabled={isSubmitting}
                   onClick={() => router.push("/dashboard")}
                 >
                   Cancel

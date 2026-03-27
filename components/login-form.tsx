@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
 import Image from "next/image";
 import { toast } from "sonner";
 import {
@@ -94,7 +95,14 @@ export function LoginForm({
                     </p>
                   )}
                   <Button onClick={handleGoogleSignIn} disabled={isLoading}>
-                    {isLoading ? "Please wait..." : "Continue with Google"}
+                    {isLoading ? (
+                      <>
+                        <Spinner className="mr-2 h-4 w-4" />
+                        Please wait...
+                      </>
+                    ) : (
+                      "Continue with Google"
+                    )}
                   </Button>
                 </FieldGroup>
               </div>
