@@ -66,6 +66,6 @@ export default middleware;
  */
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|assets|icons|sw.js|manifest.json|_vercel|robots.txt|sitemap.xml).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico|assets|icons|sw.js|workbox-|worker-|manifest.json|_vercel|robots.txt|sitemap.xml).*)',
   ],
 };

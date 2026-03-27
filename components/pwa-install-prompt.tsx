@@ -10,8 +10,24 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 export function PWAInstallPrompt() {
+  const [environment] = useState(() => {
+    if (typeof window === 'undefined') {
+      return { isIOS: false, isStandalone: false }
+    }
+
+    const userAgent = window.navigator.userAgent.toLowerCase()
+    const isIOSDevice = /iphone|ipad|ipod/.test(userAgent)
+    const standaloneMode =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+
+    return { isIOS: isIOSDevice, isStandalone: standaloneMode }
+  })
+
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [showInstallPrompt, setShowInstallPrompt] = useState(false)
+  const [showInstallPrompt, setShowInstallPrompt] = useState(
+    environment.isIOS && !environment.isStandalone
+  )
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -38,19 +54,27 @@ export function PWAInstallPrompt() {
     setDeferredPrompt(null)
   }
 
-  if (!showInstallPrompt) return null
+  if (!showInstallPrompt || environment.isStandalone) return null
+
+  const isManualIOSInstall = environment.isIOS && !deferredPrompt
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-sm shadow-lg p-4">
+    <div className="fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 right-4 z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-sm shadow-lg p-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-sm">Install App</h3>
-          <p className="text-xs text-gray-600 dark:text-gray-400">Get quick access to your dashboard</p>
+          <p className="text-xs text-gray-600 dark:text-gray-400">
+            {isManualIOSInstall
+              ? 'On iPhone/iPad, tap Share then Add to Home Screen'
+              : 'Get quick access to your dashboard'}
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={handleInstall}>
-            Install
-          </Button>
+          {!isManualIOSInstall && (
+            <Button size="sm" onClick={handleInstall}>
+              Install
+            </Button>
+          )}
           <Button 
             variant="ghost" 
             size="sm" 

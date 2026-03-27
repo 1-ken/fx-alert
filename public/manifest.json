@@ -1,7 +1,7 @@
 {
   "name": "fx-alert",
   "short_name": "fx-alert",
-  "description": "Get Instant Alerts for Your trading Pair",
+  "description": "Get instant alerts for your trading pairs.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -24,5 +24,5 @@
   "categories": ["business"],
   "lang": "en",
   "scope": "/",
-  "id": "Fx-alert"
+  "id": "/"
 }

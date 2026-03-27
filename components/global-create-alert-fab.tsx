@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 
 export function GlobalCreateAlertFab() {
   return (
-    <div className="fixed bottom-20 right-4 z-40 md:bottom-6">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-40 md:bottom-6">
       <Button asChild size="lg" className="h-auto rounded-full px-4 py-3 shadow-xl">
         <Link href="/alerts" className="flex items-center gap-3" aria-label="Create alert">
           <BellAlertIcon className="h-5 w-5" />
