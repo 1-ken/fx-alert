@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 import {
   ArrowLeftIcon,
@@ -8,7 +6,26 @@ import {
 } from "@heroicons/react/24/outline";
 import { CreateAlertForm } from "@/components/alerts/create-alert-form";
 
-export default function AlertsPage() {
+type AlertsPageProps = {
+  searchParams?: Promise<{
+    pair?: string | string[];
+    price?: string | string[];
+  }>;
+};
+
+function firstSearchParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+}
+
+export default async function AlertsPage({ searchParams }: AlertsPageProps) {
+  const resolvedSearchParams = await searchParams;
+  const initialPair = firstSearchParam(resolvedSearchParams?.pair);
+  const initialPrice = firstSearchParam(resolvedSearchParams?.price);
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-8 text-foreground">
       <div className="mb-6 flex items-start justify-between gap-4">
@@ -38,7 +55,7 @@ export default function AlertsPage() {
         </Link>
       </div>
 
-      <CreateAlertForm />
+      <CreateAlertForm initialPair={initialPair} initialTargetPrice={initialPrice} />
     </div>
   );
 }

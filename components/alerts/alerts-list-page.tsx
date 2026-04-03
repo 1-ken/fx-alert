@@ -1,11 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
-import { ArrowLeftIcon, BellAlertIcon } from "@heroicons/react/24/outline";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeftIcon, BellAlertIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 
 type AlertStatusFilter =
@@ -151,7 +162,11 @@ function formatTriggerDuration(createdAt: string, triggeredAt: string | null): s
 export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
   const status = normalizeStatus(initialStatus);
   const type = normalizeType(initialType);
-  const { alerts, isLoading } = useObserverAlerts();
+  const { alerts, isLoading, deleteAlert } = useObserverAlerts();
+  const [deleteTarget, setDeleteTarget] = useState<(typeof alerts.all)[number] | null>(null);
+  const [selectedAlertIds, setSelectedAlertIds] = useState<Set<string>>(new Set());
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const isTriggeredView =
     status === "triggered" ||
     status === "triggered-today" ||
@@ -235,6 +250,81 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
     return `/alerts/list?${params.toString()}`;
   };
 
+  const visibleAlertIdSet = useMemo(
+    () => new Set(typeFilteredAlerts.map((alert) => alert.id)),
+    [typeFilteredAlerts]
+  );
+
+  const selectedVisibleIds = useMemo(
+    () => [...selectedAlertIds].filter((id) => visibleAlertIdSet.has(id)),
+    [selectedAlertIds, visibleAlertIdSet]
+  );
+
+  const selectedVisibleCount = selectedVisibleIds.length;
+  const hasVisibleAlerts = typeFilteredAlerts.length > 0;
+  const allVisibleSelected = hasVisibleAlerts && selectedVisibleCount === typeFilteredAlerts.length;
+
+  useEffect(() => {
+    setSelectedAlertIds((current) => {
+      const next = new Set<string>();
+
+      current.forEach((id) => {
+        if (visibleAlertIdSet.has(id)) {
+          next.add(id);
+        }
+      });
+
+      return next.size === current.size ? current : next;
+    });
+  }, [visibleAlertIdSet]);
+
+  const toggleAlertSelection = (alertId: string, checked: boolean) => {
+    setSelectedAlertIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(alertId);
+      } else {
+        next.delete(alertId);
+      }
+
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = (checked: boolean) => {
+    setSelectedAlertIds((current) => {
+      const next = new Set(current);
+
+      if (checked) {
+        typeFilteredAlerts.forEach((alert) => next.add(alert.id));
+      } else {
+        typeFilteredAlerts.forEach((alert) => next.delete(alert.id));
+      }
+
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedVisibleIds.length === 0) {
+      setIsBulkDeleteDialogOpen(false);
+      return;
+    }
+
+    setIsBulkDeleting(true);
+
+    try {
+      for (const alertId of selectedVisibleIds) {
+        await deleteAlert(alertId);
+      }
+
+      setSelectedAlertIds(new Set());
+      setIsBulkDeleteDialogOpen(false);
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-4 px-4 py-8">
       <header className="rounded-xl border bg-card/80 p-4">
@@ -291,6 +381,33 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
         </div>
       </header>
 
+      {hasVisibleAlerts ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/60 p-3">
+          <div className="flex items-center gap-3">
+            <Checkbox
+              checked={allVisibleSelected}
+              onCheckedChange={(checked) => toggleSelectAllVisible(Boolean(checked))}
+              aria-label="Select all alerts in current view"
+            />
+            <span className="text-sm text-muted-foreground">
+              {selectedVisibleCount > 0
+                ? `${selectedVisibleCount} selected`
+                : `Select alerts (${typeFilteredAlerts.length} in view)`}
+            </span>
+          </div>
+
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={selectedVisibleCount === 0 || isBulkDeleting}
+            onClick={() => setIsBulkDeleteDialogOpen(true)}
+          >
+            Delete selected
+          </Button>
+        </div>
+      ) : null}
+
       {isLoading ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
@@ -309,12 +426,29 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
             <Card key={alert.id}>
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      checked={selectedAlertIds.has(alert.id)}
+                      onCheckedChange={(checked) => toggleAlertSelection(alert.id, Boolean(checked))}
+                      aria-label={`Select alert for ${alert.pair}`}
+                    />
+                    <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{alert.alert_type === "candle_close" ? "candle close" : "price"}</Badge>
                     <Badge variant={alert.status === "active" ? "default" : "secondary"}>
                       {alert.status}
                     </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => setDeleteTarget(alert)}
+                      aria-label={`Delete alert for ${alert.pair}`}
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -337,8 +471,16 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                     <p>
                       Threshold: <span className="text-foreground">{alert.threshold ?? "-"}</span>
                     </p>
+                    <p>
+                      Last evaluated candle: <span className="text-foreground">{formatDateTime(alert.last_evaluated_candle_time)}</span>
+                    </p>
                   </>
                 )}
+                {alert.last_checked_price !== null ? (
+                  <p>
+                    Last checked price: <span className="text-foreground">{alert.last_checked_price}</span>
+                  </p>
+                ) : null}
                 <p>
                   Channel: <span className="text-foreground uppercase">{alert.channel}</span>
                 </p>
@@ -371,6 +513,55 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
           ))}
         </div>
       )}
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete alert?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the alert for {deleteTarget ? formatPairLabel(deleteTarget.pair) : "this pair"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteTarget(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!deleteTarget) {
+                  return;
+                }
+
+                const alertId = deleteTarget.id;
+                setDeleteTarget(null);
+                await deleteAlert(alertId);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete selected alerts?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedVisibleCount} selected alert{selectedVisibleCount === 1 ? "" : "s"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={selectedVisibleCount === 0 || isBulkDeleting}
+              onClick={handleBulkDelete}
+            >
+              {isBulkDeleting ? "Deleting..." : "Delete selected"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

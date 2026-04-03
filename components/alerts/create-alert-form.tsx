@@ -202,11 +202,30 @@ const alertFormSchema = z
 
 type AlertFormValues = z.infer<typeof alertFormSchema>;
 
-export function CreateAlertForm() {
+type CreateAlertFormProps = {
+  initialPair?: string;
+  initialTargetPrice?: string;
+};
+
+export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlertFormProps) {
   const router = useRouter();
   const { createAlert } = useObserverAlerts();
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const normalizedInitialPair = useMemo(() => {
+    const pair = initialPair?.trim();
+    return pair ? normalizePair(pair) : "";
+  }, [initialPair]);
+
+  const normalizedInitialTargetPrice = useMemo(() => {
+    const price = initialTargetPrice?.trim();
+    if (!price) {
+      return "";
+    }
+
+    return Number.isFinite(Number(price.replace(/,/g, ""))) ? price : "";
+  }, [initialTargetPrice]);
 
   const pairs = useMemo(() => {
     const streamedPairs = (snapshot?.pairs ?? []).map((pair) => normalizePair(pair.pair));
@@ -223,8 +242,8 @@ export function CreateAlertForm() {
     resolver: zodResolver(alertFormSchema),
     defaultValues: {
       alert_type: "price",
-      pair: "",
-      target_price: "",
+      pair: normalizedInitialPair,
+      target_price: normalizedInitialTargetPrice,
       condition: "above",
       interval: "1m",
       direction: "above",
@@ -247,6 +266,22 @@ export function CreateAlertForm() {
       form.setValue("phone", savedPhone, { shouldDirty: false, shouldValidate: true });
     }
   }, [form]);
+
+  useEffect(() => {
+    if (normalizedInitialPair) {
+      form.setValue("pair", normalizedInitialPair, { shouldDirty: false, shouldValidate: true });
+      setPairSearch(normalizedInitialPair);
+    }
+  }, [form, normalizedInitialPair]);
+
+  useEffect(() => {
+    if (normalizedInitialTargetPrice) {
+      form.setValue("target_price", normalizedInitialTargetPrice, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+  }, [form, normalizedInitialTargetPrice]);
 
   const selectedPair = form.watch("pair");
   const selectedAlertType = form.watch("alert_type");

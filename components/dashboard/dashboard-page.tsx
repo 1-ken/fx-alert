@@ -30,6 +30,15 @@ function normalizePairSearchValue(value: string): string {
   return value.replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
 
+function buildCreateAlertHref(pair: string, price: number): string {
+  const params = new URLSearchParams({
+    pair,
+    price: price.toString(),
+  });
+
+  return `/alerts?${params.toString()}`;
+}
+
 function formatPrice(price: number): string {
   if (!Number.isFinite(price)) {
     return "0.0000";
@@ -223,44 +232,50 @@ export function DashboardPageContent() {
                 const isUp = item.delta >= 0;
 
                 return (
-                  <Card key={item.instrumentKey} className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5">
-                    <CardHeader className="px-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <CardTitle className="text-2xl font-semibold tracking-tight">
-                          {formatPairLabel(item.pair)}
-                        </CardTitle>
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-xs font-medium",
-                            isUp ? "bg-primary/15 text-primary" : "bg-destructive/15 text-destructive"
-                          )}
-                        >
-                          {isUp ? "UP" : "DOWN"}
-                        </span>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="px-4">
-                      <div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">Price</p>
-                          <p className={cn("font-mono text-3xl", isUp ? "text-primary" : "text-destructive")}>
-                            {formatPrice(item.price)}
-                          </p>
+                  <Link
+                    key={item.instrumentKey}
+                    href={buildCreateAlertHref(item.pair, item.price)}
+                    aria-label={`Create alert for ${item.pair}`}
+                    className="block"
+                  >
+                    <Card className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5 transition hover:border-primary/40 hover:bg-card cursor-pointer">
+                      <CardHeader className="px-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <CardTitle className="text-2xl font-semibold tracking-tight">
+                            {formatPairLabel(item.pair)}
+                          </CardTitle>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-xs font-medium",
+                              isUp ? "bg-primary/15 text-primary" : "bg-destructive/15 text-destructive"
+                            )}
+                          >
+                            {isUp ? "UP" : "DOWN"}
+                          </span>
                         </div>
-                      </div>
+                      </CardHeader>
+                      <CardContent className="px-4">
+                        <div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">Price</p>
+                            <p className={cn("font-mono text-3xl", isUp ? "text-primary" : "text-destructive")}>
+                              {formatPrice(item.price)}
+                            </p>
+                          </div>
+                        </div>
 
-                      <div className="mt-4 flex items-center justify-between">
-                        <p className={cn("text-sm font-semibold", isUp ? "text-primary" : "text-destructive")}>
-                          {isUp ? "▲" : "▼"} {Math.abs(item.deltaPercent).toFixed(2)}%
-                        </p>
-                        <Button asChild size="icon" variant="secondary">
-                          <Link href={`/alerts?pair=${encodeURIComponent(item.pair)}`} aria-label={`Create alert for ${item.pair}`}>
+                        <div className="mt-4 flex items-center justify-between">
+                          <p className={cn("text-sm font-semibold", isUp ? "text-primary" : "text-destructive")}>
+                            {isUp ? "▲" : "▼"} {Math.abs(item.deltaPercent).toFixed(2)}%
+                          </p>
+                          <span className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground">
                             <BellIcon className="h-4 w-4" />
-                          </Link>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                            Create alert
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 );
               })}
             </div>
