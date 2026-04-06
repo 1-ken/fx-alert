@@ -30,11 +30,17 @@ function normalizePairSearchValue(value: string): string {
   return value.replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
 
-function buildCreateAlertHref(pair: string, price: number): string {
+function buildCreateAlertHref(pair: string, price: number, alertType: "price" | "candle_close"): string {
   const params = new URLSearchParams({
     pair,
-    price: price.toString(),
+    alert_type: alertType,
   });
+
+  if (alertType === "price") {
+    params.set("target_price", price.toString());
+  } else {
+    params.set("threshold", price.toString());
+  }
 
   return `/alerts?${params.toString()}`;
 }
@@ -232,18 +238,21 @@ export function DashboardPageContent() {
                 const isUp = item.delta >= 0;
 
                 return (
-                  <Link
+                  <Card
                     key={item.instrumentKey}
-                    href={buildCreateAlertHref(item.pair, item.price)}
-                    aria-label={`Create alert for ${item.pair}`}
-                    className="block"
+                    className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5 transition hover:border-primary/40 hover:bg-card"
                   >
-                    <Card className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5 transition hover:border-primary/40 hover:bg-card cursor-pointer">
                       <CardHeader className="px-4">
                         <div className="flex items-start justify-between gap-2">
-                          <CardTitle className="text-2xl font-semibold tracking-tight">
-                            {formatPairLabel(item.pair)}
-                          </CardTitle>
+                          <Link
+                            href={buildCreateAlertHref(item.pair, item.price, "candle_close")}
+                            aria-label={`Create candle close alert for ${item.pair}`}
+                            className="rounded-md text-2xl font-semibold tracking-tight transition hover:text-primary hover:underline"
+                          >
+                            <CardTitle className="text-2xl font-semibold tracking-tight">
+                              {formatPairLabel(item.pair)}
+                            </CardTitle>
+                          </Link>
                           <span
                             className={cn(
                               "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -256,12 +265,16 @@ export function DashboardPageContent() {
                       </CardHeader>
                       <CardContent className="px-4">
                         <div>
-                          <div>
+                          <Link
+                            href={buildCreateAlertHref(item.pair, item.price, "price")}
+                            aria-label={`Create price alert for ${item.pair}`}
+                            className="inline-flex flex-col rounded-md transition hover:opacity-90"
+                          >
                             <p className="text-sm text-muted-foreground">Price</p>
                             <p className={cn("font-mono text-3xl", isUp ? "text-primary" : "text-destructive")}>
                               {formatPrice(item.price)}
                             </p>
-                          </div>
+                          </Link>
                         </div>
 
                         <div className="mt-4 flex items-center justify-between">
@@ -270,12 +283,11 @@ export function DashboardPageContent() {
                           </p>
                           <span className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground">
                             <BellIcon className="h-4 w-4" />
-                            Create alert
+                            Tap name for candle close, price for price alert
                           </span>
                         </div>
                       </CardContent>
-                    </Card>
-                  </Link>
+                  </Card>
                 );
               })}
             </div>

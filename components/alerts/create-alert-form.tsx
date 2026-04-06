@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const ALERT_DEFAULT_PHONE_STORAGE_KEY = "fx-alert:default-sms-phone";
+const ALERT_RECENT_PAIRS_STORAGE_KEY = "fx-alert:recent-pairs";
 
 const channelOptions = [
   { value: "sms" as const, label: "SMS" },
@@ -204,14 +205,47 @@ type AlertFormValues = z.infer<typeof alertFormSchema>;
 
 type CreateAlertFormProps = {
   initialPair?: string;
+  initialAlertType?: string;
   initialTargetPrice?: string;
+  initialThreshold?: string;
 };
 
-export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlertFormProps) {
+function normalizeRecentPairs(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((entry): entry is string => typeof entry === "string").map(normalizePair);
+}
+
+function readRecentPairs(): string[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    return normalizeRecentPairs(JSON.parse(window.localStorage.getItem(ALERT_RECENT_PAIRS_STORAGE_KEY) ?? "[]"));
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentPairs(pair: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const normalizedPair = normalizePair(pair);
+  const nextPairs = [normalizedPair, ...readRecentPairs().filter((item) => item !== normalizedPair)].slice(0, 3);
+  window.localStorage.setItem(ALERT_RECENT_PAIRS_STORAGE_KEY, JSON.stringify(nextPairs));
+}
+
+export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPrice, initialThreshold }: CreateAlertFormProps) {
   const router = useRouter();
   const { createAlert } = useObserverAlerts();
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [recentPairs, setRecentPairs] = useState<string[]>([]);
 
   const normalizedInitialPair = useMemo(() => {
     const pair = initialPair?.trim();
@@ -241,13 +275,13 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
   const form = useForm<AlertFormValues>({
     resolver: zodResolver(alertFormSchema),
     defaultValues: {
-      alert_type: "price",
+      alert_type: initialAlertType === "candle_close" ? "candle_close" : "price",
       pair: normalizedInitialPair,
-      target_price: normalizedInitialTargetPrice,
+      target_price: initialAlertType === "price" ? normalizedInitialTargetPrice : "",
       condition: "above",
       interval: "1m",
       direction: "above",
-      threshold: "",
+      threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
       notifyVia: ["sms"],
       email: "",
       phone: "",
@@ -268,6 +302,10 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
   }, [form]);
 
   useEffect(() => {
+    setRecentPairs(readRecentPairs());
+  }, []);
+
+  useEffect(() => {
     if (normalizedInitialPair) {
       form.setValue("pair", normalizedInitialPair, { shouldDirty: false, shouldValidate: true });
       setPairSearch(normalizedInitialPair);
@@ -275,13 +313,35 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
   }, [form, normalizedInitialPair]);
 
   useEffect(() => {
-    if (normalizedInitialTargetPrice) {
+    if (initialAlertType === "candle_close") {
+      form.setValue("alert_type", "candle_close", { shouldDirty: false, shouldValidate: true });
+    }
+
+    if (initialAlertType === "price") {
+      form.setValue("alert_type", "price", { shouldDirty: false, shouldValidate: true });
+    }
+  }, [form, initialAlertType]);
+
+  useEffect(() => {
+    if (initialAlertType === "price" && normalizedInitialTargetPrice) {
       form.setValue("target_price", normalizedInitialTargetPrice, {
         shouldDirty: false,
         shouldValidate: true,
       });
     }
-  }, [form, normalizedInitialTargetPrice]);
+  }, [form, initialAlertType, normalizedInitialTargetPrice]);
+
+  useEffect(() => {
+    if (initialAlertType === "candle_close") {
+      const nextThreshold = initialThreshold || normalizedInitialTargetPrice;
+      if (nextThreshold) {
+        form.setValue("threshold", nextThreshold, {
+          shouldDirty: false,
+          shouldValidate: true,
+        });
+      }
+    }
+  }, [form, initialAlertType, initialThreshold, normalizedInitialTargetPrice]);
 
   const selectedPair = form.watch("pair");
   const selectedAlertType = form.watch("alert_type");
@@ -331,6 +391,30 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
   const showPhoneInput = selectedChannelSet.has("sms");
   const livePrice = selectedPair ? pairPriceMap.get(selectedPair) : undefined;
 
+  const selectedPriceValue = selectedAlertType === "price"
+    ? form.watch("target_price")
+    : form.watch("threshold");
+
+  const selectedPricePlaceholder = livePrice ? livePrice.toString() : "1.0845";
+
+  const pickRecentPair = (pair: string) => {
+    const normalizedPair = normalizePair(pair);
+    setPairSearch(normalizedPair);
+    form.setValue("pair", normalizedPair, { shouldDirty: true, shouldValidate: true });
+
+    if (selectedAlertType === "price") {
+      form.setValue("target_price", livePrice?.toString() ?? selectedPriceValue ?? selectedPricePlaceholder, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    } else {
+      form.setValue("threshold", livePrice?.toString() ?? selectedPriceValue ?? selectedPricePlaceholder, {
+        shouldDirty: true,
+        shouldValidate: true,
+      });
+    }
+  };
+
   useEffect(() => {
     if (!pairSearch && selectedPair) {
       setPairSearch(selectedPair);
@@ -373,6 +457,9 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
       if (channelsToCreate.length > 1) {
         toast.success(`${channelsToCreate.length} alerts created successfully`);
       }
+
+      writeRecentPairs(values.pair);
+      setRecentPairs(readRecentPairs());
 
       router.push("/dashboard");
       router.refresh();
@@ -464,6 +551,35 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
                             )}
                           </div>
                         ) : null}
+
+                        {recentPairs.length > 0 ? (
+                          <div className="space-y-2 pt-1">
+                            <p className="text-xs text-muted-foreground">Recent pairs</p>
+                            <div className="flex flex-wrap gap-2">
+                              {recentPairs.map((pair) => {
+                                const recentPrice = pairPriceMap.get(pair);
+                                const badgeLabel = recentPrice ? `${formatPairLabel(pair)} · ${recentPrice.toString()}` : formatPairLabel(pair);
+
+                                return (
+                                  <button
+                                    key={pair}
+                                    type="button"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => pickRecentPair(pair)}
+                                    className={cn(
+                                      "rounded-full border px-3 py-1 text-xs font-medium transition",
+                                      pair === selectedPair
+                                        ? "border-primary/40 bg-primary/10 text-foreground"
+                                        : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
+                                    )}
+                                  >
+                                    {badgeLabel}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </FormControl>
                     <FormMessage />
@@ -483,7 +599,7 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
                           <InputGroup className="h-12 border-border bg-background">
                             <InputGroupInput
                               inputMode="decimal"
-                              placeholder={livePrice ? livePrice.toString() : "1.0845"}
+                              placeholder={selectedPricePlaceholder}
                               className="h-12 text-base"
                               {...field}
                             />
@@ -589,7 +705,7 @@ export function CreateAlertForm({ initialPair, initialTargetPrice }: CreateAlert
                           <InputGroup className="h-12 border-border bg-background">
                             <InputGroupInput
                               inputMode="decimal"
-                              placeholder={livePrice ? livePrice.toString() : "1.0845"}
+                              placeholder={selectedPricePlaceholder}
                               className="h-12 text-base"
                               {...field}
                             />

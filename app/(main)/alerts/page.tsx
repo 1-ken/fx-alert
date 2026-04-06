@@ -9,7 +9,9 @@ import { CreateAlertForm } from "@/components/alerts/create-alert-form";
 type AlertsPageProps = {
   searchParams?: Promise<{
     pair?: string | string[];
-    price?: string | string[];
+    alert_type?: string | string[];
+    target_price?: string | string[];
+    threshold?: string | string[];
   }>;
 };
 
@@ -24,7 +26,9 @@ function firstSearchParam(value: string | string[] | undefined): string | undefi
 export default async function AlertsPage({ searchParams }: AlertsPageProps) {
   const resolvedSearchParams = await searchParams;
   const initialPair = firstSearchParam(resolvedSearchParams?.pair);
-  const initialPrice = firstSearchParam(resolvedSearchParams?.price);
+  const initialAlertType = firstSearchParam(resolvedSearchParams?.alert_type);
+  const initialTargetPrice = firstSearchParam(resolvedSearchParams?.target_price);
+  const initialThreshold = firstSearchParam(resolvedSearchParams?.threshold);
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-8 text-foreground">
@@ -55,7 +59,12 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
         </Link>
       </div>
 
-      <CreateAlertForm initialPair={initialPair} initialTargetPrice={initialPrice} />
+      <CreateAlertForm
+        initialPair={initialPair}
+        initialAlertType={initialAlertType}
+        initialTargetPrice={initialTargetPrice}
+        initialThreshold={initialThreshold}
+      />
     </div>
   );
 }
