@@ -1,0 +1,2 @@
+[setup]
+pkgs = ["nodePackages_latest"]

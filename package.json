@@ -2,6 +2,9 @@
   "name": "fx-alert",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "NODE_OPTIONS='--dns-result-order=ipv4first --no-network-family-autoselection' next dev --webpack",
     "build": "NODE_OPTIONS='--dns-result-order=ipv4first --no-network-family-autoselection' next build --webpack",
