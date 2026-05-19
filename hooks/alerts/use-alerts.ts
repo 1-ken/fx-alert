@@ -174,12 +174,53 @@ export function useObserverAlerts() {
     [alerts, hasFetched, mutate]
   );
 
+  const updateAlert = useCallback(
+    async (alertId: string, input: Partial<AlertUpsertInput>): Promise<Alert | null> => {
+      const response = await fetch(`${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(body || "Failed to update alert");
+      }
+
+      const payload = (await response.json()) as AlertUpsertResponse;
+      await mutate();
+      toast.success("Alert updated");
+      return payload.alert;
+    },
+    [mutate]
+  );
+
   return {
     alerts,
     isLoading,
     error,
     mutate,
     createAlert,
+    updateAlert,
     deleteAlert,
+  };
+}
+
+export function useObserverAlert(alertId: string | null) {
+  const key = alertId ? `${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}` : null;
+
+  const { data, error, isLoading, mutate } = useSWR<unknown>(key, fetcher, {
+    revalidateOnFocus: false,
+  });
+
+  const alert = normalizeAlert(data);
+
+  return {
+    alert,
+    isLoading,
+    error,
+    mutate,
   };
 }

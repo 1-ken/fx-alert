@@ -42,6 +42,7 @@
     "firebase": "^12.10.0",
     "firebase-admin": "^13.7.0",
     "input-otp": "^1.4.2",
+    "jose": "^6.0.11",
     "lucide-react": "^0.556.0",
     "motion": "^12.23.25",
     "next": "16.0.10",

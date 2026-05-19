@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { BottomNav } from "@/components/mobile/bottom-nav";
 import { cn } from "@/lib/utils";
+import { OhlcChart } from "@/components/charts/ohlc-chart";
+import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useObserverStream } from "@/hooks/snapshot/use-stream";
 
@@ -146,6 +148,7 @@ export function DashboardPageContent() {
 
   const connectionStatusVariant = status === "live" ? "default" : "secondary";
   const streamTickLabel = formatRelativeTime(lastStreamTickAt);
+  const chartPair = cards[0]?.pair ?? "EURUSD";
 
   return (
     <div className="relative min-h-screen bg-background pb-24">
@@ -180,11 +183,14 @@ export function DashboardPageContent() {
                     • Last stream tick: {streamTickLabel}
                   </span>
                 </div>
+                <StreamHealthBadge />
               </div>
             </div>
             <ThemeSwitcher />
           </div>
         </header>
+
+        <OhlcChart pair={chartPair} />
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Link href="/alerts/list?status=active" className="block">

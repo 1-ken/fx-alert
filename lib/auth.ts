@@ -37,6 +37,11 @@ export const authOptions: NextAuthOptions = {
         token.userId = token.sub;
       }
 
+      if (token.userId) {
+        const { signObserverAccessToken } = await import("@/lib/observer-access-token");
+        token.accessToken = await signObserverAccessToken(String(token.userId));
+      }
+
       return token;
     },
     async session({ session, token }) {

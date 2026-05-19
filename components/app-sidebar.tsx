@@ -6,6 +6,7 @@ import {
   BellAlertIcon,
   HomeModernIcon,
   BookOpenIcon,
+  ChartBarIcon,
   CogIcon,
 } from "@heroicons/react/24/outline";
 
@@ -36,6 +37,11 @@ const navMain = [
     title: "Alerts",
     url: "/alerts",
     icon: BellAlertIcon,
+  },
+  {
+    title: "History",
+    url: "/history",
+    icon: ChartBarIcon,
   },
 ];
 
@@ -70,7 +76,7 @@ const documents: {
 // Resources section
 const resources = [
   {
-    name: "Documentation",
+    name: "Observer API",
     url: "#",
     icon: BookOpenIcon,
   },

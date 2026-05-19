@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  EXPLICIT_OBSERVER_WS_URL,
-  normalizeObserverWebSocketUrl,
-} from "@/lib/constants";
-import { useObserverClientConfig } from "@/hooks/use-observer";
+import { EXPLICIT_OBSERVER_WS_URL, normalizeObserverWebSocketUrl } from "@/lib/constants";
+import { useObserverWsToken } from "@/hooks/observer/use-ws-token";
 import { normalizeAlertsResponse } from "@/hooks/alerts/use-alerts";
 import {
   normalizeMarketSnapshot,
@@ -23,7 +20,7 @@ export function useObserverStream() {
   >({});
   const previousPriceMapRef = useRef<Map<string, number>>(new Map());
 
-  const { data: clientConfig } = useObserverClientConfig();
+  const { data: wsTokenData, isLoading: isWsTokenLoading } = useObserverWsToken();
   const snapshotSWR = useObserverSnapshot(fallbackEnabled);
   const { mutate: mutateSnapshot } = snapshotSWR;
   const normalizedSnapshot = useMemo(
@@ -36,11 +33,15 @@ export function useObserverStream() {
       return normalizeObserverWebSocketUrl(EXPLICIT_OBSERVER_WS_URL);
     }
 
-    return normalizeObserverWebSocketUrl(clientConfig?.wsUrl);
-  }, [clientConfig?.wsUrl]);
+    if (wsTokenData?.wsUrl) {
+      return wsTokenData.wsUrl;
+    }
+
+    return null;
+  }, [wsTokenData?.wsUrl]);
 
   useEffect(() => {
-    if (!wsUrl) {
+    if (!wsUrl || isWsTokenLoading) {
       return;
     }
 
@@ -61,14 +62,12 @@ export function useObserverStream() {
       }
 
       setStatus(reconnectAttempts === 0 ? "reconnecting" : "offline");
-      console.log(`[WebSocket] Connecting to ${wsUrl}...`);
       socket = new WebSocket(wsUrl);
 
       socket.onopen = () => {
         reconnectAttempts = 0;
         setStatus("live");
         setFallbackEnabled(false);
-        console.log(`[WebSocket] ✅ Connected to ${wsUrl}`);
       };
 
       socket.onmessage = async (event) => {
@@ -82,13 +81,8 @@ export function useObserverStream() {
           const normalizedAlerts = normalizeAlertsResponse(payload.alerts);
 
           if (!normalizedPayload) {
-            console.warn("[WebSocket] ⚠️ Received invalid payload");
             return;
           }
-
-          console.log(
-            `[WebSocket] 📊 Stream update: ${normalizedPayload.pairs.length} pairs, market ${normalizedPayload.market_status}`
-          );
 
           setLastStreamTickAt(normalizedPayload.ts ?? new Date().toISOString());
           setStreamAlerts(normalizedAlerts);
@@ -108,34 +102,29 @@ export function useObserverStream() {
           setChangeMap(nextChangeMap);
           await mutateSnapshot(normalizedPayload, { revalidate: false });
         } catch (error) {
-          console.error("[WebSocket] ❌ Failed to process message:", error);
+          console.error("[WebSocket] Failed to process message:", error);
         }
       };
 
-      socket.onerror = (error) => {
+      socket.onerror = () => {
         if (isClosed) {
           return;
         }
 
-        console.error("[WebSocket] ❌ Connection error:", error);
         setStatus("offline");
         setFallbackEnabled(true);
       };
 
-      socket.onclose = (event) => {
+      socket.onclose = () => {
         if (isClosed) {
           return;
         }
 
-        console.log(
-          `[WebSocket] 🔌 Disconnected (code: ${event.code}, reason: ${event.reason || "none"})`
-        );
         setStatus("offline");
         setFallbackEnabled(true);
 
         const delay = Math.min(1_000 * 2 ** reconnectAttempts, 8_000);
         reconnectAttempts += 1;
-        console.log(`[WebSocket] 🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`);
         reconnectTimer = setTimeout(connect, delay);
       };
     };
@@ -158,7 +147,7 @@ export function useObserverStream() {
         }
       }
     };
-  }, [mutateSnapshot, wsUrl]);
+  }, [isWsTokenLoading, mutateSnapshot, wsUrl]);
 
   return {
     snapshot: normalizedSnapshot,

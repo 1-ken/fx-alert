@@ -44,12 +44,23 @@ export const API_ENDPOINTS = {
     WEBSOCKET: "/ws/observe",
     HEALTH: "/stream-health",
     CLIENT_CONFIG: "/client-config",
+    SERVICE_HEALTH: "/health",
+    HISTORICAL: "/historical",
+    HISTORICAL_OHLC: "/historical/ohlc",
+    HISTORICAL_STREAM_METRICS: "/historical/stream-metrics",
+    HISTORICAL_OHLC_WITH_FORMING: "/historical/ohlc-with-forming",
   },
   OBSERVER_PROXY: {
     ALERTS: "/api/observer/alerts",
     SNAPSHOT: "/api/observer/snapshot",
     HEALTH: "/api/observer/stream-health",
     CLIENT_CONFIG: "/api/observer/client-config",
+    WS_TOKEN: "/api/observer/ws-token",
+    SERVICE_HEALTH: "/api/observer/health",
+    HISTORICAL: "/api/observer/historical",
+    HISTORICAL_OHLC: "/api/observer/historical/ohlc",
+    HISTORICAL_STREAM_METRICS: "/api/observer/historical/stream-metrics",
+    HISTORICAL_OHLC_WITH_FORMING: "/api/observer/historical/ohlc-with-forming",
   },
   // Add your own API endpoints here
  

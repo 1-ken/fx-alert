@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeftIcon, BellAlertIcon, TrashIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, BellAlertIcon, PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -439,6 +439,17 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                     <Badge variant={alert.status === "active" ? "default" : "secondary"}>
                       {alert.status}
                     </Badge>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground"
+                      asChild
+                    >
+                      <Link href={`/alerts/${alert.id}`} aria-label={`Edit alert for ${alert.pair}`}>
+                        <PencilIcon className="h-4 w-4" />
+                      </Link>
+                    </Button>
                     <Button
                       type="button"
                       variant="ghost"
