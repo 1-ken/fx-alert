@@ -8,6 +8,7 @@ import { Suspense } from "react";
 import { Spinner } from "@/components/ui/spinner";
 import { GlobalCreateAlertFab } from "@/components/global-create-alert-fab";
 import { OfflineSyncBanner } from "@/components/offline-sync-banner";
+import { TopNav } from "@/components/top-nav";
 
 const LAST_ROUTE_STORAGE_KEY = "fx-alert:last-main-route";
 
@@ -105,6 +106,7 @@ export default function MainLayout({
       <Suspense fallback={null}>
         <RoutePersistence enabled={status === "authenticated" || !isOnline} />
       </Suspense>
+      <TopNav />
       <OfflineSyncBanner />
       <div className="pt-[max(env(safe-area-inset-top),0.75rem)] pb-24">{children}</div>
       <GlobalCreateAlertFab />
