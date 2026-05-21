@@ -36,6 +36,7 @@ const ALERT_RECENT_PAIRS_STORAGE_KEY = "fx-alert:recent-pairs";
 
 const channelOptions = [
   { value: "sms" as const, label: "SMS" },
+  { value: "sound" as const, label: "Sound (in-app)" },
 ];
 
 const conditionOptions: Array<{
@@ -123,7 +124,7 @@ const alertFormSchema = z
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
-    notifyVia: z.array(z.enum(["sms"])),
+    notifyVia: z.array(z.enum(["sms", "sound"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
     custom_message: z.string().trim().max(500, "Custom message must be 500 characters or less").optional(),
@@ -426,7 +427,9 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
 
     try {
       const alertType = values.alert_type as AlertType;
-      const channelsToCreate: Array<"sms"> = values.notifyVia.includes("sms") ? ["sms"] : [];
+      const channelsToCreate = values.notifyVia.filter(
+        (channel): channel is "sms" | "sound" => channel === "sms" || channel === "sound"
+      );
 
       for (const channel of channelsToCreate) {
         const basePayload = {
@@ -434,7 +437,7 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
           pair: normalizePair(values.pair).replace("/", ""),
           channel,
           email: undefined,
-          phone: values.phone,
+          phone: channel === "sms" ? values.phone : "",
           custom_message: values.custom_message || undefined,
         };
 
@@ -786,7 +789,7 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
                           }}
                           className={cn(
                             "rounded-lg border px-3 py-2 text-sm transition",
-                            true
+                            selectedChannelSet.has(channel.value)
                               ? "border-primary/40 bg-primary/10 text-foreground"
                               : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
                           )}
@@ -796,7 +799,7 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
                       ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      SMS only (testing mode).
+                      SMS sends a text message. Sound plays in the browser when enabled in Settings.
                     </p>
                     <FormMessage />
                   </FormItem>

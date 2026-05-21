@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { OhlcChart } from "@/components/charts/ohlc-chart";
 import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
-import { useObserverStream } from "@/hooks/snapshot/use-stream";
+import { useObserverStreamContext } from "@/components/stream-alerts-provider";
 
 function formatPairLabel(pair: string): string {
   const cleanPair = pair.replace("/", "").toUpperCase();
@@ -91,7 +91,7 @@ export function DashboardPageContent() {
     lastStreamTickAt,
     isSnapshotLoading,
     changeMap,
-  } = useObserverStream();
+  } = useObserverStreamContext();
   const { alerts } = useObserverAlerts();
 
   const [query, setQuery] = useState("");

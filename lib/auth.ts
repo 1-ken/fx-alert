@@ -1,8 +1,49 @@
 import { NextAuthOptions } from "next-auth";
+import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+
+function getApiBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
+    CredentialsProvider({
+      id: "credentials",
+      name: "Username and password",
+      credentials: {
+        username: { label: "Username", type: "text" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        const username = credentials?.username?.trim();
+        const password = credentials?.password;
+
+        if (!username || !password) {
+          return null;
+        }
+
+        const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+
+        if (!response.ok) {
+          return null;
+        }
+
+        const data = (await response.json()) as { user_id?: string; username?: string };
+        if (!data.user_id) {
+          return null;
+        }
+
+        return {
+          id: data.user_id,
+          name: data.username ?? username,
+        };
+      },
+    }),
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || "",
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
@@ -39,18 +80,34 @@ export const authOptions: NextAuthOptions = {
 
       if (token.userId) {
         const { signObserverAccessToken } = await import("@/lib/observer-access-token");
+        // Refresh API token on each session update so WebSocket auth stays valid.
         token.accessToken = await signObserverAccessToken(String(token.userId));
       }
 
       return token;
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.userId as string;
-        session.user.email = token.email as string;
-        session.user.name = token.name as string;
-        session.user.image = token.picture as string;
+      if (!session.user) {
+        session.user = {
+          id: String(token.userId ?? token.sub ?? ""),
+          name: null,
+          email: null,
+          image: null,
+        };
       }
+
+      session.user.id = String(token.userId ?? token.sub ?? session.user.id ?? "");
+      session.user.email = (token.email as string | null | undefined) ?? session.user.email;
+      session.user.name = (token.name as string | null | undefined) ?? session.user.name;
+      session.user.image = (token.picture as string | null | undefined) ?? session.user.image;
+
+      session.accessToken =
+        typeof token.accessToken === "string"
+          ? token.accessToken
+          : await (async () => {
+              const { signObserverAccessToken } = await import("@/lib/observer-access-token");
+              return signObserverAccessToken(session.user.id);
+            })();
 
       return session;
     },

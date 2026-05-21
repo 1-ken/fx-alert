@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EXPLICIT_OBSERVER_WS_URL, normalizeObserverWebSocketUrl } from "@/lib/constants";
+import {
+  EXPLICIT_OBSERVER_WS_URL,
+  getObserverWebSocketUrl,
+  normalizeObserverWebSocketUrl,
+} from "@/lib/constants";
 import { useObserverWsToken } from "@/hooks/observer/use-ws-token";
 import { normalizeAlertsResponse } from "@/hooks/alerts/use-alerts";
 import {
@@ -29,16 +33,24 @@ export function useObserverStream() {
   );
 
   const wsUrl = useMemo(() => {
+    const accessToken = wsTokenData?.accessToken;
+    if (!accessToken) {
+      return null;
+    }
+
+    let baseUrl: string | null = null;
+
     if (EXPLICIT_OBSERVER_WS_URL) {
-      return normalizeObserverWebSocketUrl(EXPLICIT_OBSERVER_WS_URL);
+      baseUrl = normalizeObserverWebSocketUrl(EXPLICIT_OBSERVER_WS_URL);
+    } else if (wsTokenData?.wsUrl?.trim()) {
+      baseUrl = normalizeObserverWebSocketUrl(wsTokenData.wsUrl);
+    } else {
+      baseUrl = getObserverWebSocketUrl();
     }
 
-    if (wsTokenData?.wsUrl) {
-      return wsTokenData.wsUrl;
-    }
-
-    return null;
-  }, [wsTokenData?.wsUrl]);
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    return `${baseUrl}${separator}access_token=${encodeURIComponent(accessToken)}`;
+  }, [wsTokenData?.wsUrl, wsTokenData?.accessToken]);
 
   useEffect(() => {
     if (!wsUrl || isWsTokenLoading) {

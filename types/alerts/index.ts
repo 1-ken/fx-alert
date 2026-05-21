@@ -1,6 +1,6 @@
 export type AlertCondition = "above" | "below" | "equal";
 export type AlertStatus = "active" | "triggered" | "disabled";
-export type AlertChannel = "email" | "sms" | "call";
+export type AlertChannel = "email" | "sms" | "call" | "sound";
 export type AlertType = "price" | "candle_close";
 export type CandleDirection = "above" | "below";
 

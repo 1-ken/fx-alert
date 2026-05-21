@@ -8,8 +8,25 @@
 // Base URL from environment variable
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 export const EXPLICIT_OBSERVER_WS_URL = process.env.NEXT_PUBLIC_OBSERVER_WS_URL?.trim() || "";
+
+function deriveWebSocketBaseFromApiUrl(apiUrl: string): string | null {
+  if (!apiUrl.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(apiUrl);
+    const protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+
 export const OBSERVER_WS_BASE_URL =
-  EXPLICIT_OBSERVER_WS_URL || "ws://51.254.201.253:8000";
+  EXPLICIT_OBSERVER_WS_URL ||
+  deriveWebSocketBaseFromApiUrl(API_BASE_URL) ||
+  "ws://127.0.0.1:8000";
 
 /**
  * UI Constants

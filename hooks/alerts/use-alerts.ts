@@ -64,7 +64,13 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
       record.status === "active" || record.status === "triggered" || record.status === "disabled"
         ? record.status
         : "active",
-    channel: record.channel === "email" || record.channel === "sms" || record.channel === "call" ? record.channel : "email",
+    channel:
+      record.channel === "email" ||
+      record.channel === "sms" ||
+      record.channel === "call" ||
+      record.channel === "sound"
+        ? record.channel
+        : "email",
     email: typeof record.email === "string" ? record.email : "",
     phone: typeof record.phone === "string" ? record.phone : "",
     custom_message: typeof record.custom_message === "string" ? record.custom_message : "",

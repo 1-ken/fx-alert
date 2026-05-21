@@ -9,6 +9,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { GlobalCreateAlertFab } from "@/components/global-create-alert-fab";
 import { OfflineSyncBanner } from "@/components/offline-sync-banner";
 import { TopNav } from "@/components/top-nav";
+import { useBootstrap } from "@/components/bootstrap-provider";
+import { AlertSoundListener } from "@/components/alert-sound-listener";
+import { StreamAlertsProvider } from "@/components/stream-alerts-provider";
 
 const LAST_ROUTE_STORAGE_KEY = "fx-alert:last-main-route";
 
@@ -47,6 +50,97 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
   return null;
 }
 
+function OnboardingGuard({
+  children,
+  isLoading,
+}: {
+  children: React.ReactNode;
+  isLoading: boolean;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const { bootstrap, error } = useBootstrap();
+  const shouldRedirectToOnboarding =
+    bootstrap?.isFirstTimeUser === true && !bootstrap.onboardingCompletedAt;
+  const isOnboardingPage = pathname === "/onboarding";
+
+  useEffect(() => {
+    console.log("[OnboardingGuard] State:", {
+      isLoading,
+      bootstrapAvailable: !!bootstrap,
+      pathname,
+      error: error?.message,
+      isFirstTimeUser: bootstrap?.isFirstTimeUser,
+      onboardingCompletedAt: bootstrap?.onboardingCompletedAt,
+      shouldRedirectToOnboarding,
+    });
+
+    if (isLoading) {
+      console.log("[OnboardingGuard] Waiting for bootstrap data...");
+      return;
+    }
+
+    if (!bootstrap) {
+      console.log("[OnboardingGuard] No bootstrap payload yet, waiting for backend decision");
+      return;
+    }
+
+    if (shouldRedirectToOnboarding && !isOnboardingPage) {
+      console.log("[OnboardingGuard] First-time user detected, redirecting to onboarding");
+      router.replace("/onboarding");
+      return;
+    }
+
+    if (!shouldRedirectToOnboarding && isOnboardingPage) {
+      console.log("[OnboardingGuard] Returning user on onboarding page, redirecting to dashboard");
+      router.replace("/dashboard");
+    }
+  }, [
+    bootstrap,
+    error,
+    isLoading,
+    isOnboardingPage,
+    pathname,
+    router,
+    shouldRedirectToOnboarding,
+  ]);
+
+  if (isLoading || (!bootstrap && !error)) {
+    return (
+      <div className="flex min-h-[calc(100svh-4rem)] items-center justify-center px-4">
+        <div className="text-center">
+          <Spinner className="mx-auto size-4" />
+          <p className="mt-4 text-sm text-muted-foreground">Checking account status...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (shouldRedirectToOnboarding && !isOnboardingPage) {
+    return (
+      <div className="flex min-h-[calc(100svh-4rem)] items-center justify-center px-4">
+        <div className="text-center">
+          <Spinner className="mx-auto size-4" />
+          <p className="mt-4 text-sm text-muted-foreground">Preparing onboarding...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!shouldRedirectToOnboarding && isOnboardingPage) {
+    return (
+      <div className="flex min-h-[calc(100svh-4rem)] items-center justify-center px-4">
+        <div className="text-center">
+          <Spinner className="mx-auto size-4" />
+          <p className="mt-4 text-sm text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+}
+
 export default function MainLayout({
   children,
 }: {
@@ -54,6 +148,7 @@ export default function MainLayout({
 }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const { isLoading: bootstrapLoading } = useBootstrap();
   const [isOnline, setIsOnline] = useState(() => {
     if (typeof window === "undefined") {
       return true;
@@ -102,14 +197,17 @@ export default function MainLayout({
   }
 
   return (
-    <>
-      <Suspense fallback={null}>
-        <RoutePersistence enabled={status === "authenticated" || !isOnline} />
-      </Suspense>
-      <TopNav />
-      <OfflineSyncBanner />
-      <div className="pt-[max(env(safe-area-inset-top),0.75rem)] pb-24">{children}</div>
-      <GlobalCreateAlertFab />
-    </>
+    <OnboardingGuard isLoading={bootstrapLoading}>
+      <StreamAlertsProvider>
+        <AlertSoundListener />
+        <Suspense fallback={null}>
+          <RoutePersistence enabled={status === "authenticated" || !isOnline} />
+        </Suspense>
+        <TopNav />
+        <OfflineSyncBanner />
+        <div className="pt-[max(env(safe-area-inset-top),0.75rem)] pb-24">{children}</div>
+        <GlobalCreateAlertFab />
+      </StreamAlertsProvider>
+    </OnboardingGuard>
   );
 }

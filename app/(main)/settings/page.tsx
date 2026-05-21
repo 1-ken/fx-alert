@@ -7,6 +7,14 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  isSoundAlertsEnabled,
+  setSoundAlertsEnabled,
+  SOUND_ALERTS_ENABLED_KEY,
+  ALERT_SOUND_WAV_PATHS,
+  ALERT_SOUND_MP3_PATHS,
+} from "@/lib/alert-sound";
 
 const ALERT_DEFAULT_PHONE_STORAGE_KEY = "fx-alert:default-sms-phone";
 
@@ -19,9 +27,23 @@ export default function SettingsPage() {
     return window.localStorage.getItem(ALERT_DEFAULT_PHONE_STORAGE_KEY) ?? "";
   });
 
+  const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return isSoundAlertsEnabled();
+  });
+
   const savePhoneNumber = () => {
     window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, phoneNumber.trim());
     toast.success("Default alert phone number saved");
+  };
+
+  const handleSoundToggle = (enabled: boolean) => {
+    setSoundAlertsEnabled(enabled);
+    setSoundAlertsEnabledState(enabled);
+    toast.success(enabled ? "Sound alerts enabled" : "Sound alerts disabled");
   };
 
   return (
@@ -38,10 +60,45 @@ export default function SettingsPage() {
           </div>
           <div>
             <h1 className="text-xl font-semibold">Settings</h1>
-            <p className="text-sm text-muted-foreground">Configure default values for alert creation.</p>
+            <p className="text-sm text-muted-foreground">
+              Configure defaults for alerts and notifications.
+            </p>
           </div>
         </div>
       </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sound Alerts</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Play a looping sound in the browser for 30 seconds when a sound-channel alert triggers.
+            Uses WAV first, then MP3:
+          </p>
+          <ul className="list-inside list-disc text-xs text-muted-foreground">
+            {ALERT_SOUND_WAV_PATHS.map((path) => (
+              <li key={path}>
+                <code>{path}</code>
+              </li>
+            ))}
+            {ALERT_SOUND_MP3_PATHS.map((path) => (
+              <li key={path}>
+                <code>{path}</code>
+              </li>
+            ))}
+          </ul>
+          <div className="flex items-center justify-between rounded-lg border px-3 py-3">
+            <div>
+              <p className="text-sm font-medium">Enable sound alerts</p>
+              <p className="text-xs text-muted-foreground">
+                Stored locally ({SOUND_ALERTS_ENABLED_KEY})
+              </p>
+            </div>
+            <Switch checked={soundAlertsEnabled} onCheckedChange={handleSoundToggle} />
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -49,7 +106,8 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This number pre-fills the phone field when creating alerts. You can still edit it per alert.
+            This number pre-fills the phone field when creating SMS alerts. You can still edit it per
+            alert.
           </p>
           <Input
             value={phoneNumber}

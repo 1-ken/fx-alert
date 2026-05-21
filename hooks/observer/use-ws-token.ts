@@ -1,6 +1,6 @@
-import useSWR from "swr";
-import { API_ENDPOINTS } from "@/lib/constants";
-import { fetcher } from "@/hooks/use-observer";
+import { useSession } from "next-auth/react";
+import { useBootstrap } from "@/components/bootstrap-provider";
+import { getObserverWebSocketUrl } from "@/lib/constants";
 
 interface WsTokenResponse {
   wsUrl: string;
@@ -8,8 +8,20 @@ interface WsTokenResponse {
 }
 
 export function useObserverWsToken() {
-  return useSWR<WsTokenResponse>(API_ENDPOINTS.OBSERVER_PROXY.WS_TOKEN, fetcher, {
-    revalidateOnFocus: false,
-    revalidateOnReconnect: true,
-  });
+  const { data: session } = useSession();
+  const { bootstrap, isLoading } = useBootstrap();
+
+  // Return data in the expected format
+  const data = bootstrap && session?.accessToken
+    ? {
+        wsUrl: bootstrap.wsUrl?.trim() || getObserverWebSocketUrl(),
+        accessToken: session.accessToken,
+      }
+    : undefined;
+
+  return {
+    data: data as WsTokenResponse | undefined,
+    isLoading: isLoading || !bootstrap,
+    error: null,
+  };
 }

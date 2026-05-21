@@ -1,6 +1,5 @@
 import { SignJWT } from "jose";
-import { getToken } from "next-auth/jwt";
-import { cookies } from "next/headers";
+import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 const ACCESS_TOKEN_TTL = "1h";
@@ -19,20 +18,17 @@ export async function signObserverAccessToken(userId: string): Promise<string> {
 }
 
 export async function resolveObserverAccessToken(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const sessionToken = await getToken({
-    req: {
-      headers: {
-        cookie: cookieStore.toString(),
-      },
-    } as Request,
-    secret: authOptions.secret,
-  });
+  const session = await getServerSession(authOptions);
+  const userId = session?.user?.id;
 
-  const userId = sessionToken?.userId ?? sessionToken?.sub;
   if (!userId) {
     return null;
   }
 
-  return signObserverAccessToken(String(userId));
+  const existingToken = session?.accessToken;
+  if (typeof existingToken === "string" && existingToken.length > 0) {
+    return existingToken;
+  }
+
+  return signObserverAccessToken(userId);
 }
