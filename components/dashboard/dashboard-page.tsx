@@ -16,6 +16,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { BottomNav } from "@/components/mobile/bottom-nav";
 import { cn } from "@/lib/utils";
 import { OhlcChart } from "@/components/charts/ohlc-chart";
+import type { ChartInterval } from "@/lib/chart-utils";
 import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useObserverStreamContext } from "@/components/stream-alerts-provider";
@@ -96,6 +97,8 @@ export function DashboardPageContent() {
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedChartPair, setSelectedChartPair] = useState<string | null>(null);
+  const [chartInterval, setChartInterval] = useState<ChartInterval>("5m");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -148,7 +151,13 @@ export function DashboardPageContent() {
 
   const connectionStatusVariant = status === "live" ? "default" : "secondary";
   const streamTickLabel = formatRelativeTime(lastStreamTickAt);
-  const chartPair = cards[0]?.pair ?? "EURUSD";
+  const chartPair = selectedChartPair ?? cards[0]?.pair ?? "EURUSD";
+
+  useEffect(() => {
+    if (!selectedChartPair && cards[0]?.pair) {
+      setSelectedChartPair(cards[0].pair);
+    }
+  }, [cards, selectedChartPair]);
 
   return (
     <div className="relative min-h-screen bg-background pb-24">
@@ -190,7 +199,15 @@ export function DashboardPageContent() {
           </div>
         </header>
 
-        <OhlcChart pair={chartPair} />
+        <OhlcChart
+          pair={chartPair}
+          interval={chartInterval}
+          limit={100}
+          height={320}
+          showForming
+          showIntervalSelect
+          onIntervalChange={setChartInterval}
+        />
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Link href="/alerts/list?status=active" className="block">
@@ -246,7 +263,19 @@ export function DashboardPageContent() {
                 return (
                   <Card
                     key={item.instrumentKey}
-                    className="gap-4 rounded-2xl border-primary/20 bg-background/60 py-5 transition hover:border-primary/40 hover:bg-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedChartPair(item.pair)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setSelectedChartPair(item.pair);
+                      }
+                    }}
+                    className={cn(
+                      "gap-4 rounded-2xl border-primary/20 bg-background/60 py-5 transition hover:border-primary/40 hover:bg-card cursor-pointer",
+                      chartPair === item.pair && "ring-2 ring-primary/50 border-primary/50"
+                    )}
                   >
                       <CardHeader className="px-4">
                         <div className="flex items-start justify-between gap-2">
@@ -254,6 +283,7 @@ export function DashboardPageContent() {
                             href={buildCreateAlertHref(item.pair, item.price, "candle_close")}
                             aria-label={`Create candle close alert for ${item.pair}`}
                             className="rounded-md text-2xl font-semibold tracking-tight transition hover:text-primary hover:underline"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <CardTitle className="text-2xl font-semibold tracking-tight">
                               {formatPairLabel(item.pair)}
@@ -275,6 +305,7 @@ export function DashboardPageContent() {
                             href={buildCreateAlertHref(item.pair, item.price, "price")}
                             aria-label={`Create price alert for ${item.pair}`}
                             className="inline-flex flex-col rounded-md transition hover:opacity-90"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <p className="text-sm text-muted-foreground">Price</p>
                             <p className={cn("font-mono text-3xl", isUp ? "text-primary" : "text-destructive")}>

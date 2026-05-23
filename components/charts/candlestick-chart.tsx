@@ -1,0 +1,195 @@
+"use client";
+
+import { useEffect, useMemo, useRef } from "react";
+import { useTheme } from "next-themes";
+import {
+  CandlestickSeries,
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+} from "lightweight-charts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  useHistoricalOhlc,
+  useHistoricalOhlcWithForming,
+} from "@/hooks/historical/use-historical";
+import {
+  candlesToSeriesData,
+  CHART_INTERVAL_OPTIONS,
+  getChartTheme,
+  mergeFormingCandle,
+  type ChartInterval,
+} from "@/lib/chart-utils";
+
+export interface CandlestickChartProps {
+  pair: string;
+  interval?: ChartInterval;
+  limit?: number;
+  height?: number;
+  showForming?: boolean;
+  showIntervalSelect?: boolean;
+  onIntervalChange?: (interval: ChartInterval) => void;
+  className?: string;
+}
+
+export function CandlestickChart({
+  pair,
+  interval = "5m",
+  limit = 100,
+  height = 320,
+  showForming = true,
+  showIntervalSelect = false,
+  onIntervalChange,
+  className,
+}: CandlestickChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
+
+  const ohlcParams = useMemo(
+    () => ({ pair, interval, limit }),
+    [pair, interval, limit],
+  );
+
+  const formingQuery = useHistoricalOhlcWithForming(
+    showForming ? ohlcParams : { pair: "", interval },
+  );
+  const closedQuery = useHistoricalOhlc(
+    showForming ? { pair: "", interval } : ohlcParams,
+  );
+
+  const { data, isLoading, error } = showForming ? formingQuery : closedQuery;
+
+  const seriesData = useMemo(() => {
+    const closed = data?.candles ?? [];
+    const forming = showForming && "forming_candle" in (data ?? {})
+      ? (data as { forming_candle?: typeof closed[0] | null }).forming_candle
+      : null;
+    const merged = mergeFormingCandle(closed, forming ?? null);
+    return candlesToSeriesData(merged);
+  }, [data, showForming]);
+
+  const theme = useMemo(() => getChartTheme(isDark), [isDark]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height,
+      layout: theme.layout,
+      grid: theme.grid,
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false },
+      crosshair: { mode: 1 },
+    });
+
+    const series = chart.addSeries(CandlestickSeries, theme.candlestick);
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      chart.applyOptions({ width: entry.contentRect.width });
+    });
+    resizeObserver.observe(container);
+
+    return () => {
+      resizeObserver.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+  }, [height]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (!chart || !series) {
+      return;
+    }
+    chart.applyOptions({
+      layout: theme.layout,
+      grid: theme.grid,
+    });
+    series.applyOptions(theme.candlestick);
+  }, [theme]);
+
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) {
+      return;
+    }
+    if (seriesData.length === 0) {
+      series.setData([]);
+      return;
+    }
+    series.setData(seriesData);
+    chartRef.current?.timeScale().fitContent();
+  }, [seriesData]);
+
+  const pairLabel = pair.replace("/", "").toUpperCase();
+
+  return (
+    <Card className={className}>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-base">
+          {pairLabel} · {interval} candles
+        </CardTitle>
+        {showIntervalSelect && onIntervalChange ? (
+          <Select value={interval} onValueChange={(v) => onIntervalChange(v as ChartInterval)}>
+            <SelectTrigger className="h-8 w-[88px]" aria-label="Candle interval">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CHART_INTERVAL_OPTIONS.map((opt) => (
+                <SelectItem key={opt} value={opt}>
+                  {opt}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {isLoading && <Skeleton className="w-full" style={{ height }} />}
+        {error && (
+          <p className="text-sm text-destructive" style={{ minHeight: height }}>
+            Could not load chart data.
+          </p>
+        )}
+        {!isLoading && !error && seriesData.length === 0 && (
+          <p
+            className="flex items-center text-sm text-muted-foreground"
+            style={{ minHeight: height }}
+          >
+            No candle data yet.
+          </p>
+        )}
+        <div
+          ref={containerRef}
+          className={isLoading || error || seriesData.length === 0 ? "hidden" : "w-full"}
+          style={{ height }}
+          aria-hidden={isLoading || !!error || seriesData.length === 0}
+        />
+      </CardContent>
+    </Card>
+  );
+}
