@@ -2,13 +2,19 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useObserverAlert, useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import {
+  CALL_CUSTOM_MESSAGE_MAX_CHARS,
+  CUSTOM_MESSAGE_MAX_CHARS,
+} from "@/lib/alert-preferences";
 
 export default function AlertDetailPage() {
   const params = useParams<{ id: string }>();
@@ -20,6 +26,17 @@ export default function AlertDetailPage() {
   const [targetPrice, setTargetPrice] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  const customMessageMaxChars = useMemo(
+    () => (alert?.channel === "call" ? CALL_CUSTOM_MESSAGE_MAX_CHARS : CUSTOM_MESSAGE_MAX_CHARS),
+    [alert?.channel],
+  );
+
+  useEffect(() => {
+    if (alert) {
+      setCustomMessage(alert.custom_message ?? "");
+    }
+  }, [alert]);
 
   if (isLoading) {
     return <p className="p-6 text-sm text-muted-foreground">Loading alert...</p>;
@@ -37,17 +54,27 @@ export default function AlertDetailPage() {
   }
 
   const onSave = async () => {
+    const trimmedMessage = (customMessage || alert.custom_message || "").trim();
+    if (trimmedMessage.length > customMessageMaxChars) {
+      toast.error(
+        alert.channel === "call"
+          ? `Custom message must be ${CALL_CUSTOM_MESSAGE_MAX_CHARS} characters or less for call alerts`
+          : `Custom message must be ${CUSTOM_MESSAGE_MAX_CHARS} characters or less`,
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
       const body =
         alert.alert_type === "price"
           ? {
               target_price: Number(targetPrice || alert.target_price),
-              custom_message: customMessage || alert.custom_message,
+              custom_message: trimmedMessage,
             }
           : {
               threshold: Number(targetPrice || alert.threshold),
-              custom_message: customMessage || alert.custom_message,
+              custom_message: trimmedMessage,
             };
       await updateAlert(alert.id, body);
       router.push("/alerts/list");
@@ -85,11 +112,21 @@ export default function AlertDetailPage() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="message">Custom message</Label>
-            <Input
+            <Textarea
               id="message"
-              defaultValue={alert.custom_message}
+              className="min-h-20 resize-none"
+              value={customMessage}
+              maxLength={customMessageMaxChars}
               onChange={(e) => setCustomMessage(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              {alert.channel === "call"
+                ? `Call alerts: max ${CALL_CUSTOM_MESSAGE_MAX_CHARS} characters (~1 minute when spoken).`
+                : `Max ${CUSTOM_MESSAGE_MAX_CHARS} characters.`}{" "}
+              <span className="tabular-nums">
+                {customMessage.length}/{customMessageMaxChars}
+              </span>
+            </p>
           </div>
           <Button onClick={onSave} disabled={isSaving}>
             {isSaving ? "Saving..." : "Save changes"}

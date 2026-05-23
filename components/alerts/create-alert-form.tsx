@@ -30,12 +30,17 @@ import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
 import type { AlertCondition, AlertType, CandleDirection } from "@/types/alerts";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ALERT_DEFAULT_PHONE_STORAGE_KEY,
+  CALL_CUSTOM_MESSAGE_MAX_CHARS,
+  CUSTOM_MESSAGE_MAX_CHARS,
+} from "@/lib/alert-preferences";
 
-const ALERT_DEFAULT_PHONE_STORAGE_KEY = "fx-alert:default-sms-phone";
 const ALERT_RECENT_PAIRS_STORAGE_KEY = "fx-alert:recent-pairs";
 
 const channelOptions = [
   { value: "sms" as const, label: "SMS" },
+  { value: "call" as const, label: "Call" },
   { value: "sound" as const, label: "Sound (in-app)" },
 ];
 
@@ -124,10 +129,10 @@ const alertFormSchema = z
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
-    notifyVia: z.array(z.enum(["sms", "sound"])),
+    notifyVia: z.array(z.enum(["sms", "call", "sound"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
-    custom_message: z.string().trim().max(500, "Custom message must be 500 characters or less").optional(),
+    custom_message: z.string().trim().optional(),
   })
   .superRefine((value, ctx) => {
     const selectedChannels = value.notifyVia;
@@ -191,6 +196,30 @@ const alertFormSchema = z
         path: ["phone"],
         message: "Phone number is required for SMS notifications",
       });
+    }
+
+    if (selectedSet.has("call") && !value.phone) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["phone"],
+        message: "Phone number is required for call notifications",
+      });
+    }
+
+    const customMessage = value.custom_message?.trim() ?? "";
+    if (customMessage) {
+      const maxLen = selectedSet.has("call")
+        ? CALL_CUSTOM_MESSAGE_MAX_CHARS
+        : CUSTOM_MESSAGE_MAX_CHARS;
+      if (customMessage.length > maxLen) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["custom_message"],
+          message: selectedSet.has("call")
+            ? `Custom message must be ${CALL_CUSTOM_MESSAGE_MAX_CHARS} characters or less (~1 minute when spoken)`
+            : `Custom message must be ${CUSTOM_MESSAGE_MAX_CHARS} characters or less`,
+        });
+      }
     }
 
     if (value.email && !z.email().safeParse(value.email).success) {
@@ -389,7 +418,11 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
 
   const notifyVia = form.watch("notifyVia");
   const selectedChannelSet = useMemo(() => new Set(notifyVia), [notifyVia]);
-  const showPhoneInput = selectedChannelSet.has("sms");
+  const showPhoneInput = selectedChannelSet.has("sms") || selectedChannelSet.has("call");
+  const isCallChannel = selectedChannelSet.has("call");
+  const customMessageMaxChars = isCallChannel
+    ? CALL_CUSTOM_MESSAGE_MAX_CHARS
+    : CUSTOM_MESSAGE_MAX_CHARS;
   const livePrice = selectedPair ? pairPriceMap.get(selectedPair) : undefined;
 
   const selectedPriceValue = selectedAlertType === "price"
@@ -428,16 +461,18 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
     try {
       const alertType = values.alert_type as AlertType;
       const channelsToCreate = values.notifyVia.filter(
-        (channel): channel is "sms" | "sound" => channel === "sms" || channel === "sound"
+        (channel): channel is "sms" | "call" | "sound" =>
+          channel === "sms" || channel === "call" || channel === "sound"
       );
 
       for (const channel of channelsToCreate) {
+        const needsPhone = channel === "sms" || channel === "call";
         const basePayload = {
           alert_type: alertType,
           pair: normalizePair(values.pair).replace("/", ""),
           channel,
           email: undefined,
-          phone: channel === "sms" ? values.phone : "",
+          phone: needsPhone ? values.phone : "",
           custom_message: values.custom_message || undefined,
         };
 
@@ -799,7 +834,8 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
                       ))}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      SMS sends a text message. Sound plays in the browser when enabled in Settings.
+                      SMS sends a text message. Call places a voice alert via Twilio. Sound plays in the
+                      browser when enabled in Settings.
                     </p>
                     <FormMessage />
                   </FormItem>
@@ -813,7 +849,7 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        SMS Number (International)
+                        Alert phone number (international)
                       </FormLabel>
                       <FormControl>
                         <InputGroup className="h-12 border-border bg-background">
@@ -828,7 +864,7 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
                         </InputGroup>
                       </FormControl>
                       <p className="text-xs text-muted-foreground">
-                        Required for SMS alerts.
+                        Required for SMS and call alerts. Uses your default from Settings when saved.
                       </p>
                       <FormMessage />
                     </FormItem>
@@ -846,10 +882,18 @@ export function CreateAlertForm({ initialPair, initialAlertType, initialTargetPr
                       <Textarea
                         placeholder="e.g. EUR/USD has hit your target, time to act!"
                         className="min-h-22 resize-none border-border bg-background"
+                        maxLength={customMessageMaxChars}
                         {...field}
                       />
                     </FormControl>
-                    <p className="text-xs text-muted-foreground">This message will be included in your alert notification.</p>
+                    <p className="text-xs text-muted-foreground">
+                      {isCallChannel
+                        ? `For call alerts, keep text under ${CALL_CUSTOM_MESSAGE_MAX_CHARS} characters (~1 minute when spoken).`
+                        : "This message will be included in your alert notification."}{" "}
+                      <span className="tabular-nums">
+                        {(field.value?.length ?? 0)}/{customMessageMaxChars}
+                      </span>
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

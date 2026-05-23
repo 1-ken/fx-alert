@@ -15,8 +15,7 @@ import {
   ALERT_SOUND_WAV_PATHS,
   ALERT_SOUND_MP3_PATHS,
 } from "@/lib/alert-sound";
-
-const ALERT_DEFAULT_PHONE_STORAGE_KEY = "fx-alert:default-sms-phone";
+import { ALERT_DEFAULT_PHONE_STORAGE_KEY } from "@/lib/alert-preferences";
 
 export default function SettingsPage() {
   const [phoneNumber, setPhoneNumber] = useState(() => {
@@ -102,12 +101,12 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Default SMS Number</CardTitle>
+          <CardTitle>Default alert phone</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This number pre-fills the phone field when creating SMS alerts. You can still edit it per
-            alert.
+            This number pre-fills the phone field when creating SMS and call alerts. You can still edit
+            it per alert.
           </p>
           <Input
             value={phoneNumber}

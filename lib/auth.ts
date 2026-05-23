@@ -65,13 +65,14 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       // Initial sign in
       if (user) {
         token.userId = user.id;
         token.email = user.email;
         token.name = user.name;
         token.picture = user.image;
+        token.authProvider = account?.provider ?? "credentials";
       }
 
       if (!token.userId && token.sub) {
@@ -108,6 +109,9 @@ export const authOptions: NextAuthOptions = {
               const { signObserverAccessToken } = await import("@/lib/observer-access-token");
               return signObserverAccessToken(session.user.id);
             })();
+
+      session.authProvider =
+        typeof token.authProvider === "string" ? token.authProvider : undefined;
 
       return session;
     },

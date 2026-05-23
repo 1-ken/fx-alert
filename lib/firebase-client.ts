@@ -1,4 +1,6 @@
+import type { FirebaseApp } from "firebase/app";
 import { getApp, getApps, initializeApp } from "firebase/app";
+import type { Auth } from "firebase/auth";
 import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
 
 const firebaseConfig = {
@@ -10,9 +12,34 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+export function isFirebaseConfigured(): boolean {
+  return Boolean(
+    firebaseConfig.apiKey &&
+      firebaseConfig.authDomain &&
+      firebaseConfig.projectId &&
+      firebaseConfig.appId,
+  );
+}
 
-export const firebaseAuth = getAuth(firebaseApp);
+let firebaseApp: FirebaseApp | null = null;
+let firebaseAuthInstance: Auth | null = null;
+
+export function getFirebaseApp(): FirebaseApp {
+  if (!isFirebaseConfigured()) {
+    throw new Error("Firebase is not configured.");
+  }
+  if (!firebaseApp) {
+    firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  }
+  return firebaseApp;
+}
+
+export function getFirebaseAuth(): Auth {
+  if (!firebaseAuthInstance) {
+    firebaseAuthInstance = getAuth(getFirebaseApp());
+  }
+  return firebaseAuthInstance;
+}
 
 let persistenceReady = false;
 
@@ -21,6 +48,6 @@ export async function ensureFirebaseAuthPersistence() {
     return;
   }
 
-  await setPersistence(firebaseAuth, browserLocalPersistence);
+  await setPersistence(getFirebaseAuth(), browserLocalPersistence);
   persistenceReady = true;
 }

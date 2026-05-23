@@ -7,8 +7,7 @@ import {
   signInWithCustomToken,
   signOut as firebaseSignOut,
 } from "firebase/auth";
-import { toast } from "sonner";
-import { ensureFirebaseAuthPersistence, firebaseAuth } from "@/lib/firebase-client";
+import { ensureFirebaseAuthPersistence, getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase-client";
 
 export function FirebaseAuthSync() {
   const { data: session, status } = useSession();
@@ -25,10 +24,33 @@ export function FirebaseAuthSync() {
       if (status !== "authenticated" || !session?.user?.id) {
         lastSyncedUserIdRef.current = null;
 
-        if (firebaseAuth.currentUser) {
-          await firebaseSignOut(firebaseAuth).catch(() => undefined);
+        if (isFirebaseConfigured()) {
+          try {
+            const auth = getFirebaseAuth();
+            if (auth.currentUser) {
+              await firebaseSignOut(auth).catch(() => undefined);
+            }
+          } catch {
+            // Firebase not configured or not initialized
+          }
         }
 
+        return;
+      }
+
+      // Credentials login has no email; Firebase custom-token route requires email.
+      if (session.authProvider === "credentials" || !session.user.email) {
+        return;
+      }
+
+      if (!isFirebaseConfigured()) {
+        return;
+      }
+
+      let firebaseAuth;
+      try {
+        firebaseAuth = getFirebaseAuth();
+      } catch {
         return;
       }
 
@@ -89,7 +111,11 @@ export function FirebaseAuthSync() {
 
         if (!cancelled) {
           lastSyncedUserIdRef.current = null;
-          toast.error(message);
+          // Only surface errors for OAuth users where Firebase sync is expected.
+          if (session.authProvider && session.authProvider !== "credentials") {
+            const { toast } = await import("sonner");
+            toast.error(message);
+          }
         }
       }
     };
@@ -99,7 +125,7 @@ export function FirebaseAuthSync() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id, status]);
+  }, [session?.authProvider, session?.user?.email, session?.user?.id, status]);
 
   return null;
 }
