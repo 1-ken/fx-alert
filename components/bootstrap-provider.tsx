@@ -1,69 +1,66 @@
 "use client";
 
-import React, { createContext, useContext, ReactNode, useState, useEffect } from "react";
+import React, { createContext, useContext, ReactNode } from "react";
 import { useSession } from "next-auth/react";
-import { getMe, BootstrapData } from "@/lib/api/bootstrap";
+import useSWR from "swr";
+import {
+  authFetcher,
+  getSwrLoadState,
+  SWR_STATIC_OPTIONS,
+} from "@/lib/swr-config";
+import type { BootstrapData } from "@/lib/api/bootstrap";
 
 interface BootstrapContextType {
   bootstrap: BootstrapData | null;
   isLoading: boolean;
+  isInitialLoading: boolean;
+  isRefreshing: boolean;
   error: Error | null;
-  refetch: () => Promise<void>;
+  refetch: () => Promise<BootstrapData | undefined>;
 }
 
 const BootstrapContext = createContext<BootstrapContextType | undefined>(undefined);
 
+/**
+ * Provides cached user bootstrap data (onboarding state, WS URL) via SWR.
+ */
 export function BootstrapProvider({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
-  const [bootstrap, setBootstrap] = useState<BootstrapData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
+  const userId = session?.user?.id;
+  const accessToken = (session as { accessToken?: string } | null)?.accessToken;
 
-  const fetchBootstrap = React.useCallback(async () => {
-    if (!session?.user?.id) {
-      console.log("[Bootstrap] No session found, skipping bootstrap fetch");
-      setBootstrap(null);
-      setIsLoading(false);
-      return;
-    }
+  const swrKey =
+    userId && accessToken ? (["/api/bootstrap/me", accessToken] as const) : null;
 
-    console.log("[Bootstrap] Fetching bootstrap data for user:", session.user.id);
-    setIsLoading(true);
-    setError(null);
+  const { data, error, isLoading, isValidating, mutate } = useSWR<BootstrapData>(
+    swrKey,
+    authFetcher,
+    SWR_STATIC_OPTIONS,
+  );
 
-    try {
-      const data = await getMe(session);
-      console.log("[Bootstrap] Bootstrap data fetched:", data);
-      
-      if (data) {
-        console.log("[Bootstrap] User onboarding status:", {
-          isFirstTimeUser: data.isFirstTimeUser,
-          onboardingCompletedAt: data.onboardingCompletedAt,
-        });
-      } else {
-        console.warn("[Bootstrap] Failed to fetch bootstrap data - response was null");
-      }
-      
-      setBootstrap(data);
-    } catch (err) {
-      console.error("[Bootstrap] Error fetching bootstrap:", err);
-      setError(err instanceof Error ? err : new Error("Unknown error"));
-      setBootstrap(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [session]);
-
-  useEffect(() => {
-    fetchBootstrap();
-  }, [fetchBootstrap]);
+  const { isInitialLoading, isRefreshing } = getSwrLoadState({
+    data,
+    error,
+    isLoading,
+    isValidating,
+  });
 
   const refetch = React.useCallback(async () => {
-    await fetchBootstrap();
-  }, [fetchBootstrap]);
+    const result = await mutate();
+    return result ?? undefined;
+  }, [mutate]);
 
   return (
-    <BootstrapContext.Provider value={{ bootstrap, isLoading, error, refetch }}>
+    <BootstrapContext.Provider
+      value={{
+        bootstrap: data ?? null,
+        isLoading: isInitialLoading,
+        isInitialLoading,
+        isRefreshing,
+        error: error instanceof Error ? error : error ? new Error(String(error)) : null,
+        refetch,
+      }}
+    >
       {children}
     </BootstrapContext.Provider>
   );

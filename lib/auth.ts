@@ -66,7 +66,6 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async jwt({ token, user, account }) {
-      // Initial sign in
       if (user) {
         token.userId = user.id;
         token.email = user.email;
@@ -81,8 +80,27 @@ export const authOptions: NextAuthOptions = {
 
       if (token.userId) {
         const { signObserverAccessToken } = await import("@/lib/observer-access-token");
-        // Refresh API token on each session update so WebSocket auth stays valid.
         token.accessToken = await signObserverAccessToken(String(token.userId));
+
+        if (account?.provider === "google" && user) {
+          try {
+            await fetch(`${getApiBaseUrl()}/api/v1/auth/oauth/google-sync`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token.accessToken}`,
+              },
+              body: JSON.stringify({
+                google_sub: user.id,
+                email: user.email ?? null,
+                display_name: user.name ?? null,
+                avatar_url: user.image ?? null,
+              }),
+            });
+          } catch {
+            // Non-blocking: user can still use the app if sync fails temporarily.
+          }
+        }
       }
 
       return token;

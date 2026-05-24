@@ -7,11 +7,13 @@ interface WsTokenResponse {
   accessToken: string;
 }
 
+/**
+ * Builds WebSocket URL and access token from session + bootstrap cache.
+ */
 export function useObserverWsToken() {
   const { data: session } = useSession();
-  const { bootstrap, isLoading } = useBootstrap();
+  const { bootstrap, isInitialLoading } = useBootstrap();
 
-  // Return data in the expected format
   const data = bootstrap && session?.accessToken
     ? {
         wsUrl: bootstrap.wsUrl?.trim() || getObserverWebSocketUrl(),
@@ -21,7 +23,7 @@ export function useObserverWsToken() {
 
   return {
     data: data as WsTokenResponse | undefined,
-    isLoading: isLoading || !bootstrap,
+    isLoading: isInitialLoading || !bootstrap,
     error: null,
   };
 }

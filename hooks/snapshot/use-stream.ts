@@ -1,24 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { mutate as globalMutate } from "swr";
 import {
+  API_ENDPOINTS,
   EXPLICIT_OBSERVER_WS_URL,
   getObserverWebSocketUrl,
   normalizeObserverWebSocketUrl,
 } from "@/lib/constants";
 import { useObserverWsToken } from "@/hooks/observer/use-ws-token";
-import { normalizeAlertsResponse } from "@/hooks/alerts/use-alerts";
+import {
+  normalizeAlertsResponse,
+  useObserverAlerts,
+} from "@/hooks/alerts/use-alerts";
 import {
   normalizeMarketSnapshot,
   useObserverSnapshot,
 } from "@/hooks/snapshot/use-snapshot";
 import type { StreamPayload } from "@/types/snapshot";
 
+/**
+ * Live market stream via WebSocket with SWR snapshot/alert cache updates.
+ */
 export function useObserverStream() {
   const [status, setStatus] = useState<"live" | "reconnecting" | "offline">("reconnecting");
   const [fallbackEnabled, setFallbackEnabled] = useState<boolean>(false);
   const [lastStreamTickAt, setLastStreamTickAt] = useState<string | null>(null);
-  const [streamAlerts, setStreamAlerts] = useState(() =>
-    normalizeAlertsResponse(undefined)
-  );
   const [changeMap, setChangeMap] = useState<
     Record<string, { delta: number; deltaPercent: number }>
   >({});
@@ -27,9 +32,11 @@ export function useObserverStream() {
   const { data: wsTokenData, isLoading: isWsTokenLoading } = useObserverWsToken();
   const snapshotSWR = useObserverSnapshot(fallbackEnabled);
   const { mutate: mutateSnapshot } = snapshotSWR;
+  const { alerts } = useObserverAlerts();
+
   const normalizedSnapshot = useMemo(
     () => normalizeMarketSnapshot(snapshotSWR.data),
-    [snapshotSWR.data]
+    [snapshotSWR.data],
   );
 
   const wsUrl = useMemo(() => {
@@ -97,7 +104,6 @@ export function useObserverStream() {
           }
 
           setLastStreamTickAt(normalizedPayload.ts ?? new Date().toISOString());
-          setStreamAlerts(normalizedAlerts);
 
           const nextChangeMap: Record<string, { delta: number; deltaPercent: number }> = {};
 
@@ -113,6 +119,16 @@ export function useObserverStream() {
 
           setChangeMap(nextChangeMap);
           await mutateSnapshot(normalizedPayload, { revalidate: false });
+          await globalMutate(
+            API_ENDPOINTS.OBSERVER_PROXY.ALERTS,
+            {
+              total: normalizedAlerts.total,
+              active: normalizedAlerts.active,
+              triggered: normalizedAlerts.triggered,
+              all: normalizedAlerts.all,
+            },
+            { revalidate: false },
+          );
         } catch (error) {
           console.error("[WebSocket] Failed to process message:", error);
         }
@@ -163,9 +179,10 @@ export function useObserverStream() {
 
   return {
     snapshot: normalizedSnapshot,
-    alerts: streamAlerts,
+    alerts,
     snapshotError: snapshotSWR.error,
-    isSnapshotLoading: snapshotSWR.isLoading,
+    isSnapshotLoading: snapshotSWR.isInitialLoading,
+    isSnapshotRefreshing: snapshotSWR.isRefreshing,
     status,
     lastUpdatedAt: normalizedSnapshot?.ts ?? null,
     lastStreamTickAt,

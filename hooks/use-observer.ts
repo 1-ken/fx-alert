@@ -1,21 +1,17 @@
 import useSWR from "swr";
 import { API_ENDPOINTS } from "@/lib/constants";
+import { fetcher, SWR_STATIC_OPTIONS } from "@/lib/swr-config";
 import type { ClientConfig } from "@/types/observer";
 
-export const fetcher = async <T>(url: string): Promise<T> => {
-  const response = await fetch(url);
+export { fetcher } from "@/lib/swr-config";
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(body || "Request failed");
-  }
-
-  return response.json() as Promise<T>;
-};
-
+/**
+ * Loads observer client config (WebSocket URL hints) with long-lived cache.
+ */
 export function useObserverClientConfig() {
-  return useSWR<ClientConfig>(API_ENDPOINTS.OBSERVER_PROXY.CLIENT_CONFIG, fetcher, {
-    revalidateOnFocus: false,
-    dedupingInterval: 60_000,
-  });
+  return useSWR<ClientConfig>(
+    API_ENDPOINTS.OBSERVER_PROXY.CLIENT_CONFIG,
+    fetcher,
+    SWR_STATIC_OPTIONS,
+  );
 }

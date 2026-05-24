@@ -8,7 +8,8 @@ export interface ForexPair {
   ask?: number;
   spread?: number;
   common_name?: string;
-  category?: "currency" | "commodity";
+  category?: "currency" | "commodity" | "index";
+  source?: string;
 }
 
 export interface MarketSnapshot {

@@ -20,7 +20,7 @@ export default function AlertDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const alertId = params.id;
-  const { alert, isLoading, error } = useObserverAlert(alertId);
+  const { alert, isInitialLoading, error } = useObserverAlert(alertId);
   const { updateAlert } = useObserverAlerts();
 
   const [targetPrice, setTargetPrice] = useState("");
@@ -38,7 +38,7 @@ export default function AlertDetailPage() {
     }
   }, [alert]);
 
-  if (isLoading) {
+  if (isInitialLoading && !alert) {
     return <p className="p-6 text-sm text-muted-foreground">Loading alert...</p>;
   }
 

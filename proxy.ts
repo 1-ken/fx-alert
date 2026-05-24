@@ -15,8 +15,8 @@ import { getToken } from 'next-auth/jwt';
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Public routes that don't require authentication
-  const publicPageRoutes = ['/login'];
+  // Public routes that don't require NextAuth (admin uses its own OTP + secret path)
+  const publicPageRoutes = ['/login', '/admin'];
   const isPublicPage = publicPageRoutes.some(route => pathname.startsWith(route));
 
   // Get authentication token

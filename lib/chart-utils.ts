@@ -56,7 +56,37 @@ export function mergeFormingCandle(
   return merged;
 }
 
-export function getChartTheme(isDark: boolean): {
+export function getChartScaleOptions(isMobile: boolean) {
+  if (!isMobile) {
+    return {
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+      },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    };
+  }
+
+  return {
+    rightPriceScale: {
+      borderVisible: true,
+      minimumWidth: 56,
+      scaleMargins: { top: 0.08, bottom: 0.08 },
+    },
+    timeScale: {
+      borderVisible: true,
+      timeVisible: true,
+      secondsVisible: false,
+      rightOffset: 8,
+    },
+  };
+}
+
+export function getChartTheme(isDark: boolean, isMobile = false): {
   layout: DeepPartial<ChartOptions>["layout"];
   grid: DeepPartial<ChartOptions>["grid"];
   candlestick: {
@@ -68,11 +98,14 @@ export function getChartTheme(isDark: boolean): {
     wickDownColor: string;
   };
 } {
+  const fontSize = isMobile ? 12 : undefined;
+
   if (isDark) {
     return {
       layout: {
         background: { color: "transparent" },
         textColor: "#a1a1aa",
+        ...(fontSize ? { fontSize } : {}),
       },
       grid: {
         vertLines: { color: "rgba(255,255,255,0.06)" },
@@ -92,6 +125,7 @@ export function getChartTheme(isDark: boolean): {
     layout: {
       background: { color: "transparent" },
       textColor: "#71717a",
+      ...(fontSize ? { fontSize } : {}),
     },
     grid: {
       vertLines: { color: "rgba(0,0,0,0.06)" },

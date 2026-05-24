@@ -1,7 +1,7 @@
 import useSWR from "swr";
 import { useMemo } from "react";
 import { API_ENDPOINTS } from "@/lib/constants";
-import { fetcher } from "@/hooks/use-observer";
+import { fetcher, getSwrLoadState, SWR_LIST_OPTIONS } from "@/lib/swr-config";
 import type { MarketSnapshot } from "@/types/snapshot";
 
 export function normalizePairSymbol(pair: string): string {
@@ -43,6 +43,7 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
     : [
         ...(Array.isArray(pairsRecord?.currencies) ? pairsRecord.currencies : []),
         ...(Array.isArray(pairsRecord?.commodities) ? pairsRecord.commodities : []),
+        ...(Array.isArray(pairsRecord?.indices) ? pairsRecord.indices : []),
       ];
 
   const pairs = rawPairs
@@ -58,6 +59,9 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
         return null;
       }
 
+      const source =
+        typeof pairRecord.source === "string" ? pairRecord.source.toLowerCase() : undefined;
+
       const bid = parseNumericValue(pairRecord.bid);
       const ask = parseNumericValue(pairRecord.ask);
       const spread = parseNumericValue(pairRecord.spread);
@@ -72,10 +76,20 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
         return null;
       }
 
-      const category =
-        Array.isArray(pairsRecord?.commodities) && pairsRecord.commodities.includes(rawPair)
-          ? "commodity"
-          : "currency";
+      let category: MarketSnapshot["pairs"][number]["category"] = "currency";
+      if (
+        source === "usd-index" ||
+        source === "dxy" ||
+        pair.toUpperCase().includes("DXY")
+      ) {
+        category = "index";
+      } else if (
+        source === "commodities" ||
+        source === "bonds" ||
+        (Array.isArray(pairsRecord?.commodities) && pairsRecord.commodities.includes(rawPair))
+      ) {
+        category = "commodity";
+      }
 
       return {
         pair: normalizePairSymbol(pair),
@@ -85,6 +99,7 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
         ...(ask !== null ? { ask } : {}),
         ...(spread !== null ? { spread } : {}),
         ...(commonName ? { common_name: commonName } : {}),
+        ...(source ? { source } : {}),
         category,
       };
     })
@@ -100,16 +115,23 @@ export function normalizeMarketSnapshot(payload: unknown): MarketSnapshot | null
   };
 }
 
+/**
+ * Market snapshot with optional polling fallback when WebSocket is offline.
+ */
 export function useObserverSnapshot(enablePolling: boolean) {
   const swr = useSWR<unknown>(API_ENDPOINTS.OBSERVER_PROXY.SNAPSHOT, fetcher, {
-    revalidateOnFocus: false,
+    ...SWR_LIST_OPTIONS,
     refreshInterval: enablePolling ? 5_000 : 0,
   });
 
   const normalizedData = useMemo(() => normalizeMarketSnapshot(swr.data), [swr.data]);
+  const { isInitialLoading, isRefreshing } = getSwrLoadState(swr);
 
   return {
     ...swr,
     data: normalizedData,
+    isInitialLoading,
+    isRefreshing,
+    isLoading: isInitialLoading,
   };
 }

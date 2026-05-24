@@ -68,7 +68,8 @@ export function CandlestickChart({
     showForming ? { pair: "", interval } : ohlcParams,
   );
 
-  const { data, isLoading, error } = showForming ? formingQuery : closedQuery;
+  const activeQuery = showForming ? formingQuery : closedQuery;
+  const { data, isInitialLoading, error } = activeQuery;
 
   const seriesData = useMemo(() => {
     const closed = data?.candles ?? [];
@@ -146,6 +147,9 @@ export function CandlestickChart({
   }, [seriesData]);
 
   const pairLabel = pair.replace("/", "").toUpperCase();
+  const showSkeleton = isInitialLoading && !data;
+  const showEmpty = !showSkeleton && !error && seriesData.length === 0;
+  const showChart = !showSkeleton && !error && seriesData.length > 0;
 
   return (
     <Card className={className}>
@@ -169,25 +173,25 @@ export function CandlestickChart({
         ) : null}
       </CardHeader>
       <CardContent>
-        {isLoading && <Skeleton className="w-full" style={{ height }} />}
-        {error && (
+        {showSkeleton ? <Skeleton className="w-full" style={{ height }} /> : null}
+        {error ? (
           <p className="text-sm text-destructive" style={{ minHeight: height }}>
             Could not load chart data.
           </p>
-        )}
-        {!isLoading && !error && seriesData.length === 0 && (
+        ) : null}
+        {showEmpty ? (
           <p
             className="flex items-center text-sm text-muted-foreground"
             style={{ minHeight: height }}
           >
             No candle data yet.
           </p>
-        )}
+        ) : null}
         <div
           ref={containerRef}
-          className={isLoading || error || seriesData.length === 0 ? "hidden" : "w-full"}
+          className={showChart ? "w-full" : "hidden"}
           style={{ height }}
-          aria-hidden={isLoading || !!error || seriesData.length === 0}
+          aria-hidden={!showChart}
         />
       </CardContent>
     </Card>

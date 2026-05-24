@@ -69,6 +69,7 @@ export const API_ENDPOINTS = {
   },
   OBSERVER_PROXY: {
     ALERTS: "/api/observer/alerts",
+    FAVORITES: "/api/observer/favorites",
     SNAPSHOT: "/api/observer/snapshot",
     HEALTH: "/api/observer/stream-health",
     CLIENT_CONFIG: "/api/observer/client-config",

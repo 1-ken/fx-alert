@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import { formatKenyaDateTime } from "@/lib/datetime";
 
 type AlertStatusFilter =
   | "all"
@@ -123,12 +124,7 @@ function formatDateTime(value: string | null): string {
     return "-";
   }
 
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) {
-    return "-";
-  }
-
-  return date.toLocaleString();
+  return formatKenyaDateTime(value);
 }
 
 function formatTriggerDuration(createdAt: string, triggeredAt: string | null): string {
@@ -162,7 +158,7 @@ function formatTriggerDuration(createdAt: string, triggeredAt: string | null): s
 export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
   const status = normalizeStatus(initialStatus);
   const type = normalizeType(initialType);
-  const { alerts, isLoading, deleteAlert } = useObserverAlerts();
+  const { alerts, isInitialLoading, isRefreshing, deleteAlert } = useObserverAlerts();
   const [deleteTarget, setDeleteTarget] = useState<(typeof alerts.all)[number] | null>(null);
   const [selectedAlertIds, setSelectedAlertIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
@@ -408,7 +404,7 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
         </div>
       ) : null}
 
-      {isLoading ? (
+      {isInitialLoading && alerts.all.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
             Loading alerts...
@@ -439,17 +435,19 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                     <Badge variant={alert.status === "active" ? "default" : "secondary"}>
                       {alert.status}
                     </Badge>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground"
-                      asChild
-                    >
-                      <Link href={`/alerts/${alert.id}`} aria-label={`Edit alert for ${alert.pair}`}>
-                        <PencilIcon className="h-4 w-4" />
-                      </Link>
-                    </Button>
+                    {alert.status !== "triggered" ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        asChild
+                      >
+                        <Link href={`/alerts/${alert.id}`} aria-label={`Edit alert for ${alert.pair}`}>
+                          <PencilIcon className="h-4 w-4" />
+                        </Link>
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"

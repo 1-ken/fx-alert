@@ -2,7 +2,8 @@ import { useCallback } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
 import { API_ENDPOINTS } from "@/lib/constants";
-import { fetcher } from "@/hooks/use-observer";
+import { generateId } from "@/lib/id";
+import { fetcher, getSwrLoadState, SWR_LIST_OPTIONS } from "@/lib/swr-config";
 import type {
   Alert,
   AlertCondition,
@@ -115,97 +116,234 @@ export function normalizeAlertsResponse(payload: unknown): AlertsResponse {
   };
 }
 
+function toCachePayload(response: AlertsResponse): Record<string, unknown> {
+  return {
+    total: response.total,
+    active: response.active,
+    triggered: response.triggered,
+    all: response.all,
+  };
+}
+
+function applyAlertPatch(alert: Alert, input: Partial<AlertUpsertInput>): Alert {
+  return {
+    ...alert,
+    ...(input.pair !== undefined ? { pair: input.pair } : {}),
+    ...(input.alert_type !== undefined ? { alert_type: input.alert_type } : {}),
+    ...(input.target_price !== undefined ? { target_price: input.target_price } : {}),
+    ...(input.condition !== undefined ? { condition: input.condition } : {}),
+    ...(input.interval !== undefined ? { interval: input.interval } : {}),
+    ...(input.direction !== undefined ? { direction: input.direction } : {}),
+    ...(input.threshold !== undefined ? { threshold: input.threshold } : {}),
+    ...(input.channel !== undefined ? { channel: input.channel } : {}),
+    ...(input.email !== undefined ? { email: input.email } : {}),
+    ...(input.phone !== undefined ? { phone: input.phone } : {}),
+    ...(input.custom_message !== undefined ? { custom_message: input.custom_message } : {}),
+  };
+}
+
+function patchAlertsCache(
+  cache: unknown,
+  alertId: string,
+  patch: Partial<AlertUpsertInput>,
+): Record<string, unknown> | undefined {
+  const current = normalizeAlertsResponse(cache);
+  const target = current.all.find((alert) => alert.id === alertId);
+  if (!target) {
+    return undefined;
+  }
+
+  const updated = applyAlertPatch(target, patch);
+  const mapList = (list: Alert[]) =>
+    list.map((alert) => (alert.id === alertId ? updated : alert));
+
+  return toCachePayload({
+    ...current,
+    active: mapList(current.active),
+    triggered: mapList(current.triggered),
+    all: mapList(current.all),
+  });
+}
+
+function appendAlertToCache(cache: unknown, alert: Alert): Record<string, unknown> {
+  const current = normalizeAlertsResponse(cache);
+  const active = [...current.active, alert];
+  const all = [...current.all, alert];
+
+  return toCachePayload({
+    total: current.total + 1,
+    active,
+    triggered: current.triggered,
+    all,
+  });
+}
+
+function removeAlertFromCache(cache: unknown, alertId: string): Record<string, unknown> {
+  const current = normalizeAlertsResponse(cache);
+  const filter = (list: Alert[]) => list.filter((alert) => alert.id !== alertId);
+
+  return toCachePayload({
+    total: current.total > 0 ? current.total - 1 : 0,
+    active: filter(current.active),
+    triggered: filter(current.triggered),
+    all: filter(current.all),
+  });
+}
+
+function buildOptimisticAlert(input: AlertUpsertInput): Alert {
+  return {
+    id: `optimistic-${generateId()}`,
+    pair: input.pair,
+    alert_type: input.alert_type ?? "price",
+    target_price: input.target_price ?? null,
+    condition: input.condition ?? null,
+    interval: input.interval ?? null,
+    direction: input.direction ?? null,
+    threshold: input.threshold ?? null,
+    last_evaluated_candle_time: null,
+    status: "active",
+    channel: input.channel ?? "email",
+    email: input.email ?? "",
+    phone: input.phone ?? "",
+    custom_message: input.custom_message ?? "",
+    created_at: new Date().toISOString(),
+    triggered_at: null,
+    last_checked_price: null,
+  };
+}
+
+/**
+ * Loads and mutates user alerts with SWR caching and optimistic updates.
+ */
 export function useObserverAlerts() {
-  const { data, error, isLoading, mutate } = useSWR<unknown>(
+  const swr = useSWR<unknown>(
     API_ENDPOINTS.OBSERVER_PROXY.ALERTS,
     fetcher,
-    {
-      revalidateOnFocus: false,
-    }
+    SWR_LIST_OPTIONS,
   );
+
+  const { data, error, isLoading, isValidating, mutate } = swr;
+  const { isInitialLoading, isRefreshing } = getSwrLoadState({
+    data,
+    error,
+    isLoading,
+    isValidating,
+  });
 
   const alerts = normalizeAlertsResponse(data);
   const hasFetched = data !== undefined;
 
   const createAlert = useCallback(
     async (input: AlertUpsertInput): Promise<Alert | null> => {
-      const response = await fetch(API_ENDPOINTS.OBSERVER_PROXY.ALERTS, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
+      const optimisticAlert = buildOptimisticAlert(input);
+      const optimisticCache = hasFetched
+        ? appendAlertToCache(data, optimisticAlert)
+        : toCachePayload({
+            total: 1,
+            active: [optimisticAlert],
+            triggered: [],
+            all: [optimisticAlert],
+          });
 
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(body || "Failed to create alert");
+      await mutate(optimisticCache, { revalidate: false });
+
+      try {
+        const response = await fetch(API_ENDPOINTS.OBSERVER_PROXY.ALERTS, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(input),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error(body || "Failed to create alert");
+        }
+
+        const payload = (await response.json()) as AlertUpsertResponse;
+        await mutate();
+        toast.success("Alert created successfully");
+        return payload.alert;
+      } catch (createError) {
+        await mutate();
+        throw createError;
       }
-
-      const payload = (await response.json()) as AlertUpsertResponse;
-      await mutate();
-      toast.success("Alert created successfully");
-      return payload.alert;
     },
-    [mutate]
+    [data, hasFetched, mutate],
   );
 
   const deleteAlert = useCallback(
     async (alertId: string): Promise<void> => {
-      const optimistic = hasFetched
-        ? {
-            ...alerts,
-            active: alerts.active.filter((alert) => alert.id !== alertId),
-            triggered: alerts.triggered.filter((alert) => alert.id !== alertId),
-            all: alerts.all.filter((alert) => alert.id !== alertId),
-            total: alerts.total > 0 ? alerts.total - 1 : 0,
-          }
-        : undefined;
+      const optimistic = hasFetched ? removeAlertFromCache(data, alertId) : undefined;
 
       await mutate(optimistic, { revalidate: false });
 
-      const response = await fetch(`${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}`, {
-        method: "DELETE",
-      });
+      try {
+        const response = await fetch(`${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}`, {
+          method: "DELETE",
+        });
 
-      if (!response.ok) {
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error(body || "Failed to delete alert");
+        }
+
         await mutate();
-        const body = await response.text();
-        throw new Error(body || "Failed to delete alert");
+        toast.success("Alert deleted");
+      } catch (deleteError) {
+        await mutate();
+        throw deleteError;
       }
-
-      await mutate();
-      toast.success("Alert deleted");
     },
-    [alerts, hasFetched, mutate]
+    [data, hasFetched, mutate],
   );
 
   const updateAlert = useCallback(
-    async (alertId: string, input: Partial<AlertUpsertInput>): Promise<Alert | null> => {
-      const response = await fetch(`${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
+    async (
+      alertId: string,
+      input: Partial<AlertUpsertInput>,
+      options?: { silent?: boolean },
+    ): Promise<Alert | null> => {
+      const optimistic = hasFetched ? patchAlertsCache(data, alertId, input) : undefined;
 
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(body || "Failed to update alert");
+      if (optimistic) {
+        await mutate(optimistic, { revalidate: false });
       }
 
-      const payload = (await response.json()) as AlertUpsertResponse;
-      await mutate();
-      toast.success("Alert updated");
-      return payload.alert;
+      try {
+        const response = await fetch(`${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(input),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new Error(body || "Failed to update alert");
+        }
+
+        const payload = (await response.json()) as AlertUpsertResponse;
+        await mutate();
+        if (!options?.silent) {
+          toast.success("Alert updated");
+        }
+        return payload.alert;
+      } catch (updateError) {
+        await mutate();
+        throw updateError;
+      }
     },
-    [mutate]
+    [data, hasFetched, mutate],
   );
 
   return {
     alerts,
-    isLoading,
+    isLoading: isInitialLoading,
+    isInitialLoading,
+    isRefreshing,
     error,
     mutate,
     createAlert,
@@ -214,19 +352,22 @@ export function useObserverAlerts() {
   };
 }
 
+/**
+ * Loads a single alert by id with SWR caching.
+ */
 export function useObserverAlert(alertId: string | null) {
   const key = alertId ? `${API_ENDPOINTS.OBSERVER_PROXY.ALERTS}/${alertId}` : null;
 
-  const { data, error, isLoading, mutate } = useSWR<unknown>(key, fetcher, {
-    revalidateOnFocus: false,
-  });
-
-  const alert = normalizeAlert(data);
+  const swr = useSWR<unknown>(key, fetcher, SWR_LIST_OPTIONS);
+  const { isInitialLoading, isRefreshing } = getSwrLoadState(swr);
+  const alert = normalizeAlert(swr.data);
 
   return {
     alert,
-    isLoading,
-    error,
-    mutate,
+    isLoading: isInitialLoading,
+    isInitialLoading,
+    isRefreshing,
+    error: swr.error,
+    mutate: swr.mutate,
   };
 }

@@ -10,12 +10,15 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   isSoundAlertsEnabled,
+  playAlertSoundPreview,
   setSoundAlertsEnabled,
+  unlockAlertAudio,
   SOUND_ALERTS_ENABLED_KEY,
   ALERT_SOUND_WAV_PATHS,
   ALERT_SOUND_MP3_PATHS,
 } from "@/lib/alert-sound";
 import { ALERT_DEFAULT_PHONE_STORAGE_KEY } from "@/lib/alert-preferences";
+import { logoutUser } from "@/lib/auth-client";
 
 export default function SettingsPage() {
   const [phoneNumber, setPhoneNumber] = useState(() => {
@@ -39,10 +42,23 @@ export default function SettingsPage() {
     toast.success("Default alert phone number saved");
   };
 
-  const handleSoundToggle = (enabled: boolean) => {
+  const handleSoundToggle = async (enabled: boolean) => {
+    if (enabled) {
+      await unlockAlertAudio();
+    }
     setSoundAlertsEnabled(enabled);
     setSoundAlertsEnabledState(enabled);
     toast.success(enabled ? "Sound alerts enabled" : "Sound alerts disabled");
+  };
+
+  const handleTestSound = async () => {
+    await unlockAlertAudio();
+    try {
+      await playAlertSoundPreview();
+      toast.success("Playing test sound");
+    } catch {
+      toast.error("Could not play sound — check browser permissions");
+    }
   };
 
   return (
@@ -96,6 +112,9 @@ export default function SettingsPage() {
             </div>
             <Switch checked={soundAlertsEnabled} onCheckedChange={handleSoundToggle} />
           </div>
+          <Button type="button" variant="outline" className="h-11 w-full" onClick={handleTestSound}>
+            Test sound
+          </Button>
         </CardContent>
       </Card>
 
@@ -114,8 +133,27 @@ export default function SettingsPage() {
             placeholder="e.g. +254700000000"
             className="h-12"
           />
-          <Button className="h-11" onClick={savePhoneNumber}>
+          <Button className="h-11 w-full" onClick={savePhoneNumber}>
             Save Number
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Account</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Sign out of FX Alert on this device.
+          </p>
+          <Button
+            type="button"
+            variant="destructive"
+            className="h-11 w-full"
+            onClick={() => void logoutUser("/login")}
+          >
+            Log out
           </Button>
         </CardContent>
       </Card>

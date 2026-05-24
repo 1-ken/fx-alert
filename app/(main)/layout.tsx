@@ -52,10 +52,10 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
 
 function OnboardingGuard({
   children,
-  isLoading,
+  isInitialLoading,
 }: {
   children: React.ReactNode;
-  isLoading: boolean;
+  isInitialLoading: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -66,7 +66,7 @@ function OnboardingGuard({
 
   useEffect(() => {
     console.log("[OnboardingGuard] State:", {
-      isLoading,
+      isInitialLoading,
       bootstrapAvailable: !!bootstrap,
       pathname,
       error: error?.message,
@@ -75,7 +75,7 @@ function OnboardingGuard({
       shouldRedirectToOnboarding,
     });
 
-    if (isLoading) {
+    if (isInitialLoading) {
       console.log("[OnboardingGuard] Waiting for bootstrap data...");
       return;
     }
@@ -98,14 +98,14 @@ function OnboardingGuard({
   }, [
     bootstrap,
     error,
-    isLoading,
+    isInitialLoading,
     isOnboardingPage,
     pathname,
     router,
     shouldRedirectToOnboarding,
   ]);
 
-  if (isLoading || (!bootstrap && !error)) {
+  if (isInitialLoading || (!bootstrap && !error)) {
     return (
       <div className="flex min-h-[calc(100svh-4rem)] items-center justify-center px-4">
         <div className="text-center">
@@ -148,7 +148,7 @@ export default function MainLayout({
 }) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const { isLoading: bootstrapLoading } = useBootstrap();
+  const { isInitialLoading: bootstrapLoading } = useBootstrap();
   const [isOnline, setIsOnline] = useState(() => {
     if (typeof window === "undefined") {
       return true;
@@ -197,7 +197,7 @@ export default function MainLayout({
   }
 
   return (
-    <OnboardingGuard isLoading={bootstrapLoading}>
+    <OnboardingGuard isInitialLoading={bootstrapLoading}>
       <StreamAlertsProvider>
         <AlertSoundListener />
         <Suspense fallback={null}>
