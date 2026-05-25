@@ -10,7 +10,7 @@ import { SWR_DEFAULT_OPTIONS } from "@/lib/swr-config";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <SessionProvider refetchInterval={30 * 60}>
+    <SessionProvider refetchInterval={30 * 60} refetchOnWindowFocus={false}>
       <SWRConfig value={SWR_DEFAULT_OPTIONS}>
         <ThemeProvider
           attribute="class"

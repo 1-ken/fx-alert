@@ -12,7 +12,7 @@ interface WsTokenResponse {
  */
 export function useObserverWsToken() {
   const { data: session } = useSession();
-  const { bootstrap, isInitialLoading } = useBootstrap();
+  const { bootstrap, isBootstrapBlocking } = useBootstrap();
 
   const data = bootstrap && session?.accessToken
     ? {
@@ -23,7 +23,7 @@ export function useObserverWsToken() {
 
   return {
     data: data as WsTokenResponse | undefined,
-    isLoading: isInitialLoading || !bootstrap,
+    isLoading: isBootstrapBlocking && !bootstrap,
     error: null,
   };
 }
