@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BellAlertIcon,
   MagnifyingGlassIcon,
@@ -23,12 +23,11 @@ import { formatKenyaRelative } from "@/lib/datetime";
 import { prefetchPairOhlc } from "@/lib/chart-prefetch";
 import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import { useNotificationCenter } from "@/hooks/alerts/use-notification-center";
 import { useFavorites } from "@/hooks/favorites/use-favorites";
 import { useObserverStreamContext } from "@/components/stream-alerts-provider";
 
 type DashboardTab = "favorites" | "currency" | "commodity" | "index" | "all";
-
-const TRIGGERED_BANNER_DISMISSED_KEY = "fx-alert:triggered-banner-dismissed";
 
 function formatPairLabel(pair: string): string {
   const cleanPair = pair.replace("/", "").toUpperCase();
@@ -74,18 +73,25 @@ export function DashboardPageContent() {
     isSnapshotLoading,
     changeMap,
   } = useObserverStreamContext();
-  const { alerts, isInitialLoading: alertsLoading } = useObserverAlerts();
+  const { alerts, hasFetched, isInitialLoading: alertsLoading } = useObserverAlerts();
+  const { unseenSinceVisit, markVisitNow } = useNotificationCenter(
+    alerts.triggered,
+    hasFetched,
+  );
   const { favorites, isFavorite, toggleFavorite } = useFavorites();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeTab, setActiveTab] = useState<DashboardTab>("all");
-  const [bannerDismissed, setBannerDismissed] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const prevUnseenCountRef = useRef(0);
+
+  useEffect(() => {
+    if (unseenSinceVisit.length > prevUnseenCountRef.current) {
+      setBannerDismissed(false);
     }
-    return window.sessionStorage.getItem(TRIGGERED_BANNER_DISMISSED_KEY) === "true";
-  });
+    prevUnseenCountRef.current = unseenSinceVisit.length;
+  }, [unseenSinceVisit.length]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -156,20 +162,14 @@ export function DashboardPageContent() {
     return map;
   }, [alerts.active]);
 
-  const recentTriggered = useMemo(() => {
-    return [...alerts.triggered]
-      .sort((a, b) => (b.triggered_at ?? "").localeCompare(a.triggered_at ?? ""))
-      .slice(0, 3);
-  }, [alerts.triggered]);
+  const bannerItems = useMemo(() => unseenSinceVisit.slice(0, 3), [unseenSinceVisit]);
 
   const showTriggeredBanner =
-    !alertsLoading && triggeredAlertsCount > 0 && !bannerDismissed;
+    !alertsLoading && unseenSinceVisit.length > 0 && !bannerDismissed;
 
   const dismissTriggeredBanner = () => {
     setBannerDismissed(true);
-    if (typeof window !== "undefined") {
-      window.sessionStorage.setItem(TRIGGERED_BANNER_DISMISSED_KEY, "true");
-    }
+    markVisitNow();
   };
 
   const connectionLabel =
@@ -247,7 +247,8 @@ export function DashboardPageContent() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-medium">
-                    {triggeredAlertsCount} alert{triggeredAlertsCount === 1 ? "" : "s"} triggered
+                    {unseenSinceVisit.length} alert
+                    {unseenSinceVisit.length === 1 ? "" : "s"} triggered since you were away
                   </p>
                   <Link
                     href="/alerts/list?status=triggered-today"
@@ -268,14 +269,14 @@ export function DashboardPageContent() {
                 </Button>
               </div>
               <ul className="space-y-2 text-sm">
-                {recentTriggered.map((alert) => (
+                {bannerItems.map((item) => (
                   <li
-                    key={alert.id}
+                    key={item.triggerKey}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 px-3 py-2"
                   >
-                    <span className="font-medium">{formatPairLabel(alert.pair)}</span>
+                    <span className="font-medium">{formatPairLabel(item.pair)}</span>
                     <span className="text-muted-foreground">
-                      {alert.channel} · {formatKenyaRelative(alert.triggered_at)}
+                      {item.channel} · {formatKenyaRelative(item.triggeredAt)}
                     </span>
                   </li>
                 ))}

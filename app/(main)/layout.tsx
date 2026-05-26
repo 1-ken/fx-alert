@@ -11,7 +11,7 @@ import { GlobalCreateAlertFab } from "@/components/global-create-alert-fab";
 import { OfflineSyncBanner } from "@/components/offline-sync-banner";
 import { TopNav } from "@/components/top-nav";
 import { useBootstrap } from "@/components/bootstrap-provider";
-import { AlertSoundListener } from "@/components/alert-sound-listener";
+import { TriggeredNotificationListener } from "@/components/triggered-notification-listener";
 import { StreamAlertsProvider } from "@/components/stream-alerts-provider";
 
 const LAST_ROUTE_STORAGE_KEY = "fx-alert:last-main-route";
@@ -191,7 +191,7 @@ export default function MainLayout({
   return (
     <OnboardingGuard>
       <StreamAlertsProvider>
-        <AlertSoundListener />
+        <TriggeredNotificationListener />
         <Suspense fallback={null}>
           <RoutePersistence enabled={status === "authenticated" || !isOnline} />
         </Suspense>

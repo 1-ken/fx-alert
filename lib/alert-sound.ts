@@ -1,7 +1,12 @@
 export const SOUND_ALERTS_ENABLED_KEY = "fx-alert:sound-alerts-enabled";
 export const ALERT_SOUND_DURATION_MS = 30_000;
 export const SOUND_TRIGGER_RECENCY_MS = 3 * 60 * 1000;
+/** @deprecated Merged into known trigger keys in notification center */
 export const HEARD_SOUND_TRIGGERS_KEY = "fx-alert:heard-sound-triggers";
+export const KNOWN_TRIGGER_KEYS_KEY = "fx-alert:known-trigger-keys";
+export const LAST_VISIT_AT_KEY = "fx-alert:last-visit-at";
+export const VISIT_BANNER_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const MAX_KNOWN_TRIGGER_KEYS = 500;
 
 /** WAV sources tried first, then MP3. */
 export const ALERT_SOUND_WAV_PATHS = [

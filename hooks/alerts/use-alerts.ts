@@ -341,6 +341,7 @@ export function useObserverAlerts() {
 
   return {
     alerts,
+    hasFetched,
     isLoading: isInitialLoading,
     isInitialLoading,
     isRefreshing,
