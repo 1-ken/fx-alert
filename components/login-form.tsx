@@ -73,7 +73,7 @@ export function LoginForm({
 
     try {
       const result = await signIn("credentials", {
-        username: username.trim(),
+        username: username.trim().toLowerCase(),
         password,
         redirect: false,
         callbackUrl,

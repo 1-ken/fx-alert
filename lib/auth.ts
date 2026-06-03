@@ -2,6 +2,8 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 
+import { apiFetch } from "@/lib/api-fetch";
+
 function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
@@ -23,7 +25,7 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const response = await fetch(`${getApiBaseUrl()}/api/v1/auth/login`, {
+        const response = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username, password }),
@@ -84,7 +86,9 @@ export const authOptions: NextAuthOptions = {
 
         if (account?.provider === "google" && user) {
           try {
-            await fetch(`${getApiBaseUrl()}/api/v1/auth/oauth/google-sync`, {
+            const syncResponse = await apiFetch(
+              `${getApiBaseUrl()}/api/v1/auth/oauth/google-sync`,
+              {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -97,8 +101,17 @@ export const authOptions: NextAuthOptions = {
                 avatar_url: user.image ?? null,
               }),
             });
-          } catch {
-            // Non-blocking: user can still use the app if sync fails temporarily.
+            if (!syncResponse.ok && process.env.NODE_ENV === "development") {
+              console.warn(
+                "[auth] Google user sync failed:",
+                syncResponse.status,
+                await syncResponse.text().catch(() => ""),
+              );
+            }
+          } catch (syncError) {
+            if (process.env.NODE_ENV === "development") {
+              console.warn("[auth] Google user sync error:", syncError);
+            }
           }
         }
       }

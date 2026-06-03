@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { apiFetch } from "@/lib/api-fetch";
+
 function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 }
@@ -23,7 +25,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const upstreamResponse = await fetch(`${getApiBaseUrl()}/api/v1/auth/register`, {
+  const upstreamResponse = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),

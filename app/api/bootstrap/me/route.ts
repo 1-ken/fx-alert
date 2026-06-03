@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { apiFetch } from "@/lib/api-fetch";
 
 export async function GET() {
   try {
@@ -11,7 +12,7 @@ export async function GET() {
     }
 
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const response = await fetch(`${apiBaseUrl}/me`, {
+    const response = await apiFetch(`${apiBaseUrl}/me`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
