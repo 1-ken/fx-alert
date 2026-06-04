@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BellAlertIcon,
   MagnifyingGlassIcon,
@@ -20,6 +20,7 @@ import { BottomNav } from "@/components/mobile/bottom-nav";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatKenyaRelative } from "@/lib/datetime";
+import { buildInstrumentPairUrl } from "@/lib/instrument-navigation";
 import { prefetchPairOhlc } from "@/lib/chart-prefetch";
 import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
@@ -39,10 +40,6 @@ function formatPairLabel(pair: string): string {
 
 function normalizePairSearchValue(value: string): string {
   return value.replace(/[^a-z0-9]/gi, "").toUpperCase();
-}
-
-function pairToPath(pair: string): string {
-  return encodeURIComponent(pair.replace(/[^a-z0-9]/gi, "").toUpperCase());
 }
 
 function formatPrice(price: number): string {
@@ -83,15 +80,7 @@ export function DashboardPageContent() {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeTab, setActiveTab] = useState<DashboardTab>("all");
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  const prevUnseenCountRef = useRef(0);
-
-  useEffect(() => {
-    if (unseenSinceVisit.length > prevUnseenCountRef.current) {
-      setBannerDismissed(false);
-    }
-    prevUnseenCountRef.current = unseenSinceVisit.length;
-  }, [unseenSinceVisit.length]);
+  const [dismissedAtUnseenCount, setDismissedAtUnseenCount] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -164,11 +153,14 @@ export function DashboardPageContent() {
 
   const bannerItems = useMemo(() => unseenSinceVisit.slice(0, 3), [unseenSinceVisit]);
 
+  const unseenCount = unseenSinceVisit.length;
   const showTriggeredBanner =
-    !alertsLoading && unseenSinceVisit.length > 0 && !bannerDismissed;
+    !alertsLoading &&
+    unseenCount > 0 &&
+    dismissedAtUnseenCount !== unseenCount;
 
   const dismissTriggeredBanner = () => {
-    setBannerDismissed(true);
+    setDismissedAtUnseenCount(unseenCount);
     markVisitNow();
   };
 
@@ -178,8 +170,8 @@ export function DashboardPageContent() {
   const connectionStatusVariant = status === "live" ? "default" : "secondary";
   const streamTickLabel = formatKenyaRelative(lastStreamTickAt);
 
-  const openPair = (pair: string) => {
-    router.push(`/instruments/${pairToPath(pair)}`);
+  const openPairPage = (pair: string, price: number) => {
+    router.push(buildInstrumentPairUrl(pair, price));
   };
 
   return (
@@ -352,13 +344,14 @@ export function DashboardPageContent() {
                   key={item.instrumentKey}
                   role="button"
                   tabIndex={0}
+                  aria-label={`View ${formatPairLabel(item.pair)} chart and alerts`}
                   onMouseEnter={() => prefetchPairOhlc(item.pair)}
                   onFocus={() => prefetchPairOhlc(item.pair)}
-                  onClick={() => openPair(item.pair)}
+                  onClick={() => openPairPage(item.pair, item.price)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      openPair(item.pair);
+                      openPairPage(item.pair, item.price);
                     }
                   }}
                   className="min-h-[140px] gap-4 rounded-2xl border-primary/20 bg-background/60 py-5 transition hover:border-primary/40 hover:bg-card cursor-pointer"

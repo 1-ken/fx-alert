@@ -61,12 +61,12 @@ export const SWR_HISTORICAL_OPTIONS: SWRConfiguration = {
 
 export const SWR_HISTORICAL_FORMING_OPTIONS: SWRConfiguration = {
   ...SWR_HISTORICAL_OPTIONS,
-  refreshInterval: 30_000,
+  refreshInterval: 10_000,
 };
 
 export const SWR_HISTORICAL_FORMING_MOBILE_OPTIONS: SWRConfiguration = {
   ...SWR_HISTORICAL_FORMING_OPTIONS,
-  refreshInterval: 60_000,
+  refreshInterval: 15_000,
 };
 
 interface SwrLoadStateInput {

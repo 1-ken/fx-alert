@@ -82,7 +82,7 @@ export function OnboardingPage() {
                 currency pairs and set custom alerts for optimal trading opportunities.
               </p>
               <p>
-                Let's get you set up in just a few seconds.
+                Let&apos;s get you set up in just a few seconds.
               </p>
             </div>
             <Button
@@ -190,7 +190,7 @@ export function OnboardingPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-center text-sm text-muted-foreground">
-              You're all configured and ready to start monitoring forex markets. Redirecting you to the dashboard...
+              You&apos;re all configured and ready to start monitoring forex markets. Redirecting you to the dashboard...
             </p>
             <div className="flex justify-center">
               <Spinner className="h-6 w-6" />

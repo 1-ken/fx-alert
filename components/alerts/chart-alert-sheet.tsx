@@ -38,6 +38,7 @@ export function ChartAlertSheet({ open, onOpenChange, draft }: ChartAlertSheetPr
             initialPair={draft.pair}
             initialAlertType={draft.alertType}
             initialInterval={draft.interval}
+            initialNotifyVia={["sound"]}
             initialTargetPrice={
               draft.alertType === "price" ? draft.price.toString() : undefined
             }

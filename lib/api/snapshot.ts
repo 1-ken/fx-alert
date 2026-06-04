@@ -39,7 +39,7 @@ export async function getSnapshot(session: Session | null): Promise<SnapshotResp
       method: "GET",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${(session as any).accessToken || ""}`,
+        Authorization: `Bearer ${session.accessToken ?? ""}`,
       },
     });
 
@@ -71,7 +71,7 @@ export async function getStreamHealth(session: Session | null): Promise<StreamHe
       method: "GET",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${(session as any).accessToken || ""}`,
+        Authorization: `Bearer ${session.accessToken ?? ""}`,
       },
     });
 

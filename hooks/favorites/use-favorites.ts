@@ -1,5 +1,5 @@
 import useSWR from "swr";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { API_ENDPOINTS } from "@/lib/constants";
 import { fetcher, getSwrLoadState, SWR_LIST_OPTIONS } from "@/lib/swr-config";
@@ -57,7 +57,10 @@ export function useFavorites() {
   });
 
   const favorites = normalizeFavorites(data);
-  const favoriteSet = new Set(favorites.map((pair) => normalizePairKey(pair)));
+  const favoriteSet = useMemo(
+    () => new Set(favorites.map((pair) => normalizePairKey(pair))),
+    [favorites],
+  );
   const hasFetched = data !== undefined;
 
   const addFavorite = useCallback(

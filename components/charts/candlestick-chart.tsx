@@ -25,7 +25,8 @@ import {
   candlesToSeriesData,
   CHART_INTERVAL_OPTIONS,
   getChartTheme,
-  mergeFormingCandle,
+  buildChartCandles,
+  extractFormingCandle,
   type ChartInterval,
 } from "@/lib/chart-utils";
 
@@ -72,11 +73,11 @@ export function CandlestickChart({
   const { data, isInitialLoading, error } = activeQuery;
 
   const seriesData = useMemo(() => {
-    const closed = data?.candles ?? [];
-    const forming = showForming && "forming_candle" in (data ?? {})
-      ? (data as { forming_candle?: typeof closed[0] | null }).forming_candle
-      : null;
-    const merged = mergeFormingCandle(closed, forming ?? null);
+    const forming =
+      showForming && data && "forming_candle" in data
+        ? (data.forming_candle ?? extractFormingCandle(data))
+        : null;
+    const merged = buildChartCandles(data, forming ?? null);
     return candlesToSeriesData(merged);
   }, [data, showForming]);
 
@@ -118,7 +119,7 @@ export function CandlestickChart({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [height]);
+  }, [height, theme.candlestick, theme.grid, theme.layout]);
 
   useEffect(() => {
     const chart = chartRef.current;

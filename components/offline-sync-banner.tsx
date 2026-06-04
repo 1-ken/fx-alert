@@ -13,8 +13,26 @@ export function OfflineSyncBanner() {
   const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    let offlineTimer: number | null = null;
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      setShowBanner(false);
+      if (offlineTimer !== null) {
+        window.clearTimeout(offlineTimer);
+        offlineTimer = null;
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      if (offlineTimer !== null) {
+        window.clearTimeout(offlineTimer);
+      }
+      offlineTimer = window.setTimeout(() => {
+        setShowBanner(true);
+      }, 1500);
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -22,23 +40,11 @@ export function OfflineSyncBanner() {
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      if (offlineTimer !== null) {
+        window.clearTimeout(offlineTimer);
+      }
     };
   }, []);
-
-  useEffect(() => {
-    if (isOnline) {
-      setShowBanner(false);
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setShowBanner(true);
-    }, 1500);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [isOnline]);
 
   if (isOnline || !showBanner) {
     return null;

@@ -12,6 +12,8 @@ type AlertsPageProps = {
     alert_type?: string | string[];
     target_price?: string | string[];
     threshold?: string | string[];
+    interval?: string | string[];
+    channel?: string | string[];
   }>;
 };
 
@@ -29,6 +31,10 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
   const initialAlertType = firstSearchParam(resolvedSearchParams?.alert_type);
   const initialTargetPrice = firstSearchParam(resolvedSearchParams?.target_price);
   const initialThreshold = firstSearchParam(resolvedSearchParams?.threshold);
+  const initialInterval = firstSearchParam(resolvedSearchParams?.interval);
+  const channelParam = firstSearchParam(resolvedSearchParams?.channel);
+  const initialNotifyVia =
+    channelParam === "sound" ? (["sound"] as const) : undefined;
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-8 text-foreground">
@@ -64,6 +70,8 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
         initialAlertType={initialAlertType}
         initialTargetPrice={initialTargetPrice}
         initialThreshold={initialThreshold}
+        initialInterval={initialInterval}
+        initialNotifyVia={initialNotifyVia ? [...initialNotifyVia] : undefined}
       />
     </div>
   );

@@ -4,7 +4,6 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
-  Upload,
   X,
   Check,
   AlertTriangle,
@@ -77,11 +76,11 @@ export function FileUpload({
     }
   }, [files]);
 
-  // Cleanup intervals on unmount
   useEffect(() => {
+    const progressIntervals = uploadProgressRefs.current;
     return () => {
-      uploadProgressRefs.current.forEach((interval) => clearInterval(interval));
-      uploadProgressRefs.current.clear();
+      progressIntervals.forEach((interval) => clearInterval(interval));
+      progressIntervals.clear();
     };
   }, []);
 
@@ -107,15 +106,15 @@ export function FileUpload({
     return File;
   };
 
-  const validateFile = (file: File): string | null => {
-    if (maxSize && file.size > maxSize) {
-      return `File size exceeds ${formatFileSize(maxSize)}`;
-    }
-    return null;
-  };
-
   const addFiles = useCallback(
     (newFiles: File[]) => {
+      const validateFile = (file: File): string | null => {
+        if (maxSize && file.size > maxSize) {
+          return `File size exceeds ${formatFileSize(maxSize)}`;
+        }
+        return null;
+      };
+
       const validFiles: FileUploadItem[] = [];
       const errors: string[] = [];
 
@@ -141,7 +140,7 @@ export function FileUpload({
         setFiles((prev) => (multiple ? [...prev, ...validFiles] : validFiles));
       }
     },
-    [multiple, validateFile]
+    [maxSize, multiple]
   );
 
   const handleDragOver = (e: React.DragEvent) => {

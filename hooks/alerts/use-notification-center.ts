@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { Alert } from "@/types/alerts";
 import {
   installVisitTracking,
@@ -51,15 +51,9 @@ export function useNotificationCenter(
 
   const storeVersion = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const unseenSinceVisit = useMemo(
-    () => notificationCenter.getUnseenSinceVisit(triggeredAlerts),
-    [triggeredAlerts, storeVersion],
-  );
-
-  const activityFeed = useMemo(
-    () => notificationCenter.getActivityFeed(),
-    [storeVersion],
-  );
+  const unseenSinceVisit = notificationCenter.getUnseenSinceVisit(triggeredAlerts);
+  const activityFeed = notificationCenter.getActivityFeed();
+  void storeVersion;
 
   const markVisitNow = useCallback(() => {
     notificationCenter.markVisitNow();

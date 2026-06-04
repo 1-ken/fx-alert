@@ -19,6 +19,8 @@ export interface OhlcCandle {
   is_forming?: boolean;
   expected_open?: string;
   expected_close?: string;
+  progress_percent?: number;
+  time_remaining_seconds?: number;
 }
 
 export interface OhlcResponse {
@@ -31,7 +33,10 @@ export interface OhlcResponse {
 }
 
 export interface OhlcWithFormingResponse extends OhlcResponse {
-  forming_candle: OhlcCandle | null;
+  forming_candle?: OhlcCandle | null;
+  has_forming_candle?: boolean;
+  closed_candles_count?: number;
+  last_update?: string;
 }
 
 export interface StreamMetricItem {

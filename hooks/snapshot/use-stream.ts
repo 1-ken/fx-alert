@@ -57,7 +57,7 @@ export function useObserverStream() {
 
     const separator = baseUrl.includes("?") ? "&" : "?";
     return `${baseUrl}${separator}access_token=${encodeURIComponent(accessToken)}`;
-  }, [wsTokenData?.wsUrl, wsTokenData?.accessToken]);
+  }, [wsTokenData]);
 
   useEffect(() => {
     if (!wsUrl || isWsTokenLoading) {

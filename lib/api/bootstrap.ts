@@ -41,7 +41,7 @@ export async function getMe(session: Session | null): Promise<BootstrapData | nu
       try {
         const errorData = await response.text();
         console.error("[getMe] Error response:", errorData);
-      } catch (e) {
+      } catch {
         // Ignore error reading response body
       }
       return null;

@@ -6,7 +6,6 @@ import {
   SWR_HISTORICAL_FORMING_MOBILE_OPTIONS,
   SWR_HISTORICAL_FORMING_OPTIONS,
   SWR_HISTORICAL_OPTIONS,
-  SWR_LIST_OPTIONS,
 } from "@/lib/swr-config";
 import type {
   OhlcResponse,

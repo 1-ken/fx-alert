@@ -242,12 +242,15 @@ const alertFormSchema = z
 
 type AlertFormValues = z.infer<typeof alertFormSchema>;
 
+type NotifyChannel = "sms" | "call" | "sound" | "email";
+
 type CreateAlertFormProps = {
   initialPair?: string;
   initialAlertType?: string;
   initialTargetPrice?: string;
   initialThreshold?: string;
   initialInterval?: string;
+  initialNotifyVia?: NotifyChannel[];
 };
 
 function normalizeRecentPairs(value: unknown): string[] {
@@ -286,6 +289,7 @@ export function CreateAlertForm({
   initialTargetPrice,
   initialThreshold,
   initialInterval,
+  initialNotifyVia,
 }: CreateAlertFormProps) {
   const router = useRouter();
   const { createAlert } = useObserverAlerts();
@@ -325,10 +329,12 @@ export function CreateAlertForm({
       pair: normalizedInitialPair,
       target_price: initialAlertType === "price" ? normalizedInitialTargetPrice : "",
       condition: "above",
-      interval: "1m",
+      interval: initialInterval && candleIntervalOptions.includes(initialInterval as (typeof candleIntervalOptions)[number])
+        ? initialInterval
+        : "1m",
       direction: "above",
       threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
-      notifyVia: ["sms"],
+      notifyVia: initialNotifyVia ?? ["sms"],
       email: "",
       phone: "",
       custom_message: "",
@@ -394,6 +400,15 @@ export function CreateAlertForm({
       form.setValue("interval", initialInterval, { shouldDirty: false, shouldValidate: true });
     }
   }, [form, initialInterval]);
+
+  useEffect(() => {
+    if (initialNotifyVia?.length) {
+      form.setValue("notifyVia", initialNotifyVia, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+  }, [form, initialNotifyVia]);
 
   const selectedPair = form.watch("pair");
   const selectedAlertType = form.watch("alert_type");

@@ -37,13 +37,23 @@ import {
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
+  applyLivePriceToForming,
+  buildChartCandles,
   candlesToSeriesData,
+  canUpdateSeriesLastBar,
+  chartTimeToUnix,
   CHART_INTERVAL_OPTIONS,
+  defaultVisibleRange,
+  extractFormingCandle,
   getChartScaleOptions,
   getChartTheme,
-  mergeFormingCandle,
+  pickClosedBase,
+  priceRangeFromCandles,
+  resolveClosedCandles,
+  seriesDataWithLiveForming,
   type ChartInterval,
 } from "@/lib/chart-utils";
+import type { OhlcCandle } from "@/types/historical";
 import type { Alert } from "@/types/alerts";
 import { cn } from "@/lib/utils";
 import { PlusIcon } from "@heroicons/react/24/outline";
@@ -66,8 +76,7 @@ export interface InteractiveTradingChartProps {
   className?: string;
 }
 
-const FAST_OHLC_LIMIT = 80;
-const DRAG_THRESHOLD_PX = 4;
+const LIVE_LINE_COLOR = "#ef4444";
 
 function normalizePairKey(pair: string): string {
   return pair.replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -107,19 +116,12 @@ export function InteractiveTradingChart({
   const userHasPannedRef = useRef(false);
   const dataContextRef = useRef("");
   const prevSeriesLengthRef = useRef(0);
+  const prevClosedCountRef = useRef(0);
+  const prevLastBarTimeRef = useRef<number | null>(null);
+  const closedScaleRangeRef = useRef<{ min: number; max: number } | null>(null);
   const pairAlertsRef = useRef<Alert[]>([]);
-  const updateAlertRef = useRef<
-    (id: string, input: Partial<{ target_price: number }>, options?: { silent?: boolean }) => Promise<unknown>
-  >(() => Promise.resolve(null));
-  const draggingAlertRef = useRef<{ alertId: string; startPrice: number } | null>(null);
-  const dragCandidateRef = useRef<{
-    alertId: string;
-    startPrice: number;
-    startY: number;
-    pointerId: number;
-  } | null>(null);
-  const didDragAlertRef = useRef(false);
   const isMobileRef = useRef(false);
+  const lastBarTimeRef = useRef<number | null>(null);
   const openAlertDraftRef = useRef<
     (alertType: "price" | "candle_close", price: number, candleTime?: string) => void
   >(() => undefined);
@@ -129,16 +131,20 @@ export function InteractiveTradingChart({
   const [hoverPrice, setHoverPrice] = useState<number | null>(null);
   const [hoverTimeLabel, setHoverTimeLabel] = useState<string | null>(null);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [clickPopover, setClickPopover] = useState<{
+    y: number;
+    price: number;
+  } | null>(null);
+  const [formingPulse, setFormingPulse] = useState(false);
   const [resetFlash, setResetFlash] = useState(false);
   const [latestFlash, setLatestFlash] = useState(false);
+  const [cachedClosed, setCachedClosed] = useState<OhlcCandle[]>([]);
 
   const isMobile = useIsMobile();
-  isMobileRef.current = isMobile;
 
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
-  const { alerts, updateAlert } = useObserverAlerts();
-  updateAlertRef.current = updateAlert;
+  const { alerts } = useObserverAlerts();
 
   const pairKey = normalizePairKey(pair);
   const pairAlerts = useMemo(
@@ -151,31 +157,150 @@ export function InteractiveTradingChart({
       ),
     [alerts.active, pairKey],
   );
-  pairAlertsRef.current = pairAlerts;
 
   const ohlcParams = useMemo(() => ({ pair, interval, limit }), [pair, interval, limit]);
-  const fastOhlcParams = useMemo(
-    () => ({ pair, interval, limit: Math.min(limit, FAST_OHLC_LIMIT) }),
-    [pair, interval, limit],
-  );
 
-  const { data: closedData, isInitialLoading: closedLoading, error: closedError } =
-    useHistoricalOhlc(fastOhlcParams);
   const {
-    data: formingData,
-    isInitialLoading: formingLoading,
+    data: ohlcData,
+    isInitialLoading: ohlcLoading,
     isRefreshing,
-    error: formingError,
+    error: ohlcError,
   } = useHistoricalOhlcWithForming(ohlcParams, { mobileRefresh: isMobile });
 
-  const seriesData = useMemo(() => {
-    const closed = closedData?.candles?.length
-      ? closedData.candles
-      : (formingData?.candles?.filter((c) => !c.is_forming) ?? []);
-    const forming = formingData?.forming_candle ?? null;
-    const merged = mergeFormingCandle(closed, forming);
-    return candlesToSeriesData(merged);
-  }, [closedData, formingData]);
+  const needsClosedFallback = useMemo(
+    () =>
+      Boolean(
+        ohlcData?.has_forming_candle &&
+          resolveClosedCandles(ohlcData, cachedClosed).length === 0,
+      ),
+    [ohlcData, cachedClosed],
+  );
+
+  const fallbackOhlcParams = useMemo(
+    () => (needsClosedFallback ? ohlcParams : { pair: "", interval }),
+    [needsClosedFallback, ohlcParams],
+  );
+
+  const { data: fallbackOhlcData } = useHistoricalOhlc(fallbackOhlcParams);
+
+  const fallbackClosed = useMemo(() => {
+    if (!needsClosedFallback || !fallbackOhlcData?.candles?.length) {
+      return [];
+    }
+    return fallbackOhlcData.candles.filter((c) => !c.is_forming);
+  }, [fallbackOhlcData, needsClosedFallback]);
+
+  const closedBase = useMemo(
+    () => pickClosedBase(cachedClosed, fallbackClosed),
+    [cachedClosed, fallbackClosed],
+  );
+
+  const formingCandleApi = useMemo(
+    () => extractFormingCandle(ohlcData),
+    [ohlcData],
+  );
+
+  const closedForChart = useMemo(
+    () => resolveClosedCandles(ohlcData, closedBase),
+    [ohlcData, closedBase],
+  );
+
+  const formingCandle = useMemo(
+    () => applyLivePriceToForming(formingCandleApi, livePrice, closedForChart),
+    [formingCandleApi, livePrice, closedForChart],
+  );
+
+  const closedBarCount = closedForChart.length;
+
+  const chartCandles = useMemo(
+    () => buildChartCandles(ohlcData, formingCandleApi, closedBase),
+    [ohlcData, formingCandleApi, closedBase],
+  );
+
+  const seriesData = useMemo(
+    () => candlesToSeriesData(chartCandles),
+    [chartCandles],
+  );
+
+  const displaySeriesData = useMemo(
+    () =>
+      seriesDataWithLiveForming(
+        seriesData,
+        formingCandleApi,
+        livePrice,
+        closedForChart,
+      ),
+    [seriesData, formingCandleApi, livePrice, closedForChart],
+  );
+
+  useEffect(() => {
+    const closed = resolveClosedCandles(ohlcData);
+    if (closed.length > 0) {
+      setCachedClosed((prev) => {
+        const unchanged =
+          prev.length === closed.length &&
+          prev.length > 0 &&
+          prev[prev.length - 1]?.timestamp === closed[closed.length - 1]?.timestamp;
+        return unchanged ? prev : closed;
+      });
+    }
+  }, [ohlcData]);
+
+  useEffect(() => {
+    const fromApi = resolveClosedCandles(ohlcData);
+    const scaleSource =
+      fromApi.length > 0 ? fromApi : pickClosedBase(cachedClosed, fallbackClosed);
+    closedScaleRangeRef.current = priceRangeFromCandles(scaleSource);
+  }, [ohlcData, cachedClosed, fallbackClosed]);
+
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (!series) {
+      return;
+    }
+    series.applyOptions({
+      autoscaleInfoProvider: () => {
+        const range = closedScaleRangeRef.current;
+        if (!range) {
+          return null;
+        }
+        const pad = Math.max((range.max - range.min) * 0.08, 0.00005);
+        return {
+          priceRange: {
+            minValue: range.min - pad,
+            maxValue: range.max + pad,
+          },
+        };
+      },
+    });
+  }, [ohlcData, cachedClosed, fallbackClosed]);
+
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV === "development" &&
+      formingCandle &&
+      seriesData.length < 5
+    ) {
+      console.warn(
+        "[InteractiveTradingChart] Sparse series with forming candle:",
+        { seriesBars: seriesData.length, closedBarCount, needsClosedFallback },
+      );
+    }
+  }, [closedBarCount, formingCandle, needsClosedFallback, seriesData.length]);
+
+  useEffect(() => {
+    const last = displaySeriesData.at(-1);
+    lastBarTimeRef.current = chartTimeToUnix(last?.time);
+  }, [displaySeriesData]);
+
+  useEffect(() => {
+    if (typeof livePrice !== "number") {
+      return;
+    }
+    setFormingPulse(true);
+    const t = setTimeout(() => setFormingPulse(false), 350);
+    return () => clearTimeout(t);
+  }, [livePrice]);
 
   const theme = useMemo(() => getChartTheme(isDark, isMobile), [isDark, isMobile]);
   const scaleOptions = useMemo(() => getChartScaleOptions(isMobile), [isMobile]);
@@ -214,10 +339,9 @@ export function InteractiveTradingChart({
     }
 
     const dataLength = seriesData.length;
-    if (dataLength > 0) {
-      const visibleBars = isMobile ? 40 : 60;
-      const from = Math.max(0, dataLength - visibleBars);
-      chart.timeScale().setVisibleLogicalRange({ from, to: dataLength });
+    const range = defaultVisibleRange(dataLength, isMobile ? 40 : 60);
+    if (range) {
+      chart.timeScale().setVisibleLogicalRange(range);
     } else {
       chart.timeScale().scrollToRealTime();
     }
@@ -239,7 +363,18 @@ export function InteractiveTradingChart({
     },
     [interval, onCreateAlert, pair],
   );
-  openAlertDraftRef.current = openAlertDraft;
+
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
+
+  useEffect(() => {
+    pairAlertsRef.current = pairAlerts;
+  }, [pairAlerts]);
+
+  useEffect(() => {
+    openAlertDraftRef.current = openAlertDraft;
+  }, [openAlertDraft]);
 
   useEffect(() => {
     setInterval(intervalProp);
@@ -249,7 +384,12 @@ export function InteractiveTradingChart({
     dataContextRef.current = `${pair}|${interval}`;
     userHasPannedRef.current = false;
     prevSeriesLengthRef.current = 0;
+    prevClosedCountRef.current = 0;
+    prevLastBarTimeRef.current = null;
+    setCachedClosed([]);
+    closedScaleRangeRef.current = null;
     initialRangeRef.current = null;
+    seriesRef.current?.setData([]);
   }, [pair, interval]);
 
   useEffect(() => {
@@ -257,6 +397,8 @@ export function InteractiveTradingChart({
     if (!container) {
       return;
     }
+
+    const alertLines = alertLinesRef.current;
 
     const chart = createChart(container, {
       width: container.clientWidth,
@@ -332,16 +474,7 @@ export function InteractiveTradingChart({
     });
 
     chart.subscribeClick((param: MouseEventParams<Time>) => {
-      if (didDragAlertRef.current) {
-        didDragAlertRef.current = false;
-        return;
-      }
-
-      if (isMobileRef.current) {
-        return;
-      }
-
-      if (!param.point || !param.time) {
+      if (!param.point || !onCreateAlert) {
         return;
       }
 
@@ -350,12 +483,25 @@ export function InteractiveTradingChart({
         return;
       }
 
-      const candleTime =
-        typeof param.time === "number"
-          ? new Date(param.time * 1000).toISOString()
-          : undefined;
+      if (isMobileRef.current) {
+        const clickedTime =
+          typeof param.time === "number" ? param.time : null;
+        if (
+          clickedTime !== null &&
+          lastBarTimeRef.current !== null &&
+          clickedTime === lastBarTimeRef.current
+        ) {
+          openAlertDraftRef.current("candle_close", price);
+        }
+        return;
+      }
 
-      openAlertDraftRef.current("candle_close", price, candleTime);
+      if (!param.time) {
+        return;
+      }
+
+      setClickPopover({ y: param.point.y, price });
+      setPopoverOpen(true);
     });
 
     return () => {
@@ -365,9 +511,9 @@ export function InteractiveTradingChart({
       chartRef.current = null;
       seriesRef.current = null;
       priceLineRef.current = null;
-      alertLinesRef.current.clear();
+      alertLines.clear();
     };
-  }, [height, scaleOptions, theme]);
+  }, [height, onCreateAlert, scaleOptions, theme]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -391,40 +537,81 @@ export function InteractiveTradingChart({
       return;
     }
 
-    if (seriesData.length === 0) {
+    if (displaySeriesData.length === 0) {
       series.setData([]);
       prevSeriesLengthRef.current = 0;
+      prevLastBarTimeRef.current = null;
       return;
     }
 
     const contextKey = dataContextRef.current;
     const isContextChange = prevSeriesLengthRef.current === 0 && !initialRangeRef.current;
     const savedRange = chart.timeScale().getVisibleLogicalRange();
-    const sameLength = seriesData.length === prevSeriesLengthRef.current;
+    const sameLength = displaySeriesData.length === prevSeriesLengthRef.current;
+    const last = displaySeriesData[displaySeriesData.length - 1];
+    const lastTime = chartTimeToUnix(last.time);
+    const closedCountChanged = closedBarCount !== prevClosedCountRef.current;
+    const historyExpanded =
+      !userHasPannedRef.current &&
+      (closedCountChanged && closedBarCount > prevClosedCountRef.current ||
+        (displaySeriesData.length >= 2 &&
+          displaySeriesData.length > prevSeriesLengthRef.current + 1));
+    const canIncrementalUpdate =
+      !closedCountChanged &&
+      !historyExpanded &&
+      sameLength &&
+      lastTime !== null &&
+      lastTime === prevLastBarTimeRef.current;
+    const visibleBars = isMobile ? 40 : 60;
 
-    if (!userHasPannedRef.current && (isContextChange || !savedRange)) {
-      series.setData(seriesData);
-      chart.timeScale().fitContent();
-      const range = chart.timeScale().getVisibleLogicalRange();
-      if (range) {
-        initialRangeRef.current = range;
+    const applyDefaultViewport = () => {
+      const defaultRange = defaultVisibleRange(displaySeriesData.length, visibleBars);
+      if (defaultRange && displaySeriesData.length >= 2) {
+        chart.timeScale().setVisibleLogicalRange(defaultRange);
+        initialRangeRef.current = defaultRange;
+      } else {
+        chart.timeScale().fitContent();
+        const range = chart.timeScale().getVisibleLogicalRange();
+        if (range) {
+          initialRangeRef.current = range;
+        }
       }
+    };
+
+    if (
+      !userHasPannedRef.current &&
+      (isContextChange || !savedRange || historyExpanded)
+    ) {
+      series.setData(displaySeriesData);
+      applyDefaultViewport();
     } else if (userHasPannedRef.current && savedRange) {
-      series.setData(seriesData);
+      series.setData(displaySeriesData);
       chart.timeScale().setVisibleLogicalRange(savedRange);
-    } else if (sameLength && seriesData.length > 0) {
-      const last = seriesData[seriesData.length - 1];
-      series.update(last);
+    } else if (canIncrementalUpdate) {
+      const seriesLastTime = chartTimeToUnix(series.data().at(-1)?.time);
+      const pointTime = chartTimeToUnix(last.time);
+      if (canUpdateSeriesLastBar(seriesLastTime, pointTime)) {
+        series.update(last);
+      } else {
+        series.setData(displaySeriesData);
+        if (savedRange && !historyExpanded) {
+          chart.timeScale().setVisibleLogicalRange(savedRange);
+        }
+      }
     } else {
-      series.setData(seriesData);
-      if (savedRange) {
+      series.setData(displaySeriesData);
+      if (savedRange && !historyExpanded) {
         chart.timeScale().setVisibleLogicalRange(savedRange);
+      } else if (!userHasPannedRef.current) {
+        applyDefaultViewport();
       }
     }
 
-    prevSeriesLengthRef.current = seriesData.length;
+    prevSeriesLengthRef.current = displaySeriesData.length;
+    prevClosedCountRef.current = closedBarCount;
+    prevLastBarTimeRef.current = lastTime;
     void contextKey;
-  }, [seriesData]);
+  }, [closedBarCount, displaySeriesData, isMobile]);
 
   useEffect(() => {
     const series = seriesRef.current;
@@ -437,20 +624,20 @@ export function InteractiveTradingChart({
       priceLineRef.current = null;
     }
 
-    const price = livePrice ?? seriesData.at(-1)?.close;
+    const price = livePrice ?? displaySeriesData.at(-1)?.close;
     if (typeof price !== "number") {
       return;
     }
 
     priceLineRef.current = series.createPriceLine({
       price,
-      color: isDark ? "#38bdf8" : "#0284c7",
+      color: LIVE_LINE_COLOR,
       lineWidth: 2,
-      lineStyle: LineStyle.Dashed,
+      lineStyle: LineStyle.Solid,
       axisLabelVisible: true,
       title: "Live",
     });
-  }, [isDark, livePrice, seriesData]);
+  }, [displaySeriesData, livePrice]);
 
   useEffect(() => {
     const series = seriesRef.current;
@@ -471,128 +658,18 @@ export function InteractiveTradingChart({
 
       const line = series.createPriceLine({
         price,
-        color: alert.condition === "below" ? "#ef4444" : "#22c55e",
-        lineWidth: 2,
-        lineStyle: LineStyle.Solid,
-        axisLabelVisible: true,
+        color: alert.condition === "below" ? "#f87171" : "#4ade80",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: false,
         title: `${alert.condition ?? "alert"}`,
       });
       alertLinesRef.current.set(alert.id, line);
     }
   }, [pairAlerts]);
 
-  useEffect(() => {
-    const container = containerRef.current;
-    const series = seriesRef.current;
-    if (!container || !series) {
-      return;
-    }
-
-    const onPointerDown = (event: PointerEvent) => {
-      const rect = container.getBoundingClientRect();
-      const y = event.clientY - rect.top;
-      const price = series.coordinateToPrice(y);
-      if (typeof price !== "number") {
-        return;
-      }
-
-      const nearest = pairAlertsRef.current.find((alert) => {
-        const alertPx = series.priceToCoordinate(alert.target_price ?? 0);
-        return typeof alertPx === "number" && Math.abs(alertPx - y) < 12;
-      });
-
-      if (!nearest || nearest.target_price === null) {
-        return;
-      }
-
-      dragCandidateRef.current = {
-        alertId: nearest.id,
-        startPrice: nearest.target_price,
-        startY: y,
-        pointerId: event.pointerId,
-      };
-    };
-
-    const onPointerMove = (event: PointerEvent) => {
-      const candidate = dragCandidateRef.current;
-
-      if (!draggingAlertRef.current && candidate) {
-        const rect = container.getBoundingClientRect();
-        const y = event.clientY - rect.top;
-        if (Math.abs(y - candidate.startY) < DRAG_THRESHOLD_PX) {
-          return;
-        }
-
-        draggingAlertRef.current = {
-          alertId: candidate.alertId,
-          startPrice: candidate.startPrice,
-        };
-        didDragAlertRef.current = true;
-        dragCandidateRef.current = null;
-
-        try {
-          container.setPointerCapture(candidate.pointerId);
-        } catch {
-          // Ignore capture failures.
-        }
-      }
-
-      if (!draggingAlertRef.current) {
-        return;
-      }
-
-      const rect = container.getBoundingClientRect();
-      const y = event.clientY - rect.top;
-      const price = series.coordinateToPrice(y);
-      if (typeof price !== "number") {
-        return;
-      }
-
-      const line = alertLinesRef.current.get(draggingAlertRef.current.alertId);
-      if (line) {
-        line.applyOptions({ price });
-      }
-    };
-
-    const onPointerUp = (event: PointerEvent) => {
-      dragCandidateRef.current = null;
-
-      if (!draggingAlertRef.current) {
-        return;
-      }
-
-      const rect = container.getBoundingClientRect();
-      const y = event.clientY - rect.top;
-      const price = series.coordinateToPrice(y);
-      const dragState = draggingAlertRef.current;
-      draggingAlertRef.current = null;
-
-      if (typeof price === "number" && Math.abs(price - dragState.startPrice) > 0.00001) {
-        void updateAlertRef.current(dragState.alertId, { target_price: price }, { silent: true });
-      }
-
-      try {
-        container.releasePointerCapture(event.pointerId);
-      } catch {
-        // Pointer may already be released.
-      }
-    };
-
-    container.addEventListener("pointerdown", onPointerDown);
-    container.addEventListener("pointermove", onPointerMove);
-    container.addEventListener("pointerup", onPointerUp);
-    container.addEventListener("pointercancel", onPointerUp);
-
-    return () => {
-      container.removeEventListener("pointerdown", onPointerDown);
-      container.removeEventListener("pointermove", onPointerMove);
-      container.removeEventListener("pointerup", onPointerUp);
-      container.removeEventListener("pointercancel", onPointerUp);
-    };
-  }, []);
-
-  const isInitialLoading = closedLoading && formingLoading && !closedData && !formingData;
-  const error = closedError ?? formingError;
+  const isInitialLoading = ohlcLoading && !ohlcData;
+  const error = ohlcError;
   const showOverlaySkeleton = isInitialLoading && seriesData.length === 0;
   const showEmpty = !isInitialLoading && !error && seriesData.length === 0;
   const chartHeight = isMobile ? Math.max(height, 320) : height;
@@ -604,10 +681,25 @@ export function InteractiveTradingChart({
   return (
     <Card className={className}>
       <CardHeader className="flex flex-col gap-3 space-y-0 pb-2 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle className="text-base">
-          {pair.replace("/", "").toUpperCase()} · {interval}
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <span>
+            {pair.replace("/", "").toUpperCase()} · {interval}
+          </span>
+          {formingCandle?.is_forming ? (
+            <span
+              className={cn(
+                "rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-normal text-destructive",
+                formingPulse && "animate-pulse",
+              )}
+            >
+              Forming
+              {typeof formingCandle.progress_percent === "number"
+                ? ` · ${Math.round(formingCandle.progress_percent)}%`
+                : ""}
+            </span>
+          ) : null}
           {isRefreshing ? (
-            <span className="ml-2 text-xs font-normal text-muted-foreground">Updating…</span>
+            <span className="text-xs font-normal text-muted-foreground">Updating…</span>
           ) : null}
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">
@@ -679,48 +771,108 @@ export function InteractiveTradingChart({
               style={{ height: chartHeight }}
             />
           ) : null}
-          {hoverY !== null && hoverPrice !== null && onCreateAlert ? (
-            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="absolute left-1 z-20 flex h-9 w-9 items-center justify-center rounded-full border bg-card text-primary shadow-md transition active:scale-[0.97] sm:h-7 sm:w-7"
-                  style={{ top: hoverY - 18 }}
-                  onClick={() => setPopoverOpen(true)}
-                  aria-label="Create alert at hovered price"
+          {onCreateAlert ? (
+            <>
+              {hoverY !== null && hoverPrice !== null && !clickPopover ? (
+                <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="absolute left-1 z-20 flex h-9 w-9 items-center justify-center rounded-full border bg-card text-primary shadow-md transition active:scale-[0.97] sm:h-7 sm:w-7"
+                      style={{ top: hoverY - 18 }}
+                      onClick={() => setPopoverOpen(true)}
+                      aria-label="Create alert at hovered price"
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-48 p-2">
+                    <div className="grid gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="justify-start"
+                        onClick={() => {
+                          setClickPopover(null);
+                          openAlertDraft("price", hoverPrice);
+                        }}
+                      >
+                        Price alert
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="justify-start"
+                        onClick={() => {
+                          setClickPopover(null);
+                          openAlertDraft("candle_close", hoverPrice);
+                        }}
+                      >
+                        Candle close alert
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+              {clickPopover ? (
+                <Popover
+                  open={popoverOpen}
+                  onOpenChange={(open) => {
+                    setPopoverOpen(open);
+                    if (!open) {
+                      setClickPopover(null);
+                    }
+                  }}
                 >
-                  <PlusIcon className="h-4 w-4" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="start" className="w-48 p-2">
-                <div className="grid gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="justify-start"
-                    onClick={() => openAlertDraft("price", hoverPrice)}
-                  >
-                    Price alert
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="justify-start"
-                    onClick={() => openAlertDraft("candle_close", hoverPrice)}
-                  >
-                    Candle close alert
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="absolute left-1 z-20 h-1 w-1 opacity-0"
+                      style={{ top: clickPopover.y - 1 }}
+                      aria-hidden
+                    />
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-48 p-2">
+                    <div className="grid gap-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="justify-start"
+                        onClick={() => {
+                          setClickPopover(null);
+                          setPopoverOpen(false);
+                          openAlertDraft("price", clickPopover.price);
+                        }}
+                      >
+                        Price alert
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="justify-start"
+                        onClick={() => {
+                          setClickPopover(null);
+                          setPopoverOpen(false);
+                          openAlertDraft("candle_close", clickPopover.price);
+                        }}
+                      >
+                        Candle close alert
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+            </>
           ) : null}
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {isMobile
-            ? "Drag alert lines to adjust price. Use + on the chart to create an alert."
-            : "Drag alert lines to adjust price. Click a candle or use + on the left to create an alert."}
+            ? "Red line is live price. Tap the forming candle or use + to create an alert."
+            : "Red line is live price. Click the chart or use + to create a price or candle alert."}
         </p>
       </CardContent>
     </Card>

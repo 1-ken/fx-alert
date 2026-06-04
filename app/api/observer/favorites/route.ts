@@ -1,4 +1,3 @@
-import { API_ENDPOINTS } from "@/lib/constants";
 import { proxyObserverRequest } from "@/lib/observer-api";
 import { validateApiAuth } from "@/lib/api-auth";
 

@@ -158,7 +158,7 @@ function formatTriggerDuration(createdAt: string, triggeredAt: string | null): s
 export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
   const status = normalizeStatus(initialStatus);
   const type = normalizeType(initialType);
-  const { alerts, isInitialLoading, isRefreshing, deleteAlert } = useObserverAlerts();
+  const { alerts, isInitialLoading, deleteAlert } = useObserverAlerts();
   const [deleteTarget, setDeleteTarget] = useState<(typeof alerts.all)[number] | null>(null);
   const [selectedAlertIds, setSelectedAlertIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);

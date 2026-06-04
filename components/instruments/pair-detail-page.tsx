@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   BellAlertIcon,
@@ -47,6 +47,7 @@ function formatPairLabel(pair: string): string {
  */
 export function PairDetailPageContent() {
   const params = useParams<{ pair: string }>();
+  const searchParams = useSearchParams();
   const pair = decodePairSlug(params.pair ?? "");
   const pairKey = normalizePairKey(pair);
 
@@ -57,18 +58,23 @@ export function PairDetailPageContent() {
   const [alertDraft, setAlertDraft] = useState<ChartAlertDraft | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const livePrice = useMemo(() => {
-    const match = snapshot?.pairs.find(
-      (item) => normalizePairKey(item.pair) === pairKey,
-    );
-    return match?.price;
-  }, [pairKey, snapshot?.pairs]);
+  const rawQueryPrice = searchParams.get("price");
+  const queryPrice = rawQueryPrice
+    ? (() => {
+        const parsed = Number(rawQueryPrice);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      })()
+    : undefined;
 
-  const pairAlerts = useMemo(() => {
-    return [...alerts.active, ...alerts.triggered]
-      .filter((alert) => normalizePairKey(alert.pair) === pairKey)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [alerts.active, alerts.triggered, pairKey]);
+  const livePrice = snapshot?.pairs.find(
+    (item) => normalizePairKey(item.pair) === pairKey,
+  )?.price;
+
+  const displayPrice = livePrice ?? queryPrice;
+
+  const pairAlerts = [...alerts.active, ...alerts.triggered]
+    .filter((alert) => normalizePairKey(alert.pair) === pairKey)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   const favorited = isFavorite(pair);
 
@@ -87,9 +93,35 @@ export function PairDetailPageContent() {
             </Link>
           </Button>
           <div className="flex-1">
-            <h1 className="text-2xl font-semibold">{formatPairLabel(pair)}</h1>
-            {typeof livePrice === "number" ? (
-              <p className="font-mono text-lg text-primary">{livePrice}</p>
+            <button
+              type="button"
+              className="text-left text-2xl font-semibold hover:text-primary"
+              onClick={() =>
+                handleCreateAlert({
+                  pair,
+                  alertType: "candle_close",
+                  price: displayPrice ?? 0,
+                  interval: "5m",
+                })
+              }
+            >
+              {formatPairLabel(pair)}
+            </button>
+            {typeof displayPrice === "number" ? (
+              <button
+                type="button"
+                className="font-mono text-lg text-primary hover:underline"
+                onClick={() =>
+                  handleCreateAlert({
+                    pair,
+                    alertType: "price",
+                    price: displayPrice,
+                    interval: "5m",
+                  })
+                }
+              >
+                {displayPrice}
+              </button>
             ) : null}
           </div>
           <Button
@@ -109,7 +141,7 @@ export function PairDetailPageContent() {
 
         <InteractiveTradingChart
           pair={pair}
-          livePrice={livePrice}
+          livePrice={displayPrice}
           onCreateAlert={handleCreateAlert}
         />
 
