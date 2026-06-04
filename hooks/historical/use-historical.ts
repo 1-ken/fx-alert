@@ -9,7 +9,6 @@ import {
   SWR_LIST_OPTIONS,
 } from "@/lib/swr-config";
 import type {
-  HistoricalPricesResponse,
   OhlcResponse,
   OhlcWithFormingResponse,
   StreamMetricsResponse,
@@ -36,21 +35,6 @@ function withLoadState<T extends { data: unknown; error: unknown; isLoading: boo
     isRefreshing,
     isLoading: isInitialLoading,
   };
-}
-
-/**
- * Historical tick prices for a pair and time range.
- */
-export function useHistoricalPrices(params: {
-  pair?: string;
-  start?: string;
-  end?: string;
-  limit?: number;
-  order?: string;
-}) {
-  const key = buildQueryUrl(API_ENDPOINTS.OBSERVER_PROXY.HISTORICAL, params);
-  const swr = useSWR<HistoricalPricesResponse>(key, fetcher, SWR_HISTORICAL_OPTIONS);
-  return withLoadState(swr);
 }
 
 /**
