@@ -65,13 +65,35 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
       record.status === "active" || record.status === "triggered" || record.status === "disabled"
         ? record.status
         : "active",
-    channel:
-      record.channel === "email" ||
-      record.channel === "sms" ||
-      record.channel === "call" ||
-      record.channel === "sound"
+    channel: (() => {
+      const rawChannels = Array.isArray(record.channels)
+        ? record.channels.filter(
+            (value): value is Alert["channel"] =>
+              value === "email" ||
+              value === "sms" ||
+              value === "call" ||
+              value === "sound",
+          )
+        : [];
+      if (rawChannels.length > 0) return rawChannels[0];
+      return record.channel === "email" ||
+        record.channel === "sms" ||
+        record.channel === "call" ||
+        record.channel === "sound"
         ? record.channel
-        : "email",
+        : "email";
+    })(),
+    ...(Array.isArray(record.channels)
+      ? {
+          channels: record.channels.filter(
+            (value): value is Alert["channel"] =>
+              value === "email" ||
+              value === "sms" ||
+              value === "call" ||
+              value === "sound",
+          ),
+        }
+      : {}),
     email: typeof record.email === "string" ? record.email : "",
     phone: typeof record.phone === "string" ? record.phone : "",
     custom_message: typeof record.custom_message === "string" ? record.custom_message : "",
@@ -136,6 +158,7 @@ function applyAlertPatch(alert: Alert, input: Partial<AlertUpsertInput>): Alert 
     ...(input.direction !== undefined ? { direction: input.direction } : {}),
     ...(input.threshold !== undefined ? { threshold: input.threshold } : {}),
     ...(input.channel !== undefined ? { channel: input.channel } : {}),
+    ...(input.channels !== undefined ? { channels: input.channels } : {}),
     ...(input.email !== undefined ? { email: input.email } : {}),
     ...(input.phone !== undefined ? { phone: input.phone } : {}),
     ...(input.custom_message !== undefined ? { custom_message: input.custom_message } : {}),
@@ -202,7 +225,8 @@ function buildOptimisticAlert(input: AlertUpsertInput): Alert {
     threshold: input.threshold ?? null,
     last_evaluated_candle_time: null,
     status: "active",
-    channel: input.channel ?? "email",
+    channel: input.channels?.[0] ?? input.channel ?? "email",
+    channels: input.channels ?? (input.channel ? [input.channel] : ["email"]),
     email: input.email ?? "",
     phone: input.phone ?? "",
     custom_message: input.custom_message ?? "",

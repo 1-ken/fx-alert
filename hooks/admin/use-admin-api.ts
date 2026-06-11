@@ -4,8 +4,8 @@ import useSWR from "swr";
 
 const ADMIN_TOKEN_KEY = "fx-alert:admin-token";
 
-function getApiBase(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function toAdminProxyPath(path: string): string {
+  return path.replace(/^\/api\/v1\/admin/, "/api/admin");
 }
 
 function getAdminToken(): string | null {
@@ -21,7 +21,7 @@ async function adminFetcher<T>(path: string): Promise<T> {
     throw new Error("Not authenticated");
   }
 
-  const response = await fetch(`${getApiBase()}${path}`, {
+  const response = await fetch(toAdminProxyPath(path), {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
@@ -67,4 +67,4 @@ export function useAdminHealth(enabled: boolean) {
   });
 }
 
-export { ADMIN_TOKEN_KEY, getApiBase, getAdminToken };
+export { ADMIN_TOKEN_KEY, getAdminToken, toAdminProxyPath };

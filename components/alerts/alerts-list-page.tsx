@@ -491,7 +491,13 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                   </p>
                 ) : null}
                 <p>
-                  Channel: <span className="text-foreground uppercase">{alert.channel}</span>
+                  Channel:{" "}
+                  <span className="text-foreground uppercase">
+                    {(alert.channels && alert.channels.length > 0
+                      ? alert.channels
+                      : [alert.channel]
+                    ).join(", ")}
+                  </span>
                 </p>
                 {alert.email ? (
                   <p>

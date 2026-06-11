@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { formatKenyaRelative } from "@/lib/datetime";
 import { buildInstrumentPairUrl } from "@/lib/instrument-navigation";
 import { prefetchPairOhlc } from "@/lib/chart-prefetch";
-import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
+// import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useNotificationCenter } from "@/hooks/alerts/use-notification-center";
 import { useFavorites } from "@/hooks/favorites/use-favorites";
@@ -203,11 +203,11 @@ export function DashboardPageContent() {
                   >
                     {status === "live" && "🟢"} {connectionLabel}
                   </Badge>
-                  <span className="text-muted-foreground">
+                  {/* <span className="text-muted-foreground">
                     • Last stream tick: {streamTickLabel}
-                  </span>
+                  </span> */}
                 </div>
-                <StreamHealthBadge />
+                {/* <StreamHealthBadge /> */}
               </div>
             </div>
             <ThemeSwitcher />

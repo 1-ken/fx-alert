@@ -8,7 +8,9 @@ import {
   BookOpenIcon,
   ChartBarIcon,
   CogIcon,
+  ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
+import { getAdminPanelPath } from "@/lib/admin-config";
 
 import { NavMain } from "@/components/nav-main";
 import { NavDocuments } from "@/components/nav-documents";
@@ -24,6 +26,8 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { Separator } from "./ui/separator";
+
+const adminPanelPath = getAdminPanelPath();
 
 // Platform section
 const navMain = [
@@ -43,6 +47,15 @@ const navMain = [
     url: "/history",
     icon: ChartBarIcon,
   },
+  ...(adminPanelPath
+    ? [
+        {
+          title: "Admin",
+          url: adminPanelPath,
+          icon: ShieldCheckIcon,
+        },
+      ]
+    : []),
 ];
 
 // Documents section: Add your own document types here

@@ -515,35 +515,32 @@ export function CreateAlertForm({
           channel === "email"
       );
 
-      for (const channel of channelsToCreate) {
-        const needsPhone = channel === "sms" || channel === "call";
-        const basePayload = {
-          alert_type: alertType,
-          pair: normalizePair(values.pair).replace("/", ""),
-          channel,
-          email: channel === "email" ? values.email : undefined,
-          phone: needsPhone ? values.phone : "",
-          custom_message: values.custom_message || undefined,
-        };
+      const needsPhone = channelsToCreate.some(
+        (channel) => channel === "sms" || channel === "call",
+      );
+      const needsEmail = channelsToCreate.includes("email");
+      const basePayload = {
+        alert_type: alertType,
+        pair: normalizePair(values.pair).replace("/", ""),
+        channels: channelsToCreate,
+        email: needsEmail ? values.email : undefined,
+        phone: needsPhone ? values.phone : "",
+        custom_message: values.custom_message || undefined,
+      };
 
-        if (alertType === "price") {
-          await createAlert({
-            ...basePayload,
-            target_price: parseNumericString(values.target_price ?? ""),
-            condition: values.condition,
-          });
-        } else {
-          await createAlert({
-            ...basePayload,
-            interval: values.interval,
-            direction: values.direction,
-            threshold: parseNumericString(values.threshold ?? ""),
-          });
-        }
-      }
-
-      if (channelsToCreate.length > 1) {
-        toast.success(`${channelsToCreate.length} alerts created successfully`);
+      if (alertType === "price") {
+        await createAlert({
+          ...basePayload,
+          target_price: parseNumericString(values.target_price ?? ""),
+          condition: values.condition,
+        });
+      } else {
+        await createAlert({
+          ...basePayload,
+          interval: values.interval,
+          direction: values.direction,
+          threshold: parseNumericString(values.threshold ?? ""),
+        });
       }
 
       writeRecentPairs(values.pair);

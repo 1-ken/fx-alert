@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,10 +20,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getDefaultAdminPhone, normalizeAdminPhone } from "@/lib/admin-config";
 import { formatKenyaDateTime } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
 import {
   ADMIN_TOKEN_KEY,
-  getApiBase,
   useAdminActivity,
   useAdminAlerts,
   useAdminHealth,
@@ -49,6 +50,11 @@ type AdminUserRow = {
   auth_provider: string;
   created_at: string | null;
   alert_count: number;
+  active_alerts: number;
+  triggered_alerts: number;
+  favorites_count: number;
+  activity_count: number;
+  last_login_at: string | null;
 };
 
 type AdminAlertRow = {
@@ -108,14 +114,32 @@ function formatActivityDetails(row: AdminActivityRow): string {
   return parts.length > 0 ? parts.join(" · ") : "—";
 }
 
+async function readAdminApiError(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: string };
+    return body.detail?.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function formatAdminRequestError(error: unknown, fallback: string): string {
+  if (error instanceof TypeError) {
+    return "Cannot reach API. Ensure ctraderplus_server is running on port 8000.";
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 export function AdminPanel() {
-  const [phone, setPhone] = useState("+254707879716");
+  const [phone, setPhone] = useState(getDefaultAdminPhone);
   const [code, setCode] = useState("");
   const [token, setToken] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
   const [alertStatus, setAlertStatus] = useState<string>("all");
   const [activityFilter, setActivityFilter] = useState<string>("all");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(ADMIN_TOKEN_KEY);
@@ -142,17 +166,18 @@ export function AdminPanel() {
     setIsSubmitting(true);
     setMessage(null);
     try {
-      const response = await fetch(`${getApiBase()}/api/v1/admin/otp/request`, {
+      const response = await fetch("/api/admin/otp/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone: normalizeAdminPhone(phone) }),
       });
       if (!response.ok) {
-        throw new Error("Could not send OTP");
+        const detail = await readAdminApiError(response, "Could not send OTP");
+        throw new Error(detail);
       }
       setMessage("OTP sent via SMS");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to send OTP");
+      setMessage(formatAdminRequestError(error, "Failed to send OTP"));
     } finally {
       setIsSubmitting(false);
     }
@@ -162,20 +187,21 @@ export function AdminPanel() {
     setIsSubmitting(true);
     setMessage(null);
     try {
-      const response = await fetch(`${getApiBase()}/api/v1/admin/otp/verify`, {
+      const response = await fetch("/api/admin/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
+        body: JSON.stringify({ phone: normalizeAdminPhone(phone), code }),
       });
       if (!response.ok) {
-        throw new Error("Invalid OTP");
+        const detail = await readAdminApiError(response, "Invalid OTP");
+        throw new Error(detail);
       }
       const payload = (await response.json()) as { access_token: string };
       window.sessionStorage.setItem(ADMIN_TOKEN_KEY, payload.access_token);
       setToken(payload.access_token);
       setMessage("Admin session started");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Verification failed");
+      setMessage(formatAdminRequestError(error, "Verification failed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -192,6 +218,33 @@ export function AdminPanel() {
     void refreshUsers();
     void refreshAlerts();
     void refreshActivity();
+  };
+
+  const metrics = overview as OverviewMetrics | undefined;
+  const users = (usersPayload as { items?: AdminUserRow[] } | undefined)?.items ?? [];
+  const alerts = ((alertsPayload as { items?: AdminAlertRow[] } | undefined)?.items ??
+    []) as AdminAlertRow[];
+  const activity = ((activityPayload as { items?: AdminActivityRow[] } | undefined)?.items ??
+    []) as AdminActivityRow[];
+
+  const displayedActivity = useMemo(() => {
+    if (!selectedUserId) {
+      return activity;
+    }
+    return activity.filter((row) => row.user_id === selectedUserId);
+  }, [activity, selectedUserId]);
+
+  const selectedUserLabel = useMemo(() => {
+    if (!selectedUserId) {
+      return null;
+    }
+    const user = users.find((row) => row.user_id === selectedUserId);
+    return user?.username || user?.email || selectedUserId;
+  }, [selectedUserId, users]);
+
+  const openUserActivity = (userId: string) => {
+    setSelectedUserId(userId);
+    setActiveTab("activity");
   };
 
   if (!token) {
@@ -231,13 +284,6 @@ export function AdminPanel() {
     );
   }
 
-  const metrics = overview as OverviewMetrics | undefined;
-  const users = (usersPayload as { items?: AdminUserRow[] } | undefined)?.items ?? [];
-  const alerts = ((alertsPayload as { items?: AdminAlertRow[] } | undefined)?.items ??
-    []) as AdminAlertRow[];
-  const activity = ((activityPayload as { items?: AdminActivityRow[] } | undefined)?.items ??
-    []) as AdminActivityRow[];
-
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-4 p-6">
       <div className="flex items-center justify-between gap-2">
@@ -252,7 +298,7 @@ export function AdminPanel() {
         </div>
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
@@ -332,25 +378,64 @@ export function AdminPanel() {
         <TabsContent value="users">
           <Card>
             <CardHeader>
-              <CardTitle>Users</CardTitle>
+              <CardTitle className="text-base">Users</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="overflow-x-auto pt-0">
               {users.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No users loaded.</p>
+                <p className="py-6 text-sm text-muted-foreground">No users loaded.</p>
               ) : (
-                users.map((user) => (
-                  <div key={user.user_id} className="rounded-lg border p-3 text-sm">
-                    <p className="font-medium">{user.username}</p>
-                    <p className="text-muted-foreground">
-                      {user.auth_provider} · {user.alert_count} alerts
-                    </p>
-                    <p className="text-muted-foreground">
-                      {user.email ?? "No email"} · Joined{" "}
-                      {formatKenyaDateTime(user.created_at)}
-                    </p>
-                  </div>
-                ))
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Provider</TableHead>
+                      <TableHead>Alerts</TableHead>
+                      <TableHead>Active</TableHead>
+                      <TableHead>Triggered</TableHead>
+                      <TableHead>Favorites</TableHead>
+                      <TableHead>Events</TableHead>
+                      <TableHead>Last login</TableHead>
+                      <TableHead>Joined</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow
+                        key={user.user_id}
+                        className={cn(
+                          "cursor-pointer",
+                          selectedUserId === user.user_id && "bg-accent/40",
+                        )}
+                        onClick={() => openUserActivity(user.user_id)}
+                      >
+                        <TableCell>
+                          <span className="font-medium">{user.username || "—"}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {user.email ?? "No email"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="capitalize">{user.auth_provider}</TableCell>
+                        <TableCell>{user.alert_count}</TableCell>
+                        <TableCell>{user.active_alerts ?? 0}</TableCell>
+                        <TableCell>{user.triggered_alerts ?? 0}</TableCell>
+                        <TableCell>{user.favorites_count ?? 0}</TableCell>
+                        <TableCell>{user.activity_count ?? 0}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {user.last_login_at
+                            ? formatKenyaDateTime(user.last_login_at)
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {formatKenyaDateTime(user.created_at)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
+              <p className="mt-3 text-xs text-muted-foreground">
+                Click a row to view that user&apos;s activity.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -422,6 +507,21 @@ export function AdminPanel() {
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-3">
+          {selectedUserId ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                Filtered to <span className="font-medium text-foreground">{selectedUserLabel}</span>
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setSelectedUserId(null)}
+              >
+                Clear user filter
+              </Button>
+            </div>
+          ) : null}
           <Select value={activityFilter} onValueChange={setActivityFilter}>
             <SelectTrigger className="w-[220px]">
               <SelectValue placeholder="Event type" />
@@ -444,7 +544,7 @@ export function AdminPanel() {
               <CardTitle className="text-base">Activity log</CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto pt-0">
-              {activity.length === 0 ? (
+              {displayedActivity.length === 0 ? (
                 <p className="py-6 text-sm text-muted-foreground">No activity logged yet.</p>
               ) : (
                 <Table>
@@ -457,7 +557,7 @@ export function AdminPanel() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activity.map((row) => (
+                    {displayedActivity.map((row) => (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">{row.event_type}</TableCell>
                         <TableCell>

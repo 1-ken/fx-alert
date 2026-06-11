@@ -16,6 +16,7 @@ export interface Alert {
   last_evaluated_candle_time: string | null;
   status: AlertStatus;
   channel: AlertChannel;
+  channels?: AlertChannel[];
   email?: string;
   phone?: string;
   custom_message?: string;
@@ -39,7 +40,8 @@ export interface AlertUpsertInput {
   interval?: string;
   direction?: CandleDirection;
   threshold?: number;
-  channel: AlertChannel;
+  channel?: AlertChannel;
+  channels?: AlertChannel[];
   email?: string;
   phone?: string;
   custom_message?: string;
