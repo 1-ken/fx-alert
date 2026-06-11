@@ -69,6 +69,12 @@ export const SWR_HISTORICAL_FORMING_MOBILE_OPTIONS: SWRConfiguration = {
   refreshInterval: 15_000,
 };
 
+/** Closed OHLC for charts: HTTP history with periodic revalidation on bar close. */
+export const SWR_HISTORICAL_CHART_CLOSED_OPTIONS: SWRConfiguration = {
+  ...SWR_HISTORICAL_OPTIONS,
+  refreshInterval: 30_000,
+};
+
 interface SwrLoadStateInput {
   data: unknown;
   error: unknown;

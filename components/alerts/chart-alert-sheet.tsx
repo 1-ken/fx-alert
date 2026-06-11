@@ -35,10 +35,10 @@ export function ChartAlertSheet({ open, onOpenChange, draft }: ChartAlertSheetPr
         </SheetHeader>
         <div className="mt-4 pb-6">
           <CreateAlertForm
+            key={`${draft.pair}-${draft.alertType}-${draft.price}-${draft.interval}`}
             initialPair={draft.pair}
             initialAlertType={draft.alertType}
             initialInterval={draft.interval}
-            initialNotifyVia={["sound"]}
             initialTargetPrice={
               draft.alertType === "price" ? draft.price.toString() : undefined
             }

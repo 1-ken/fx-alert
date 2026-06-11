@@ -10,6 +10,20 @@ import type { OhlcCandle, OhlcWithFormingResponse } from "@/types/historical";
 export const CHART_INTERVAL_OPTIONS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
 export type ChartInterval = (typeof CHART_INTERVAL_OPTIONS)[number];
 
+const INTERVAL_SECONDS: Record<ChartInterval, number> = {
+  "1m": 60,
+  "5m": 300,
+  "15m": 900,
+  "30m": 1800,
+  "1h": 3600,
+  "4h": 14400,
+  "1d": 86400,
+};
+
+export function chartIntervalToSeconds(interval: ChartInterval): number {
+  return INTERVAL_SECONDS[interval] ?? 300;
+}
+
 export function toChartTime(iso: string): number {
   return Math.floor(new Date(iso).getTime() / 1000);
 }
@@ -111,6 +125,39 @@ export function priceRangeFromCandles(
     return null;
   }
   return { min, max };
+}
+
+/** Build a forming candle from live price when WS/HTTP forming is unavailable. */
+export function synthesizeFormingFromLive(
+  livePrice: number | undefined,
+  closed: OhlcCandle[],
+  interval: ChartInterval,
+): OhlcCandle | null {
+  if (typeof livePrice !== "number" || !Number.isFinite(livePrice) || closed.length === 0) {
+    return null;
+  }
+
+  const ivSec = chartIntervalToSeconds(interval);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const bucketSec = Math.floor(nowSec / ivSec) * ivSec;
+  const bucketIso = new Date(bucketSec * 1000).toISOString();
+  const last = closed[closed.length - 1];
+  const open = last.close;
+  const timeIn = nowSec - bucketSec;
+
+  return {
+    timestamp: bucketIso,
+    open,
+    high: Math.max(open, livePrice, last.high),
+    low: Math.min(open, livePrice, last.low),
+    close: livePrice,
+    volume: 1,
+    is_forming: true,
+    expected_open: bucketIso,
+    expected_close: new Date((bucketSec + ivSec) * 1000).toISOString(),
+    progress_percent: (timeIn / ivSec) * 100,
+    time_remaining_seconds: ivSec - timeIn,
+  };
 }
 
 /** Apply live mid price to the forming bar between OHLC poll refreshes. */

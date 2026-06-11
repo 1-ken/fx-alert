@@ -45,6 +45,7 @@
     "firebase-admin": "^13.7.0",
     "input-otp": "^1.4.2",
     "jose": "^6.0.11",
+    "klinecharts": "^10.0.0-beta3",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^0.556.0",
     "motion": "^12.23.25",

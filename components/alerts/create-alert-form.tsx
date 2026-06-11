@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/input-group";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
+import { shouldApplyInitialNotifyVia } from "@/lib/alert-form-utils";
 import type { AlertCondition, AlertType, CandleDirection } from "@/types/alerts";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -296,6 +297,7 @@ export function CreateAlertForm({
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recentPairs, setRecentPairs] = useState<string[]>([]);
+  const initialNotifyViaAppliedRef = useRef(false);
 
   const normalizedInitialPair = useMemo(() => {
     const pair = initialPair?.trim();
@@ -402,12 +404,19 @@ export function CreateAlertForm({
   }, [form, initialInterval]);
 
   useEffect(() => {
-    if (initialNotifyVia?.length) {
-      form.setValue("notifyVia", initialNotifyVia, {
-        shouldDirty: false,
-        shouldValidate: true,
-      });
+    if (
+      !shouldApplyInitialNotifyVia(
+        initialNotifyViaAppliedRef.current,
+        initialNotifyVia,
+      )
+    ) {
+      return;
     }
+    initialNotifyViaAppliedRef.current = true;
+    form.setValue("notifyVia", initialNotifyVia, {
+      shouldDirty: false,
+      shouldValidate: true,
+    });
   }, [form, initialNotifyVia]);
 
   const selectedPair = form.watch("pair");

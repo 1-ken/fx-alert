@@ -3,6 +3,7 @@ import { API_ENDPOINTS } from "@/lib/constants";
 import {
   fetcher,
   getSwrLoadState,
+  SWR_HISTORICAL_CHART_CLOSED_OPTIONS,
   SWR_HISTORICAL_FORMING_MOBILE_OPTIONS,
   SWR_HISTORICAL_FORMING_OPTIONS,
   SWR_HISTORICAL_OPTIONS,
@@ -36,20 +37,36 @@ function withLoadState<T extends { data: unknown; error: unknown; isLoading: boo
   };
 }
 
-/**
- * Closed OHLC candles for charting.
- */
-export function useHistoricalOhlc(params: {
+export function chartClosedOhlcKey(params: {
   pair: string;
   interval?: string;
   start?: string;
   end?: string;
   limit?: number;
-}) {
-  const key = params.pair
+}): string | null {
+  return params.pair
     ? buildQueryUrl(API_ENDPOINTS.OBSERVER_PROXY.HISTORICAL_OHLC, params)
     : null;
-  const swr = useSWR<OhlcResponse>(key, fetcher, SWR_HISTORICAL_OPTIONS);
+}
+
+/**
+ * Closed OHLC candles for charting.
+ */
+export function useHistoricalOhlc(
+  params: {
+    pair: string;
+    interval?: string;
+    start?: string;
+    end?: string;
+    limit?: number;
+  },
+  options?: { chartClosed?: boolean },
+) {
+  const key = chartClosedOhlcKey(params);
+  const swrOptions = options?.chartClosed
+    ? SWR_HISTORICAL_CHART_CLOSED_OPTIONS
+    : SWR_HISTORICAL_OPTIONS;
+  const swr = useSWR<OhlcResponse>(key, fetcher, swrOptions);
   return withLoadState(swr);
 }
 

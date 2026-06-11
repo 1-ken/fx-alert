@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OhlcCandle, OhlcWithFormingResponse } from "@/types/historical";
 import {
   applyLivePriceToForming,
@@ -12,6 +12,7 @@ import {
   priceRangeFromCandles,
   resolveClosedCandles,
   seriesDataWithLiveForming,
+  synthesizeFormingFromLive,
   toChartTime,
 } from "./chart-utils";
 
@@ -168,9 +169,37 @@ describe("mergeFormingCandle", () => {
   });
 });
 
+describe("synthesizeFormingFromLive", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T10:02:30Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns null without live price or closed history", () => {
+    expect(synthesizeFormingFromLive(undefined, [], "5m")).toBeNull();
+    expect(synthesizeFormingFromLive(1.165, [], "5m")).toBeNull();
+  });
+
+  it("builds forming candle for current bucket from last close", () => {
+    const closed = [candle("2024-01-01T10:00:00Z", 1.16)];
+    const forming = synthesizeFormingFromLive(1.165, closed, "5m");
+    expect(forming).not.toBeNull();
+    expect(forming?.is_forming).toBe(true);
+    expect(forming?.open).toBe(1.16);
+    expect(forming?.close).toBe(1.165);
+    expect(forming?.timestamp).toBe("2024-01-01T10:00:00.000Z");
+    expect(forming?.high).toBeGreaterThanOrEqual(1.165);
+    expect(forming?.low).toBeLessThanOrEqual(1.165);
+  });
+});
+
 describe("chartTimeToUnix", () => {
   it("reads numeric unix seconds", () => {
-    expect(chartTimeToUnix(1704110400)).toBe(1704110400);
+    expect(chartTimeToUnix(1704110400 as Parameters<typeof chartTimeToUnix>[0])).toBe(1704110400);
   });
 });
 
