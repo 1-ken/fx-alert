@@ -27,10 +27,23 @@ import {
   ADMIN_TOKEN_KEY,
   useAdminActivity,
   useAdminAlerts,
+  useAdminFeedback,
   useAdminHealth,
+  useAdminMarketers,
   useAdminOverview,
   useAdminUsers,
+  createMarketer,
+  updateMarketer,
 } from "@/hooks/admin/use-admin-api";
+import { buildMarketerReferralLink } from "@/lib/referral";
+import {
+  ACTIVITY_DATE_PRESET_LABELS,
+  type ActivityDatePreset,
+  detectActivityDatePreset,
+  getActivityDateRange,
+  getDefaultActivityDateRange,
+} from "@/lib/admin-activity-dates";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 
 type OverviewMetrics = {
   users_count: number;
@@ -41,6 +54,7 @@ type OverviewMetrics = {
   recent_activity_7d?: number;
   alerts_by_channel?: Record<string, number>;
   alerts_by_status?: Record<string, number>;
+  referrals_by_marketer?: Record<string, number>;
 };
 
 type AdminUserRow = {
@@ -49,12 +63,22 @@ type AdminUserRow = {
   email: string | null;
   auth_provider: string;
   created_at: string | null;
+  referred_by_marketer_code: string | null;
+  marketer_name: string | null;
   alert_count: number;
   active_alerts: number;
   triggered_alerts: number;
   favorites_count: number;
   activity_count: number;
   last_login_at: string | null;
+};
+
+type AdminMarketerRow = {
+  code: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+  referral_count: number;
 };
 
 type AdminAlertRow = {
@@ -91,6 +115,17 @@ type AdminActivityRow = {
   ip_address: string | null;
   user_agent: string | null;
   metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+type AdminFeedbackRow = {
+  id: string;
+  user_id: string;
+  username: string;
+  email: string | null;
+  enjoying: boolean;
+  improvements: string | null;
+  source: string;
   created_at: string;
 };
 
@@ -138,8 +173,16 @@ export function AdminPanel() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
   const [alertStatus, setAlertStatus] = useState<string>("all");
+  const defaultActivityDates = getDefaultActivityDateRange();
   const [activityFilter, setActivityFilter] = useState<string>("all");
+  const [activityDatePreset, setActivityDatePreset] =
+    useState<ActivityDatePreset>("today");
+  const [activityStartDate, setActivityStartDate] = useState(defaultActivityDates.start);
+  const [activityEndDate, setActivityEndDate] = useState(defaultActivityDates.end);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [newMarketerCode, setNewMarketerCode] = useState("");
+  const [newMarketerName, setNewMarketerName] = useState("");
+  const [marketerMessage, setMarketerMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem(ADMIN_TOKEN_KEY);
@@ -159,8 +202,13 @@ export function AdminPanel() {
   const { data: activityPayload, mutate: refreshActivity } = useAdminActivity(
     loggedIn,
     activityFilter === "all" ? undefined : activityFilter,
+    selectedUserId,
+    activityStartDate || null,
+    activityEndDate || null,
   );
   const { data: health } = useAdminHealth(loggedIn);
+  const { data: marketersPayload, mutate: refreshMarketers } = useAdminMarketers(loggedIn);
+  const { data: feedbackPayload, mutate: refreshFeedback } = useAdminFeedback(loggedIn);
 
   const requestOtp = async () => {
     setIsSubmitting(true);
@@ -218,21 +266,20 @@ export function AdminPanel() {
     void refreshUsers();
     void refreshAlerts();
     void refreshActivity();
+    void refreshMarketers();
+    void refreshFeedback();
   };
 
   const metrics = overview as OverviewMetrics | undefined;
   const users = (usersPayload as { items?: AdminUserRow[] } | undefined)?.items ?? [];
   const alerts = ((alertsPayload as { items?: AdminAlertRow[] } | undefined)?.items ??
     []) as AdminAlertRow[];
+  const feedback = ((feedbackPayload as { items?: AdminFeedbackRow[] } | undefined)?.items ??
+    []) as AdminFeedbackRow[];
   const activity = ((activityPayload as { items?: AdminActivityRow[] } | undefined)?.items ??
     []) as AdminActivityRow[];
-
-  const displayedActivity = useMemo(() => {
-    if (!selectedUserId) {
-      return activity;
-    }
-    return activity.filter((row) => row.user_id === selectedUserId);
-  }, [activity, selectedUserId]);
+  const marketers =
+    (marketersPayload as { items?: AdminMarketerRow[] } | undefined)?.items ?? [];
 
   const selectedUserLabel = useMemo(() => {
     if (!selectedUserId) {
@@ -245,6 +292,60 @@ export function AdminPanel() {
   const openUserActivity = (userId: string) => {
     setSelectedUserId(userId);
     setActiveTab("activity");
+  };
+
+  const applyActivityDatePreset = (preset: Exclude<ActivityDatePreset, "custom">) => {
+    const range = getActivityDateRange(preset);
+    setActivityDatePreset(preset);
+    setActivityStartDate(range.start);
+    setActivityEndDate(range.end);
+  };
+
+  const handleActivityDateChange = (from?: string, to?: string) => {
+    if (!from || !to) {
+      applyActivityDatePreset("today");
+      return;
+    }
+    setActivityStartDate(from);
+    setActivityEndDate(to);
+    setActivityDatePreset(detectActivityDatePreset(from, to));
+  };
+
+  const handleCreateMarketer = async () => {
+    setIsSubmitting(true);
+    setMarketerMessage(null);
+    try {
+      await createMarketer(newMarketerCode.trim().toLowerCase(), newMarketerName.trim());
+      setNewMarketerCode("");
+      setNewMarketerName("");
+      setMarketerMessage("Marketer created");
+      void refreshMarketers();
+      void refreshOverview();
+    } catch (error) {
+      setMarketerMessage(formatAdminRequestError(error, "Failed to create marketer"));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleToggleMarketer = async (marketer: AdminMarketerRow) => {
+    setMarketerMessage(null);
+    try {
+      await updateMarketer(marketer.code, { active: !marketer.active });
+      void refreshMarketers();
+    } catch (error) {
+      setMarketerMessage(formatAdminRequestError(error, "Failed to update marketer"));
+    }
+  };
+
+  const handleCopyReferralLink = async (code: string) => {
+    const link = buildMarketerReferralLink(window.location.origin, code);
+    try {
+      await navigator.clipboard.writeText(link);
+      setMarketerMessage(`Copied link for ${code}`);
+    } catch {
+      setMarketerMessage(link);
+    }
   };
 
   if (!token) {
@@ -299,11 +400,13 @@ export function AdminPanel() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="marketers">Marketers</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="feedback">Feedback</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -359,6 +462,14 @@ export function AdminPanel() {
                       .join(", ")
                   : "—"}
               </p>
+              <p>
+                Referrals by marketer:{" "}
+                {metrics?.referrals_by_marketer
+                  ? Object.entries(metrics.referrals_by_marketer)
+                      .map(([k, v]) => `${k} ${v}`)
+                      .join(", ")
+                  : "—"}
+              </p>
             </CardContent>
           </Card>
 
@@ -388,6 +499,7 @@ export function AdminPanel() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>User</TableHead>
+                      <TableHead>Marketer</TableHead>
                       <TableHead>Provider</TableHead>
                       <TableHead>Alerts</TableHead>
                       <TableHead>Active</TableHead>
@@ -396,6 +508,7 @@ export function AdminPanel() {
                       <TableHead>Events</TableHead>
                       <TableHead>Last login</TableHead>
                       <TableHead>Joined</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -403,16 +516,28 @@ export function AdminPanel() {
                       <TableRow
                         key={user.user_id}
                         className={cn(
-                          "cursor-pointer",
                           selectedUserId === user.user_id && "bg-accent/40",
                         )}
-                        onClick={() => openUserActivity(user.user_id)}
                       >
                         <TableCell>
                           <span className="font-medium">{user.username || "—"}</span>
                           <span className="block text-xs text-muted-foreground">
                             {user.email ?? "No email"}
                           </span>
+                        </TableCell>
+                        <TableCell>
+                          {user.referred_by_marketer_code ? (
+                            <span>
+                              {user.marketer_name ?? user.referred_by_marketer_code}
+                              {user.marketer_name ? (
+                                <span className="block text-xs text-muted-foreground">
+                                  {user.referred_by_marketer_code}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </TableCell>
                         <TableCell className="capitalize">{user.auth_provider}</TableCell>
                         <TableCell>{user.alert_count}</TableCell>
@@ -428,14 +553,119 @@ export function AdminPanel() {
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatKenyaDateTime(user.created_at)}
                         </TableCell>
+                        <TableCell>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openUserActivity(user.user_id)}
+                          >
+                            View activity
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               )}
               <p className="mt-3 text-xs text-muted-foreground">
-                Click a row to view that user&apos;s activity.
+                Use View activity to inspect a user&apos;s event history.
               </p>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="marketers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Create marketer</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+              <Input
+                value={newMarketerCode}
+                onChange={(event) =>
+                  setNewMarketerCode(
+                    event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""),
+                  )
+                }
+                placeholder="Code (e.g. alice)"
+              />
+              <Input
+                value={newMarketerName}
+                onChange={(event) => setNewMarketerName(event.target.value)}
+                placeholder="Display name"
+              />
+              <Button
+                disabled={
+                  isSubmitting ||
+                  newMarketerCode.length < 3 ||
+                  newMarketerName.trim().length === 0
+                }
+                onClick={handleCreateMarketer}
+              >
+                Add marketer
+              </Button>
+            </CardContent>
+          </Card>
+
+          {marketerMessage ? (
+            <p className="text-sm text-muted-foreground">{marketerMessage}</p>
+          ) : null}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Marketers</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto pt-0">
+              {marketers.length === 0 ? (
+                <p className="py-6 text-sm text-muted-foreground">No marketers yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Active</TableHead>
+                      <TableHead>Referrals</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {marketers.map((marketer) => (
+                      <TableRow key={marketer.code}>
+                        <TableCell className="font-mono">{marketer.code}</TableCell>
+                        <TableCell>{marketer.name}</TableCell>
+                        <TableCell>{marketer.active ? "Yes" : "No"}</TableCell>
+                        <TableCell>{marketer.referral_count}</TableCell>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {formatKenyaDateTime(marketer.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleCopyReferralLink(marketer.code)}
+                            >
+                              Copy link
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleToggleMarketer(marketer)}
+                            >
+                              {marketer.active ? "Deactivate" : "Activate"}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -510,7 +740,8 @@ export function AdminPanel() {
           {selectedUserId ? (
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-sm text-muted-foreground">
-                Filtered to <span className="font-medium text-foreground">{selectedUserLabel}</span>
+                Activity for{" "}
+                <span className="font-medium text-foreground">{selectedUserLabel}</span>
               </p>
               <Button
                 type="button"
@@ -518,34 +749,81 @@ export function AdminPanel() {
                 variant="outline"
                 onClick={() => setSelectedUserId(null)}
               >
-                Clear user filter
+                Clear filter
               </Button>
             </div>
           ) : null}
-          <Select value={activityFilter} onValueChange={setActivityFilter}>
-            <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="Event type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All events</SelectItem>
-              <SelectItem value="login_success">Login success</SelectItem>
-              <SelectItem value="login_failed">Login failed</SelectItem>
-              <SelectItem value="register">Register</SelectItem>
-              <SelectItem value="google_oauth">Google OAuth</SelectItem>
-              <SelectItem value="alert_create">Alert create</SelectItem>
-              <SelectItem value="alert_update">Alert update</SelectItem>
-              <SelectItem value="alert_delete">Alert delete</SelectItem>
-              <SelectItem value="favorite_add">Favorite add</SelectItem>
-              <SelectItem value="favorite_remove">Favorite remove</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex flex-wrap gap-3">
+            <Select
+              value={selectedUserId ?? "all"}
+              onValueChange={(value) =>
+                setSelectedUserId(value === "all" ? null : value)
+              }
+            >
+              <SelectTrigger className="w-[240px]">
+                <SelectValue placeholder="Filter by user" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All users</SelectItem>
+                {users.map((user) => (
+                  <SelectItem key={user.user_id} value={user.user_id}>
+                    {user.username || user.email || user.user_id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={activityFilter} onValueChange={setActivityFilter}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Event type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All events</SelectItem>
+                <SelectItem value="login_success">Login success</SelectItem>
+                <SelectItem value="login_failed">Login failed</SelectItem>
+                <SelectItem value="register">Register</SelectItem>
+                <SelectItem value="google_oauth">Google OAuth</SelectItem>
+                <SelectItem value="alert_create">Alert create</SelectItem>
+                <SelectItem value="alert_update">Alert update</SelectItem>
+                <SelectItem value="alert_delete">Alert delete</SelectItem>
+                <SelectItem value="favorite_add">Favorite add</SelectItem>
+                <SelectItem value="favorite_remove">Favorite remove</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+              {(["today", "this_week", "this_month"] as const).map((preset) => (
+                <Button
+                  key={preset}
+                  type="button"
+                  size="sm"
+                  variant={activityDatePreset === preset ? "default" : "outline"}
+                  onClick={() => applyActivityDatePreset(preset)}
+                >
+                  {ACTIVITY_DATE_PRESET_LABELS[preset]}
+                </Button>
+              ))}
+              <DateRangePicker
+                dateFrom={activityStartDate}
+                dateTo={activityEndDate}
+                onDateChange={handleActivityDateChange}
+                className="w-[280px]"
+              />
+            </div>
+          </div>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Activity log</CardTitle>
+              <CardTitle className="text-base">
+                {selectedUserId ? "User activity log" : "Activity log"}
+              </CardTitle>
             </CardHeader>
             <CardContent className="overflow-x-auto pt-0">
-              {displayedActivity.length === 0 ? (
-                <p className="py-6 text-sm text-muted-foreground">No activity logged yet.</p>
+              {activity.length === 0 ? (
+                <p className="py-6 text-sm text-muted-foreground">
+                  {selectedUserId ||
+                  activityDatePreset !== "today" ||
+                  activityFilter !== "all"
+                    ? "No activity matches the current filters."
+                    : "No activity logged yet."}
+                </p>
               ) : (
                 <Table>
                   <TableHeader>
@@ -557,7 +835,7 @@ export function AdminPanel() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {displayedActivity.map((row) => (
+                    {activity.map((row) => (
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">{row.event_type}</TableCell>
                         <TableCell>
@@ -576,6 +854,64 @@ export function AdminPanel() {
                         <TableCell className="whitespace-nowrap text-xs">
                           {formatKenyaDateTime(row.created_at)}
                         </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="feedback">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">User feedback</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto pt-0">
+              {feedback.length === 0 ? (
+                <p className="py-6 text-sm text-muted-foreground">No feedback yet.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>When</TableHead>
+                      <TableHead>User</TableHead>
+                      <TableHead>Enjoying</TableHead>
+                      <TableHead>Improvements</TableHead>
+                      <TableHead>Source</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {feedback.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="whitespace-nowrap text-xs">
+                          {formatKenyaDateTime(row.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-medium">
+                            {row.username || row.email || row.user_id}
+                          </span>
+                          {row.email ? (
+                            <span className="block text-xs text-muted-foreground">{row.email}</span>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-xs font-medium",
+                              row.enjoying
+                                ? "bg-emerald-500/15 text-emerald-400"
+                                : "bg-destructive/15 text-destructive",
+                            )}
+                          >
+                            {row.enjoying ? "Yes" : "No"}
+                          </span>
+                        </TableCell>
+                        <TableCell className="max-w-md text-sm text-muted-foreground">
+                          {row.improvements?.trim() ? row.improvements : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{row.source}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

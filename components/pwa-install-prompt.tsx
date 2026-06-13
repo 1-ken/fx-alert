@@ -1,8 +1,12 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { XMarkIcon } from '@heroicons/react/24/outline'
+import {
+  canShowPwaInstallPrompt,
+  recordPwaInstallPromptShown,
+} from '@/lib/pwa-install-prompt'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>
@@ -25,13 +29,25 @@ export function PWAInstallPrompt() {
   })
 
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [showInstallPrompt, setShowInstallPrompt] = useState(
-    environment.isIOS && !environment.isStandalone
-  )
+  const [showInstallPrompt, setShowInstallPrompt] = useState(false)
+  const hasRecordedShowRef = useRef(false)
+
+  useEffect(() => {
+    if (environment.isStandalone || !canShowPwaInstallPrompt()) {
+      return
+    }
+
+    if (environment.isIOS) {
+      setShowInstallPrompt(true)
+    }
+  }, [environment.isIOS, environment.isStandalone])
 
   useEffect(() => {
     const handler = (e: Event) => {
       e.preventDefault()
+      if (!canShowPwaInstallPrompt()) {
+        return
+      }
       setDeferredPrompt(e as BeforeInstallPromptEvent)
       setShowInstallPrompt(true)
     }
@@ -40,6 +56,15 @@ export function PWAInstallPrompt() {
 
     return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
+
+  useEffect(() => {
+    if (!showInstallPrompt || environment.isStandalone || hasRecordedShowRef.current) {
+      return
+    }
+
+    recordPwaInstallPromptShown()
+    hasRecordedShowRef.current = true
+  }, [environment.isStandalone, showInstallPrompt])
 
   const handleInstall = async () => {
     if (!deferredPrompt) return
@@ -52,6 +77,10 @@ export function PWAInstallPrompt() {
     }
     
     setDeferredPrompt(null)
+  }
+
+  const handleDismiss = () => {
+    setShowInstallPrompt(false)
   }
 
   if (!showInstallPrompt || environment.isStandalone) return null
@@ -78,7 +107,7 @@ export function PWAInstallPrompt() {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => setShowInstallPrompt(false)}
+            onClick={handleDismiss}
           >
             <XMarkIcon className="h-4 w-4" />
           </Button>

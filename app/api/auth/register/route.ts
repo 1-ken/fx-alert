@@ -7,7 +7,7 @@ function getApiBaseUrl(): string {
 }
 
 export async function POST(request: Request) {
-  let body: { username?: string; password?: string };
+  let body: { username?: string; password?: string; marketer_code?: string };
 
   try {
     body = await request.json();
@@ -17,6 +17,7 @@ export async function POST(request: Request) {
 
   const username = body.username?.trim();
   const password = body.password;
+  const marketerCode = body.marketer_code?.trim();
 
   if (!username || !password) {
     return NextResponse.json(
@@ -25,15 +26,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const payload: { username: string; password: string; marketer_code?: string } = {
+    username,
+    password,
+  };
+  if (marketerCode) {
+    payload.marketer_code = marketerCode;
+  }
+
   const upstreamResponse = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(payload),
   });
 
-  const payload = await upstreamResponse.json().catch(() => ({
+  const responsePayload = await upstreamResponse.json().catch(() => ({
     detail: "Registration failed",
   }));
 
-  return NextResponse.json(payload, { status: upstreamResponse.status });
+  return NextResponse.json(responsePayload, { status: upstreamResponse.status });
 }

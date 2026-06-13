@@ -6,6 +6,7 @@ import { SWRConfig } from "swr";
 import { Toaster } from "sonner";
 import { FirebaseAuthSync } from "@/components/firebase-auth-sync";
 import { BootstrapProvider } from "@/components/bootstrap-provider";
+import { ReferralClaimer } from "@/components/referral-claimer";
 import { SWR_DEFAULT_OPTIONS } from "@/lib/swr-config";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -19,6 +20,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           disableTransitionOnChange
         >
           <BootstrapProvider>
+            <ReferralClaimer />
             <FirebaseAuthSync />
             {children}
           </BootstrapProvider>

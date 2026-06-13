@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
@@ -37,6 +38,11 @@ import {
   CUSTOM_MESSAGE_MAX_CHARS,
 } from "@/lib/alert-preferences";
 import { useBootstrap } from "@/components/bootstrap-provider";
+import { AlertCreationFeedbackDialog } from "@/components/feedback/alert-creation-feedback-dialog";
+import {
+  incrementAlertCreateCount,
+  shouldPromptForFeedback,
+} from "@/lib/alert-feedback-prompt";
 import {
   canCreateMoreAlerts,
   getChannelLimitState,
@@ -298,10 +304,12 @@ export function CreateAlertForm({
   initialNotifyVia,
 }: CreateAlertFormProps) {
   const router = useRouter();
+  const { data: session } = useSession();
   const { bootstrap } = useBootstrap();
   const { createAlert, alerts } = useObserverAlerts();
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [recentPairs, setRecentPairs] = useState<string[]>([]);
   const initialNotifyViaAppliedRef = useRef(false);
 
@@ -510,6 +518,11 @@ export function CreateAlertForm({
     }
   }, [pairSearch, selectedPair]);
 
+  const goToDashboard = () => {
+    router.push("/dashboard");
+    router.refresh();
+  };
+
   async function onSubmit(values: AlertFormValues) {
     if (!createLimit.allowed) {
       toast.error(createLimit.reason ?? "Cannot create more alerts on your current plan.");
@@ -559,8 +572,13 @@ export function CreateAlertForm({
       writeRecentPairs(values.pair);
       setRecentPairs(readRecentPairs());
 
-      router.push("/dashboard");
-      router.refresh();
+      const userId = session?.user?.id ?? bootstrap?.userId ?? "";
+      const createCount = incrementAlertCreateCount(userId);
+      if (shouldPromptForFeedback(createCount)) {
+        setFeedbackDialogOpen(true);
+      } else {
+        goToDashboard();
+      }
     } catch (error) {
       let message = "Failed to create alert";
       if (error instanceof Error) {
@@ -578,7 +596,13 @@ export function CreateAlertForm({
   }
 
   return (
-    <Form {...form}>
+    <>
+      <AlertCreationFeedbackDialog
+        open={feedbackDialogOpen}
+        session={session ?? null}
+        onComplete={goToDashboard}
+      />
+      <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
               <FormField
                 control={form.control}
@@ -1038,5 +1062,6 @@ export function CreateAlertForm({
               </div>
       </form>
     </Form>
+    </>
   );
 }

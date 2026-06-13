@@ -19,6 +19,11 @@ import Image from "next/image";
 import { toast } from "sonner";
 import { FieldGroup } from "@/components/ui/field";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  normalizeReferralCode,
+  persistReferralCode,
+  readReferralCode,
+} from "@/lib/referral";
 
 interface PasswordFieldProps {
   id: string;
@@ -85,8 +90,19 @@ export function LoginForm({
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
   const authError = searchParams.get("error");
   const initialTab = searchParams.get("tab");
+  const referralParam = searchParams.get("ref");
   const { data: session, status } = useSession();
   const hasShownErrorRef = useRef(false);
+
+  useEffect(() => {
+    if (referralParam) {
+      const normalized = normalizeReferralCode(referralParam);
+      if (normalized) {
+        persistReferralCode(normalized);
+        setActiveTab("register");
+      }
+    }
+  }, [referralParam]);
 
   useEffect(() => {
     if (initialTab === "register") {
@@ -178,6 +194,8 @@ export function LoginForm({
 
     setIsLoading(true);
 
+    const marketerCode = readReferralCode();
+
     try {
       const response = await fetch("/api/auth/register", {
         method: "POST",
@@ -185,6 +203,7 @@ export function LoginForm({
         body: JSON.stringify({
           username: normalizedUsername,
           password,
+          ...(marketerCode ? { marketer_code: marketerCode } : {}),
         }),
       });
 

@@ -34,3 +34,11 @@ export async function POST(
   const { path } = await context.params;
   return proxyAdmin(request, path);
 }
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ path: string[] }> },
+) {
+  const { path } = await context.params;
+  return proxyAdmin(request, path);
+}

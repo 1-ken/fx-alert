@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { format } from "date-fns"
+import { format, startOfMonth, startOfWeek } from "date-fns"
 import { CalendarIcon, ChevronDownIcon } from "@heroicons/react/24/outline"
 import { DateRange } from "react-day-picker"
 
@@ -20,6 +20,7 @@ interface DateRangePickerProps {
   dateTo?: string
   onDateChange: (dateFrom: string | undefined, dateTo: string | undefined) => void
   className?: string
+  applyPresetImmediately?: boolean
 }
 
 type PresetOption = {
@@ -32,6 +33,7 @@ export function DateRangePicker({
   dateTo,
   onDateChange,
   className,
+  applyPresetImmediately = true,
 }: DateRangePickerProps) {
   const isMobile = useIsMobile()
   const [open, setOpen] = React.useState(false)
@@ -64,14 +66,8 @@ export function DateRangePicker({
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-
-    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-    const thisMonthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-
-    const lastYearStart = new Date(today.getFullYear() - 1, 0, 1)
-    const lastYearEnd = new Date(today.getFullYear() - 1, 11, 31)
+    const thisWeekStart = startOfWeek(today, { weekStartsOn: 1 })
+    const thisMonthStart = startOfMonth(today)
 
     return [
       {
@@ -79,37 +75,43 @@ export function DateRangePicker({
         getValue: () => ({ from: today, to: today }),
       },
       {
-        label: "Yesterday",
-        getValue: () => ({ from: yesterday, to: yesterday }),
+        label: "This week",
+        getValue: () => ({ from: thisWeekStart, to: today }),
       },
       {
-        label: "This Month",
-        getValue: () => ({ from: thisMonthStart, to: thisMonthEnd }),
-      },
-      {
-        label: "Last Year",
-        getValue: () => ({ from: lastYearStart, to: lastYearEnd }),
+        label: "This month",
+        getValue: () => ({ from: thisMonthStart, to: today }),
       },
     ]
   }
 
-  const handlePresetSelect = (preset: PresetOption) => {
-    const { from, to } = preset.getValue()
-    setSelectedRange({ from, to })
-  }
-
-  const handleApply = () => {
-    if (selectedRange?.from && selectedRange?.to) {
-      const fromStr = format(selectedRange.from, "yyyy-MM-dd")
-      const toStr = format(selectedRange.to, "yyyy-MM-dd")
+  const applyRange = (range: DateRange | undefined, closePopover = false) => {
+    if (range?.from && range?.to) {
+      const fromStr = format(range.from, "yyyy-MM-dd")
+      const toStr = format(range.to, "yyyy-MM-dd")
       onDateChange(fromStr, toStr)
-    } else if (selectedRange?.from) {
-      const fromStr = format(selectedRange.from, "yyyy-MM-dd")
+    } else if (range?.from) {
+      const fromStr = format(range.from, "yyyy-MM-dd")
       onDateChange(fromStr, undefined)
     } else {
       onDateChange(undefined, undefined)
     }
-    setOpen(false)
+    if (closePopover) {
+      setOpen(false)
+    }
+  }
+
+  const handlePresetSelect = (preset: PresetOption) => {
+    const { from, to } = preset.getValue()
+    const range = { from, to }
+    setSelectedRange(range)
+    if (applyPresetImmediately) {
+      applyRange(range, true)
+    }
+  }
+
+  const handleApply = () => {
+    applyRange(selectedRange, true)
   }
 
   const handleCancel = () => {

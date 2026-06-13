@@ -16,7 +16,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes that don't require NextAuth (admin uses its own OTP + secret path)
-  const publicPageRoutes = ['/login', '/admin'];
+  const publicPageRoutes = ['/login', '/admin', '/signup'];
   const isPublicPage = publicPageRoutes.some(route => pathname.startsWith(route));
 
   // Get authentication token
@@ -45,6 +45,12 @@ export async function middleware(request: NextRequest) {
     const loginUrl = new URL('/login', request.url);
     // Preserve the attempted URL for redirect after login
     loginUrl.searchParams.set('callbackUrl', pathname);
+    for (const key of ['ref', 'tab'] as const) {
+      const value = request.nextUrl.searchParams.get(key);
+      if (value) {
+        loginUrl.searchParams.set(key, value);
+      }
+    }
     return NextResponse.redirect(loginUrl);
   }
 
