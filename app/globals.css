@@ -370,3 +370,142 @@ html body {
   border-radius: 4px;
   margin: 2em 0;
 }
+
+/* Product tour spotlight and step card motion */
+:root {
+  --product-tour-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.product-tour-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+.product-tour-spotlight {
+  position: fixed;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.product-tour-scrim {
+  fill: rgb(0 0 0 / 0.65);
+  opacity: 0;
+  transition: opacity 220ms var(--product-tour-ease-out);
+}
+
+.product-tour-root .product-tour-scrim {
+  opacity: 1;
+}
+
+.product-tour-card {
+  pointer-events: auto;
+  opacity: 0;
+  transform: scale(0.97);
+  animation: product-tour-card-enter 220ms var(--product-tour-ease-out) forwards;
+}
+
+.product-tour-card--centered {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.97);
+  animation-name: product-tour-card-enter-centered;
+}
+
+.product-tour-card--viewport-upper {
+  right: auto;
+}
+
+@keyframes product-tour-card-enter {
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes product-tour-card-enter-centered {
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.product-tour-progress {
+  transition: width 220ms var(--product-tour-ease-out);
+}
+
+.product-tour-fab {
+  transition: transform 160ms var(--product-tour-ease-out);
+}
+
+.product-tour-fab--attention {
+  animation: product-tour-fab-pop 2.4s var(--product-tour-ease-out) infinite;
+}
+
+@keyframes product-tour-fab-pop {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+.product-tour-fab:active {
+  animation-play-state: paused;
+  transform: scale(0.97);
+}
+
+.product-tour-spotlight-ring {
+  stroke: var(--primary);
+  stroke-width: 2;
+  opacity: 0.55;
+  animation: product-tour-ring-pulse 2s var(--product-tour-ease-out) infinite;
+}
+
+@keyframes product-tour-ring-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-tour-scrim,
+  .product-tour-progress,
+  .product-tour-fab {
+    transition: opacity 160ms ease;
+  }
+
+  .product-tour-card,
+  .product-tour-card--centered {
+    animation: product-tour-card-enter-reduced 160ms ease forwards;
+    transform: none;
+  }
+
+  @keyframes product-tour-card-enter-reduced {
+    to {
+      opacity: 1;
+    }
+  }
+
+  .product-tour-fab:active {
+    transform: none;
+  }
+
+  .product-tour-fab--attention {
+    animation: none;
+  }
+
+  .product-tour-spotlight-ring {
+    animation: none;
+    opacity: 0.85;
+  }
+}

@@ -7,7 +7,6 @@ import { useSession } from "next-auth/react";
 import {
   HomeModernIcon,
   BellAlertIcon,
-  ChartBarIcon,
   CogIcon,
   ArrowRightOnRectangleIcon,
 } from "@heroicons/react/24/outline";
@@ -32,11 +31,6 @@ const NAV_ITEMS: NavItem[] = [
     title: "Alerts",
     url: "/alerts/list",
     icon: BellAlertIcon,
-  },
-  {
-    title: "History",
-    url: "/history",
-    icon: ChartBarIcon,
   },
   {
     title: "Settings",

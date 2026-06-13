@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { completeOnboarding } from "@/lib/api/bootstrap";
+import { PENDING_TOUR_STORAGE_KEY } from "@/components/product-tour/tour-steps";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +48,9 @@ export function OnboardingPage() {
         setCurrentStep("success");
         // Redirect after a short delay to show success screen
         setTimeout(() => {
+          if (typeof window !== "undefined") {
+            window.sessionStorage.setItem(PENDING_TOUR_STORAGE_KEY, "1");
+          }
           router.push("/dashboard");
         }, 1500);
       } else {

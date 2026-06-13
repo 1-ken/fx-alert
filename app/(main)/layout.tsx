@@ -13,6 +13,7 @@ import { TopNav } from "@/components/top-nav";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { TriggeredNotificationListener } from "@/components/triggered-notification-listener";
 import { StreamAlertsProvider } from "@/components/stream-alerts-provider";
+import { ProductTourProvider } from "@/components/product-tour/tour-provider";
 
 const LAST_ROUTE_STORAGE_KEY = "fx-alert:last-main-route";
 
@@ -190,6 +191,7 @@ export default function MainLayout({
 
   return (
     <OnboardingGuard>
+      <ProductTourProvider>
       <StreamAlertsProvider>
         <TriggeredNotificationListener />
         <Suspense fallback={null}>
@@ -200,6 +202,7 @@ export default function MainLayout({
         <div className="pt-[max(env(safe-area-inset-top),0.75rem)] pb-24">{children}</div>
         <GlobalCreateAlertFab />
       </StreamAlertsProvider>
+      </ProductTourProvider>
     </OnboardingGuard>
   );
 }

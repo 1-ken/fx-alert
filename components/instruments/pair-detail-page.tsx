@@ -139,11 +139,13 @@ export function PairDetailPageContent() {
           </Button>
         </header>
 
+        <section data-tour="pair-chart-alert">
         <InteractiveTradingChart
           pair={pair}
           livePrice={displayPrice}
           onCreateAlert={handleCreateAlert}
         />
+        </section>
 
         <section className="space-y-3">
           <div className="flex items-center justify-between">
@@ -194,7 +196,7 @@ export function PairDetailPageContent() {
 
       <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
         <div className="mx-auto flex w-full max-w-4xl justify-end px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-6">
-          <div className="pointer-events-auto">
+          <div className="pointer-events-auto" data-tour="pair-create-alert-fab">
             <Button asChild size="lg" className="h-auto rounded-full px-4 py-3 shadow-xl">
               <Link
                 href={`/alerts?pair=${encodeURIComponent(pair)}`}

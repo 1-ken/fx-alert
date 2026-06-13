@@ -6,7 +6,6 @@ import {
   BellAlertIcon,
   HomeModernIcon,
   BookOpenIcon,
-  ChartBarIcon,
   CogIcon,
   ShieldCheckIcon,
 } from "@heroicons/react/24/outline";
@@ -41,11 +40,6 @@ const navMain = [
     title: "Alerts",
     url: "/alerts",
     icon: BellAlertIcon,
-  },
-  {
-    title: "History",
-    url: "/history",
-    icon: ChartBarIcon,
   },
   ...(adminPanelPath
     ? [

@@ -3,15 +3,71 @@
 import { useState, useEffect, useRef } from "react";
 import { signIn, useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { EyeIcon, EyeOffIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import Image from "next/image";
 import { toast } from "sonner";
 import { FieldGroup } from "@/components/ui/field";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+interface PasswordFieldProps {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  autoComplete: string;
+  visible: boolean;
+  onToggleVisible: () => void;
+}
+
+/**
+ * Password input with an accessible show/hide visibility toggle.
+ */
+function PasswordField({
+  id,
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+  visible,
+  onToggleVisible,
+}: PasswordFieldProps) {
+  return (
+    <InputGroup className="h-11">
+      <InputGroupInput
+        id={id}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        required
+        className="h-11"
+      />
+      <InputGroupAddon align="inline-end">
+        <InputGroupButton
+          type="button"
+          size="icon-sm"
+          className="active:scale-[0.97]"
+          aria-label={visible ? "Hide password" : "Show password"}
+          onClick={onToggleVisible}
+        >
+          {visible ? <EyeOffIcon /> : <EyeIcon />}
+        </InputGroupButton>
+      </InputGroupAddon>
+    </InputGroup>
+  );
+}
 
 export function LoginForm({
   className,
@@ -22,6 +78,8 @@ export function LoginForm({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
@@ -233,14 +291,14 @@ export function LoginForm({
                         required
                         className="h-11"
                       />
-                      <Input
-                        type="password"
+                      <PasswordField
+                        id="signin-password"
                         value={password}
-                        onChange={(event) => setPassword(event.target.value)}
+                        onChange={setPassword}
                         placeholder="Password"
                         autoComplete="current-password"
-                        required
-                        className="h-11"
+                        visible={showPassword}
+                        onToggleVisible={() => setShowPassword((prev) => !prev)}
                       />
                       <Button type="submit" className="w-full" disabled={isLoading}>
                         {isLoading ? (
@@ -263,23 +321,23 @@ export function LoginForm({
                         required
                         className="h-11"
                       />
-                      <Input
-                        type="password"
+                      <PasswordField
+                        id="register-password"
                         value={password}
-                        onChange={(event) => setPassword(event.target.value)}
+                        onChange={setPassword}
                         placeholder="Password (min 8 characters)"
                         autoComplete="new-password"
-                        required
-                        className="h-11"
+                        visible={showPassword}
+                        onToggleVisible={() => setShowPassword((prev) => !prev)}
                       />
-                      <Input
-                        type="password"
+                      <PasswordField
+                        id="register-confirm-password"
                         value={confirmPassword}
-                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        onChange={setConfirmPassword}
                         placeholder="Confirm password"
                         autoComplete="new-password"
-                        required
-                        className="h-11"
+                        visible={showConfirmPassword}
+                        onToggleVisible={() => setShowConfirmPassword((prev) => !prev)}
                       />
                       <Button type="submit" className="w-full" disabled={isLoading}>
                         {isLoading ? (

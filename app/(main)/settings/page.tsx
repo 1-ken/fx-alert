@@ -12,10 +12,7 @@ import {
   isSoundAlertsEnabled,
   playAlertSoundPreview,
   setSoundAlertsEnabled,
-  unlockAlertAudio,
-  SOUND_ALERTS_ENABLED_KEY,
-  ALERT_SOUND_WAV_PATHS,
-  ALERT_SOUND_MP3_PATHS,
+  unlockAlertAudio,  
 } from "@/lib/alert-sound";
 import { ALERT_DEFAULT_PHONE_STORAGE_KEY } from "@/lib/alert-preferences";
 import { logoutUser } from "@/lib/auth-client";
@@ -89,26 +86,11 @@ export default function SettingsPage() {
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             Play a looping sound in the browser for 30 seconds when a sound-channel alert triggers.
-            Uses WAV first, then MP3:
           </p>
-          <ul className="list-inside list-disc text-xs text-muted-foreground">
-            {ALERT_SOUND_WAV_PATHS.map((path) => (
-              <li key={path}>
-                <code>{path}</code>
-              </li>
-            ))}
-            {ALERT_SOUND_MP3_PATHS.map((path) => (
-              <li key={path}>
-                <code>{path}</code>
-              </li>
-            ))}
-          </ul>
+          
           <div className="flex items-center justify-between rounded-lg border px-3 py-3">
             <div>
-              <p className="text-sm font-medium">Enable sound alerts</p>
-              <p className="text-xs text-muted-foreground">
-                Stored locally ({SOUND_ALERTS_ENABLED_KEY})
-              </p>
+              <p className="text-sm font-medium">Enable sound alerts</p>              
             </div>
             <Switch checked={soundAlertsEnabled} onCheckedChange={handleSoundToggle} />
           </div>
@@ -118,7 +100,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="settings-default-phone">
         <CardHeader>
           <CardTitle>Default alert phone</CardTitle>
         </CardHeader>

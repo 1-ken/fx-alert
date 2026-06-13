@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { BottomNav } from "@/components/mobile/bottom-nav";
+import { TourFab } from "@/components/product-tour/tour-fab";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { formatKenyaRelative } from "@/lib/datetime";
@@ -290,6 +291,7 @@ export function DashboardPageContent() {
           </TabsList>
         </Tabs>
 
+        <div data-tour="dashboard-grid">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-wide text-muted-foreground">
             LIVE PRICE GRID
@@ -333,7 +335,7 @@ export function DashboardPageContent() {
           </Card>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {cards.map((item) => {
+            {cards.map((item, index) => {
               const isUp = item.delta >= 0;
               const favorited = isFavorite(item.pair);
               const pairAlertCount =
@@ -342,6 +344,7 @@ export function DashboardPageContent() {
               return (
                 <Card
                   key={item.instrumentKey}
+                  data-tour={index === 0 ? "dashboard-pair-card" : undefined}
                   role="button"
                   tabIndex={0}
                   aria-label={`View ${formatPairLabel(item.pair)} chart and alerts`}
@@ -421,6 +424,8 @@ export function DashboardPageContent() {
           </div>
         )}
 
+        </div>
+
         <footer className="flex items-center justify-between rounded-xl border bg-card/70 p-3 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
             <BellAlertIcon className="h-4 w-4" />
@@ -431,6 +436,7 @@ export function DashboardPageContent() {
       </div>
 
       <BottomNav />
+      <TourFab />
     </div>
   );
 }
