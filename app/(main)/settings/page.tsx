@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowLeftIcon, Cog6ToothIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, Cog6ToothIcon, CreditCardIcon } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,13 @@ import {
 } from "@/lib/alert-sound";
 import { ALERT_DEFAULT_PHONE_STORAGE_KEY } from "@/lib/alert-preferences";
 import { logoutUser } from "@/lib/auth-client";
+import { useBootstrap } from "@/components/bootstrap-provider";
+import { PlanPricingDialog } from "@/components/subscription/paywall-modal";
+import { tierDisplayName } from "@/lib/pricing";
 
 export default function SettingsPage() {
+  const { bootstrap } = useBootstrap();
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState(() => {
     if (typeof window === "undefined") {
       return "";
@@ -58,6 +63,19 @@ export default function SettingsPage() {
     }
   };
 
+  const tier = bootstrap?.subscriptionTier ?? "none";
+  const trialDays = bootstrap?.trialDaysRemaining ?? 0;
+  const planSummary =
+    tier === "trial"
+      ? `${trialDays} day${trialDays === 1 ? "" : "s"} left in free trial`
+      : tier === "free" && bootstrap?.trialExpired
+        ? "Trial ended — Free plan"
+        : tier === "none"
+          ? bootstrap?.requiresPricingIntro
+            ? "Complete the tour to start your trial"
+            : "Complete onboarding to start your trial"
+          : tierDisplayName(tier);
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-4 px-4 py-8">
       <header className="rounded-xl border bg-card/80 p-4">
@@ -78,6 +96,38 @@ export default function SettingsPage() {
           </div>
         </div>
       </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Plan & pricing</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-start gap-3 rounded-lg border px-3 py-3">
+            <div className="rounded-lg bg-primary/15 p-2 text-primary">
+              <CreditCardIcon className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">{planSummary}</p>
+              {tier === "trial" && bootstrap?.dailyUsage ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Today: {bootstrap.dailyUsage.sms}/{bootstrap.dailyUsage.smsLimit} SMS ·{" "}
+                  {bootstrap.dailyUsage.calls}/{bootstrap.dailyUsage.callsLimit} calls
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 w-full"
+            onClick={() => setPricingOpen(true)}
+          >
+            View plans & pricing
+          </Button>
+        </CardContent>
+      </Card>
+
+      <PlanPricingDialog open={pricingOpen} onOpenChange={setPricingOpen} />
 
       <Card>
         <CardHeader>

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api-fetch";
 
-export async function GET() {
+export async function POST() {
   try {
     const session = await getServerSession(authOptions);
 
@@ -12,8 +12,8 @@ export async function GET() {
     }
 
     const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const response = await apiFetch(`${apiBaseUrl}/me`, {
-      method: "GET",
+    const response = await apiFetch(`${apiBaseUrl}/tour/complete`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.accessToken || ""}`,
@@ -28,18 +28,15 @@ export async function GET() {
       status: response.status,
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": "no-store, no-cache, must-revalidate",
       },
     });
   } catch (error) {
-    console.error("Failed to proxy /me", error);
+    console.error("Failed to proxy tour complete", error);
 
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load bootstrap data.",
+          error instanceof Error ? error.message : "Failed to complete product tour.",
       },
       { status: 500 },
     );

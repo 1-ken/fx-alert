@@ -14,6 +14,7 @@ import { useBootstrap } from "@/components/bootstrap-provider";
 import { TriggeredNotificationListener } from "@/components/triggered-notification-listener";
 import { StreamAlertsProvider } from "@/components/stream-alerts-provider";
 import { ProductTourProvider } from "@/components/product-tour/tour-provider";
+import { SubscriptionGuard } from "@/components/subscription/subscription-guard";
 
 const LAST_ROUTE_STORAGE_KEY = "fx-alert:last-main-route";
 
@@ -21,6 +22,7 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { bootstrap, isBootstrapBlocking } = useBootstrap();
   const hasRestoredRoute = useRef(false);
 
   const currentRoute = useMemo(() => {
@@ -28,18 +30,28 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
     return query ? `${pathname}?${query}` : pathname;
   }, [pathname, searchParams]);
 
+  const tourPending =
+    Boolean(bootstrap?.onboardingCompletedAt) && !bootstrap?.tourCompletedAt;
+
   useEffect(() => {
-    if (!enabled || hasRestoredRoute.current) {
+    if (!enabled || hasRestoredRoute.current || isBootstrapBlocking) {
+      return;
+    }
+
+    hasRestoredRoute.current = true;
+
+    if (tourPending) {
+      if (pathname !== "/dashboard") {
+        router.replace("/dashboard");
+      }
       return;
     }
 
     const storedRoute = window.localStorage.getItem(LAST_ROUTE_STORAGE_KEY);
-    hasRestoredRoute.current = true;
-
     if (storedRoute && storedRoute !== currentRoute) {
       router.replace(storedRoute);
     }
-  }, [currentRoute, enabled, router]);
+  }, [currentRoute, enabled, isBootstrapBlocking, pathname, router, tourPending]);
 
   useEffect(() => {
     if (!enabled || !hasRestoredRoute.current) {
@@ -191,6 +203,7 @@ export default function MainLayout({
 
   return (
     <OnboardingGuard>
+      <SubscriptionGuard>
       <ProductTourProvider>
       <StreamAlertsProvider>
         <TriggeredNotificationListener />
@@ -203,6 +216,7 @@ export default function MainLayout({
         <GlobalCreateAlertFab />
       </StreamAlertsProvider>
       </ProductTourProvider>
+      </SubscriptionGuard>
     </OnboardingGuard>
   );
 }

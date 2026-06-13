@@ -36,6 +36,11 @@ import {
   CALL_CUSTOM_MESSAGE_MAX_CHARS,
   CUSTOM_MESSAGE_MAX_CHARS,
 } from "@/lib/alert-preferences";
+import { useBootstrap } from "@/components/bootstrap-provider";
+import {
+  canCreateMoreAlerts,
+  getChannelLimitState,
+} from "@/lib/subscription-limits";
 
 const ALERT_RECENT_PAIRS_STORAGE_KEY = "fx-alert:recent-pairs";
 
@@ -293,7 +298,8 @@ export function CreateAlertForm({
   initialNotifyVia,
 }: CreateAlertFormProps) {
   const router = useRouter();
-  const { createAlert } = useObserverAlerts();
+  const { bootstrap } = useBootstrap();
+  const { createAlert, alerts } = useObserverAlerts();
   const { data: snapshot } = useObserverSnapshot(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [recentPairs, setRecentPairs] = useState<string[]>([]);
@@ -464,6 +470,8 @@ export function CreateAlertForm({
 
   const notifyVia = form.watch("notifyVia");
   const selectedChannelSet = useMemo(() => new Set(notifyVia), [notifyVia]);
+  const activeAlertCount = alerts?.active?.length ?? 0;
+  const createLimit = canCreateMoreAlerts(bootstrap, activeAlertCount);
   const showPhoneInput = selectedChannelSet.has("sms") || selectedChannelSet.has("call");
   const showEmailInput = selectedChannelSet.has("email");
   const isCallChannel = selectedChannelSet.has("call");
@@ -503,6 +511,11 @@ export function CreateAlertForm({
   }, [pairSearch, selectedPair]);
 
   async function onSubmit(values: AlertFormValues) {
+    if (!createLimit.allowed) {
+      toast.error(createLimit.reason ?? "Cannot create more alerts on your current plan.");
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -549,7 +562,16 @@ export function CreateAlertForm({
       router.push("/dashboard");
       router.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create alert");
+      let message = "Failed to create alert";
+      if (error instanceof Error) {
+        try {
+          const parsed = JSON.parse(error.message) as { detail?: string };
+          message = parsed.detail ?? error.message;
+        } catch {
+          message = error.message;
+        }
+      }
+      toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
@@ -854,6 +876,12 @@ export function CreateAlertForm({
                 </>
               )}
 
+              {!createLimit.allowed ? (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {createLimit.reason}
+                </p>
+              ) : null}
+
               <FormField
                 control={form.control}
                 name="notifyVia"
@@ -863,12 +891,20 @@ export function CreateAlertForm({
                     <div className="grid grid-cols-2 gap-3">
                       {channelOptions.map((channel) => {
                         const isSelected = selectedChannelSet.has(channel.value);
+                        const limit = getChannelLimitState(channel.value, bootstrap);
+                        const isDisabled = limit.disabled;
 
                         return (
                           <button
                             key={channel.value}
                             type="button"
+                            disabled={isDisabled}
+                            title={limit.reason}
                             onClick={() => {
+                              if (isDisabled) {
+                                if (limit.reason) toast.error(limit.reason);
+                                return;
+                              }
                               const next = isSelected
                                 ? field.value.filter((item) => item !== channel.value)
                                 : [...field.value, channel.value];
@@ -877,6 +913,7 @@ export function CreateAlertForm({
                             }}
                             className={cn(
                               "rounded-lg border px-3 py-2 text-sm transition active:scale-[0.97]",
+                              isDisabled && "cursor-not-allowed opacity-50",
                               isSelected
                                 ? "border-primary/40 bg-primary/10 text-foreground"
                                 : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40"
@@ -978,7 +1015,7 @@ export function CreateAlertForm({
                 <Button
                   type="submit"
                   className="h-12 w-full"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !createLimit.allowed}
                 >
                   {isSubmitting ? (
                     <>

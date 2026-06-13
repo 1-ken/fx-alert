@@ -1,10 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { BellAlertIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 
 export function GlobalCreateAlertFab() {
+  const pathname = usePathname();
+  const isPairDetailPage = /^\/instruments\/[^/]+$/.test(pathname);
+
+  if (isPairDetailPage) {
+    return null;
+  }
+
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none">
       <div className="mx-auto flex w-full max-w-4xl justify-end px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-6">

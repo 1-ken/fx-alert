@@ -12,12 +12,15 @@ import React, {
 import { usePathname, useRouter } from "next/navigation";
 import { TourOverlay } from "@/components/product-tour/tour-overlay";
 import {
-  PENDING_TOUR_STORAGE_KEY,
   TOUR_COMPLETED_STORAGE_KEY,
   TOUR_STEPS,
   resolveTourTarget,
   type TourStep,
 } from "@/components/product-tour/tour-steps";
+import { useSession } from "next-auth/react";
+import { toast } from "sonner";
+import { useBootstrap } from "@/components/bootstrap-provider";
+import { completeTour } from "@/lib/api/bootstrap";
 
 const TARGET_POLL_TIMEOUT_MS = 2000;
 const TARGET_POLL_INTERVAL_MS = 50;
@@ -79,12 +82,14 @@ async function waitForTourTarget(targetId: string | undefined): Promise<Element 
 export function ProductTourProvider({ children }: ProductTourProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const { bootstrap, refetch, isBootstrapBlocking } = useBootstrap();
   const [isActive, setIsActive] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const [isStepReady, setIsStepReady] = useState(false);
   const navigatingRef = useRef(false);
-  const pendingTourHandledRef = useRef(false);
+  const autoTourStartedRef = useRef(false);
 
   const currentStep = isActive ? (TOUR_STEPS[currentStepIndex] ?? null) : null;
 
@@ -116,11 +121,24 @@ export function ProductTourProvider({ children }: ProductTourProviderProps) {
         window.localStorage.setItem(TOUR_COMPLETED_STORAGE_KEY, "1");
       }
 
+      const wasLegacyIntro = bootstrap?.requiresPricingIntro === true;
+
+      void (async () => {
+        await completeTour(session);
+        await refetch();
+        if (wasLegacyIntro) {
+          toast.success(
+            "Your 14-day free trial has started — 10 SMS and 5 calls per day included.",
+            { duration: 6000 },
+          );
+        }
+      })();
+
       if (options?.redirectToDashboard && pathname !== "/dashboard") {
         router.push("/dashboard");
       }
     },
-    [pathname, router],
+    [bootstrap?.requiresPricingIntro, pathname, refetch, router, session],
   );
 
   const startTour = useCallback(
@@ -233,19 +251,31 @@ export function ProductTourProvider({ children }: ProductTourProviderProps) {
   }, [isActive, skip]);
 
   useEffect(() => {
-    if (pendingTourHandledRef.current || typeof window === "undefined") {
+    if (
+      autoTourStartedRef.current ||
+      isBootstrapBlocking ||
+      !bootstrap ||
+      typeof window === "undefined"
+    ) {
       return;
     }
 
-    const pending = window.sessionStorage.getItem(PENDING_TOUR_STORAGE_KEY);
-    if (pending === "1") {
-      pendingTourHandledRef.current = true;
-      window.sessionStorage.removeItem(PENDING_TOUR_STORAGE_KEY);
-      window.setTimeout(() => {
-        startTour({ source: "post-onboarding" });
-      }, 0);
+    const tourCompletedLocally =
+      window.localStorage.getItem(TOUR_COMPLETED_STORAGE_KEY) === "1";
+    const shouldAutoStartTour =
+      Boolean(bootstrap.onboardingCompletedAt) &&
+      !bootstrap.tourCompletedAt &&
+      !tourCompletedLocally;
+
+    if (!shouldAutoStartTour) {
+      return;
     }
-  }, [startTour]);
+
+    autoTourStartedRef.current = true;
+    window.setTimeout(() => {
+      startTour({ source: "post-onboarding" });
+    }, 0);
+  }, [bootstrap, isBootstrapBlocking, startTour]);
 
   const value = useMemo<ProductTourContextValue>(
     () => ({

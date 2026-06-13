@@ -1,44 +1,14 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import React, { createContext, useContext, useEffect, type ReactNode } from "react";
 import { useSession } from "next-auth/react";
 import useSWR from "swr";
 import {
   authFetcher,
   getSwrLoadState,
-  SWR_STATIC_OPTIONS,
+  SWR_BOOTSTRAP_OPTIONS,
 } from "@/lib/swr-config";
 import type { BootstrapData } from "@/lib/api/bootstrap";
-
-const BOOTSTRAP_CACHE_PREFIX = "fx-alert:bootstrap:";
-
-function readBootstrapCache(userId: string): BootstrapData | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(`${BOOTSTRAP_CACHE_PREFIX}${userId}`);
-    if (!raw) {
-      return undefined;
-    }
-    return JSON.parse(raw) as BootstrapData;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeBootstrapCache(userId: string, data: BootstrapData): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  try {
-    window.sessionStorage.setItem(`${BOOTSTRAP_CACHE_PREFIX}${userId}`, JSON.stringify(data));
-  } catch {
-    // Ignore quota or serialization errors.
-  }
-}
 
 interface BootstrapContextType {
   bootstrap: BootstrapData | null;
@@ -52,25 +22,14 @@ interface BootstrapContextType {
 
 const BootstrapContext = createContext<BootstrapContextType | undefined>(undefined);
 
-const BOOTSTRAP_SWR_OPTIONS = {
-  ...SWR_STATIC_OPTIONS,
-  keepPreviousData: true,
-};
-
 /**
- * Provides cached user bootstrap data (onboarding state, WS URL) via SWR.
+ * Provides user bootstrap data (onboarding, subscription/trial, WS URL) via SWR.
+ * Revalidates frequently so manual DB changes to trial_started_at are picked up quickly.
  */
 export function BootstrapProvider({ children }: { children: ReactNode }) {
   const { data: session, status } = useSession();
   const userId = session?.user?.id;
   const accessToken = (session as { accessToken?: string } | null)?.accessToken;
-
-  const fallbackData = useMemo(() => {
-    if (!userId) {
-      return undefined;
-    }
-    return readBootstrapCache(userId);
-  }, [userId]);
 
   const swrKey =
     status === "unauthenticated" || !userId || !accessToken
@@ -80,10 +39,7 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
   const { data, error, isLoading, isValidating, mutate } = useSWR<BootstrapData>(
     swrKey,
     authFetcher,
-    {
-      ...BOOTSTRAP_SWR_OPTIONS,
-      fallbackData,
-    },
+    SWR_BOOTSTRAP_OPTIONS,
   );
 
   const { isInitialLoading, isRefreshing } = getSwrLoadState({
@@ -103,13 +59,22 @@ export function BootstrapProvider({ children }: { children: ReactNode }) {
     isInitialLoading;
 
   useEffect(() => {
-    if (data && userId) {
-      writeBootstrapCache(userId, data);
+    if (status !== "authenticated" || !accessToken) {
+      return;
     }
-  }, [data, userId]);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void mutate();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [accessToken, mutate, status]);
 
   const refetch = React.useCallback(async () => {
-    const result = await mutate();
+    const result = await mutate(undefined, { revalidate: true });
     return result ?? undefined;
   }, [mutate]);
 

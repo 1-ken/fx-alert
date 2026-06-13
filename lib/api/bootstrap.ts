@@ -1,5 +1,17 @@
 import { Session } from "next-auth";
 
+export interface DailyUsage {
+  sms: number;
+  smsLimit: number;
+  calls: number;
+  callsLimit: number;
+}
+
+export interface FreeTierLimits {
+  maxAlerts: number;
+  allowedChannels: string[];
+}
+
 export interface BootstrapData {
   userId: string;
   isFirstTimeUser: boolean;
@@ -7,6 +19,15 @@ export interface BootstrapData {
   authRequired: boolean;
   wsUrl: string;
   apiBaseUrl?: string;
+  subscriptionTier?: string;
+  trialStartedAt?: string | null;
+  tourCompletedAt?: string | null;
+  trialDaysRemaining?: number;
+  trialExpired?: boolean;
+  paywallRequired?: boolean;
+  requiresPricingIntro?: boolean;
+  dailyUsage?: DailyUsage;
+  freeTierLimits?: FreeTierLimits;
 }
 
 /**
@@ -84,5 +105,83 @@ export async function completeOnboarding(session: Session | null): Promise<boole
   } catch (error) {
     console.error("[completeOnboarding] Exception:", error);
     return false;
+  }
+}
+
+async function postBootstrapEndpoint(
+  session: Session | null,
+  path: string,
+): Promise<BootstrapData | null> {
+  if (!session?.user?.id) {
+    return null;
+  }
+
+  try {
+    const token = (session as { accessToken?: string }).accessToken;
+    const response = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as BootstrapData;
+  } catch (error) {
+    console.error(`[bootstrap] POST ${path} failed:`, error);
+    return null;
+  }
+}
+
+/**
+ * Mark the product tour as complete and start the 14-day trial.
+ */
+export async function completeTour(session: Session | null): Promise<BootstrapData | null> {
+  return postBootstrapEndpoint(session, "/api/bootstrap/tour/complete");
+}
+
+/**
+ * Dismiss the post-trial paywall upsell.
+ */
+export async function dismissPaywall(session: Session | null): Promise<BootstrapData | null> {
+  return postBootstrapEndpoint(session, "/api/bootstrap/subscription/dismiss-paywall");
+}
+
+/**
+ * Select a subscription tier (paid tiers return coming_soon for now).
+ */
+export async function selectSubscriptionTier(
+  session: Session | null,
+  tier: string,
+): Promise<BootstrapData | null> {
+  if (!session?.user?.id) {
+    return null;
+  }
+
+  try {
+    const token = (session as { accessToken?: string }).accessToken;
+    const response = await fetch("/api/bootstrap/subscription/select-tier", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      body: JSON.stringify({ tier }),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as BootstrapData;
+  } catch (error) {
+    console.error("[selectSubscriptionTier] failed:", error);
+    return null;
   }
 }

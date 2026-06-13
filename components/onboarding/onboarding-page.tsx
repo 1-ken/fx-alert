@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { completeOnboarding } from "@/lib/api/bootstrap";
-import { PENDING_TOUR_STORAGE_KEY } from "@/components/product-tour/tour-steps";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,19 +39,14 @@ export function OnboardingPage() {
     try {
       const success = await completeOnboarding(session);
       if (success) {
-        console.log("[OnboardingPage] Onboarding completed successfully, refetching bootstrap...");
-        
-        // Refetch bootstrap to update context with new onboarding state
         await refetchBootstrap();
-        
-        setCurrentStep("success");
-        // Redirect after a short delay to show success screen
-        setTimeout(() => {
-          if (typeof window !== "undefined") {
-            window.sessionStorage.setItem(PENDING_TOUR_STORAGE_KEY, "1");
-          }
-          router.push("/dashboard");
-        }, 1500);
+
+        toast.success(
+          "Your 14-day free trial has started — 10 SMS and 5 calls per day included.",
+          { duration: 6000 },
+        );
+
+        router.push("/dashboard");
       } else {
         toast.error("Failed to complete onboarding");
       }
@@ -189,12 +183,13 @@ export function OnboardingPage() {
             </div>
             <CardTitle className="text-2xl">All Set!</CardTitle>
             <CardDescription>
-              Your account is ready to go
+              Your account and 14-day free trial are ready
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-center text-sm text-muted-foreground">
-              You&apos;re all configured and ready to start monitoring forex markets. Redirecting you to the dashboard...
+              You get 10 SMS and 5 call alerts per day during your trial. Taking you to the
+              dashboard for a quick tour...
             </p>
             <div className="flex justify-center">
               <Spinner className="h-6 w-6" />
