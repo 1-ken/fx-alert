@@ -1,16 +1,17 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import type { TourPlacement, TourStep } from "@/components/product-tour/tour-steps";
-
-const SPOTLIGHT_PADDING = 8;
-const CARD_GAP = 16;
-const VIEWPORT_MARGIN = 16;
-const MOBILE_BREAKPOINT = 767;
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  SPOTLIGHT_PADDING,
+  resolveCardLayout,
+  type Size,
+  type TourCardLayoutMode,
+} from "@/components/product-tour/tour-layout";
+import { TourStepCard } from "@/components/product-tour/tour-step-card";
+import type { TourStep } from "@/components/product-tour/tour-steps";
 
 interface TourOverlayProps {
   step: TourStep;
@@ -22,137 +23,7 @@ interface TourOverlayProps {
   onSkip: () => void;
 }
 
-interface CardPosition {
-  top: number;
-  left: number;
-  maxWidth: number;
-  width?: number;
-}
-
-/**
- * Returns whether the current viewport should use mobile tour card layout.
- */
-function isMobileViewport(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches;
-}
-
-/**
- * Pins the step card to the upper viewport so bottom FAB targets stay visible.
- *
- * @returns Pixel coordinates and width for a full-width upper card.
- */
-function computeViewportUpperPosition(): CardPosition {
-  const viewportWidth = window.innerWidth;
-  const cardWidth = viewportWidth - VIEWPORT_MARGIN * 2;
-
-  return {
-    top: Math.max(VIEWPORT_MARGIN, 12),
-    left: VIEWPORT_MARGIN,
-    maxWidth: cardWidth,
-    width: cardWidth,
-  };
-}
-
-/**
- * Applies full-width horizontal margins for mobile anchored cards.
- *
- * @param position - Computed card position to normalize.
- * @returns Position with mobile-safe left and width values.
- */
-function applyMobileFullWidth(position: CardPosition): CardPosition {
-  if (!isMobileViewport()) {
-    return position;
-  }
-
-  const viewportWidth = window.innerWidth;
-  const cardWidth = viewportWidth - VIEWPORT_MARGIN * 2;
-
-  return {
-    ...position,
-    left: VIEWPORT_MARGIN,
-    maxWidth: cardWidth,
-    width: cardWidth,
-  };
-}
-
-/**
- * Chooses card placement based on available viewport space around the target.
- *
- * @param rect - Bounding rect of the highlighted element.
- * @param preferred - Step's preferred placement when space allows.
- * @param cardWidth - Estimated card width for collision checks.
- * @param cardHeight - Estimated card height for collision checks.
- * @returns Pixel coordinates for the step card.
- */
-function computeCardPosition(
-  rect: DOMRect,
-  preferred: TourPlacement,
-  cardWidth: number,
-  cardHeight: number,
-): CardPosition {
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-
-  const spaceAbove = rect.top;
-  const spaceBelow = viewportHeight - rect.bottom;
-  const spaceLeft = rect.left;
-  const spaceRight = viewportWidth - rect.right;
-  const isBottomTarget = rect.bottom > viewportHeight * 0.6;
-
-  let placement = preferred;
-
-  if (placement === "bottom" && spaceBelow < cardHeight + CARD_GAP) {
-    placement = spaceAbove > spaceBelow ? "top" : "bottom";
-  } else if (placement === "top" && spaceAbove < cardHeight + CARD_GAP) {
-    placement = spaceBelow > spaceAbove ? "bottom" : "top";
-  }
-
-  let top = VIEWPORT_MARGIN;
-  let left = VIEWPORT_MARGIN;
-  const maxWidth = Math.min(360, viewportWidth - VIEWPORT_MARGIN * 2);
-
-  if (placement === "bottom") {
-    top = rect.bottom + CARD_GAP;
-    left = Math.min(
-      Math.max(rect.left + rect.width / 2 - cardWidth / 2, VIEWPORT_MARGIN),
-      viewportWidth - cardWidth - VIEWPORT_MARGIN,
-    );
-  } else if (placement === "top") {
-    const aboveTargetTop = rect.top - cardHeight - CARD_GAP;
-    // Keep cards for bottom-fixed targets out of the lower half of the screen.
-    top = isBottomTarget
-      ? Math.min(Math.max(aboveTargetTop, VIEWPORT_MARGIN), viewportHeight * 0.35)
-      : Math.max(aboveTargetTop, VIEWPORT_MARGIN);
-    left = Math.min(
-      Math.max(rect.left + rect.width / 2 - cardWidth / 2, VIEWPORT_MARGIN),
-      viewportWidth - cardWidth - VIEWPORT_MARGIN,
-    );
-  } else if (placement === "left" && spaceLeft >= cardWidth + CARD_GAP) {
-    top = Math.min(
-      Math.max(rect.top, VIEWPORT_MARGIN),
-      viewportHeight - cardHeight - VIEWPORT_MARGIN,
-    );
-    left = rect.left - cardWidth - CARD_GAP;
-  } else if (placement === "right" && spaceRight >= cardWidth + CARD_GAP) {
-    top = Math.min(
-      Math.max(rect.top, VIEWPORT_MARGIN),
-      viewportHeight - cardHeight - VIEWPORT_MARGIN,
-    );
-    left = rect.right + CARD_GAP;
-  } else {
-    top = rect.bottom + CARD_GAP;
-    left = Math.min(
-      Math.max(rect.left, VIEWPORT_MARGIN),
-      viewportWidth - cardWidth - VIEWPORT_MARGIN,
-    );
-  }
-
-  return { top, left, maxWidth };
-}
+const DEFAULT_CARD_SIZE: Size = { width: 320, height: 240 };
 
 /**
  * Renders the dimmed spotlight overlay and positioned step card for the active tour step.
@@ -167,10 +38,12 @@ export function TourOverlay({
   onSkip,
 }: TourOverlayProps) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const isCentered = !step.target || !targetRect;
+  const lastMeasuredSizeRef = useRef<Size>(DEFAULT_CARD_SIZE);
+  const isMobile = useIsMobile();
   const isLastStep = stepIndex >= totalSteps - 1;
-  const progress = ((stepIndex + 1) / totalSteps) * 100;
-  const isViewportUpper = step.cardAnchor === "viewportUpper";
+  const [cardSize, setCardSize] = useState<Size>(DEFAULT_CARD_SIZE);
+  const [layoutVersion, setLayoutVersion] = useState(0);
+
   const isClickableStep =
     step.id === "dashboard-pair-card" ||
     step.target === "dashboard-pair-card" ||
@@ -190,37 +63,51 @@ export function TourOverlay({
     };
   }, [targetRect]);
 
-  const cardStyle = useMemo<React.CSSProperties>(() => {
-    if (isCentered) {
-      return {
-        maxWidth: "min(360px, calc(100vw - 2rem))",
-      };
+  const { mode: layoutMode, style: cardStyle } = useMemo(() => {
+    void layoutVersion;
+
+    return resolveCardLayout({
+      step,
+      targetRect,
+      cardSize,
+      isMobile,
+    });
+  }, [cardSize, isMobile, layoutVersion, step, targetRect]);
+
+  useEffect(() => {
+    lastMeasuredSizeRef.current = DEFAULT_CARD_SIZE;
+    setCardSize(DEFAULT_CARD_SIZE);
+    setLayoutVersion((version) => version + 1);
+  }, [step.id]);
+
+  useEffect(() => {
+    const cardElement = cardRef.current;
+    if (!cardElement) {
+      return;
     }
 
-    if (!targetRect) {
-      return {};
-    }
+    const measureCard = () => {
+      const nextWidth = cardElement.offsetWidth || DEFAULT_CARD_SIZE.width;
+      const nextHeight = cardElement.offsetHeight || DEFAULT_CARD_SIZE.height;
+      const previous = lastMeasuredSizeRef.current;
 
-    const estimatedWidth = 320;
-    const estimatedHeight = 240;
-    const position = isViewportUpper
-      ? computeViewportUpperPosition()
-      : applyMobileFullWidth(
-          computeCardPosition(
-            targetRect,
-            step.placement ?? "bottom",
-            estimatedWidth,
-            estimatedHeight,
-          ),
-        );
+      if (previous.width === nextWidth && previous.height === nextHeight) {
+        return;
+      }
 
-    return {
-      top: position.top,
-      left: position.left,
-      maxWidth: position.maxWidth,
-      width: position.width,
+      const nextSize = { width: nextWidth, height: nextHeight };
+      lastMeasuredSizeRef.current = nextSize;
+      setCardSize(nextSize);
+      setLayoutVersion((version) => version + 1);
     };
-  }, [isCentered, isViewportUpper, step.placement, targetRect]);
+
+    measureCard();
+
+    const observer = new ResizeObserver(measureCard);
+    observer.observe(cardElement);
+
+    return () => observer.disconnect();
+  }, [step.id, layoutMode]);
 
   useEffect(() => {
     const focusable = cardRef.current?.querySelector<HTMLElement>("button, [href]");
@@ -281,58 +168,27 @@ export function TourOverlay({
         ref={cardRef}
         className={cn(
           "product-tour-card fixed z-[61]",
-          isCentered && "product-tour-card--centered",
-          isViewportUpper && "product-tour-card--viewport-upper",
+          layoutMode === "centered" && "product-tour-card--centered",
+          layoutMode === "bottomSheet" && "product-tour-card--bottom-sheet",
+          step.cardAnchor === "viewportUpper" &&
+            layoutMode === "anchored" &&
+            "product-tour-card--viewport-upper",
         )}
         style={cardStyle}
         role="dialog"
         aria-modal="true"
         aria-labelledby={`tour-step-title-${step.id}`}
       >
-        <Card className="gap-4 border-border/80 bg-card py-5 shadow-2xl">
-          <CardHeader className="px-5 pb-0">
-            <CardTitle id={`tour-step-title-${step.id}`} className="text-lg">
-              {step.title}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-5">
-            <p className="text-sm leading-relaxed text-muted-foreground">{step.body}</p>
-            <div className="mt-4 space-y-1.5">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  Step {stepIndex + 1} of {totalSteps}
-                </span>
-              </div>
-              <div className="h-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="product-tour-progress h-full rounded-full bg-primary"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          </CardContent>
-          <CardFooter className="flex items-center justify-between gap-2 px-5 pt-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-              onClick={onSkip}
-            >
-              Skip tour
-            </Button>
-            <div className="flex items-center gap-2">
-              {stepIndex > 0 ? (
-                <Button type="button" variant="outline" size="sm" onClick={onPrev}>
-                  Back
-                </Button>
-              ) : null}
-              <Button type="button" size="sm" onClick={onNext}>
-                {isLastStep ? "Finish" : "Next"}
-              </Button>
-            </div>
-          </CardFooter>
-        </Card>
+        <TourStepCard
+          step={step}
+          stepIndex={stepIndex}
+          totalSteps={totalSteps}
+          isLastStep={isLastStep}
+          layoutMode={layoutMode as TourCardLayoutMode}
+          onNext={onNext}
+          onPrev={onPrev}
+          onSkip={onSkip}
+        />
       </div>
     </div>,
     document.body,

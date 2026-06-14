@@ -150,7 +150,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card data-tour="settings-default-phone">
+      <Card data-tour="settings-default-phone" className="scroll-mt-24">
         <CardHeader>
           <CardTitle>Default alert phone</CardTitle>
         </CardHeader>

@@ -1,3 +1,5 @@
+import { isTourMobileViewport } from "@/components/product-tour/tour-layout";
+
 export const PENDING_TOUR_STORAGE_KEY = "fx-alert:pending-tour";
 export const TOUR_COMPLETED_STORAGE_KEY = "fx-alert:tour-completed";
 
@@ -44,7 +46,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: "dashboard-pair-card",
     fallbackTarget: "dashboard-grid",
     title: "Tap a pair card",
-    body: "Each card is clickable. Tap any pair to open its live chart, view alerts, and create new ones. Notice the pointer cursor and hover state on the cards.",
+    body: "Each card is clickable. Tap any pair to open its live chart, view alerts, and create new ones.",
     placement: "top",
   },
   {
@@ -53,7 +55,7 @@ export const TOUR_STEPS: TourStep[] = [
     target: "pair-create-alert-fab",
     fallbackTarget: "pair-chart-alert",
     title: "Create Alert",
-    body: "Tap Create Alert to open the full alert form for this pair. You can also click the chart or use the + button to set a price or candle-close alert at a specific level.",
+    body: "Tap the Create Alert button at the bottom to open the full alert form for this pair. You can also tap the chart to set a price or candle-close alert at a specific level.",
     placement: "top",
     cardAnchor: "viewportUpper",
   },
@@ -64,6 +66,7 @@ export const TOUR_STEPS: TourStep[] = [
     title: "Default phone number",
     body: "Set your default phone number here. It pre-fills when you create SMS or call alerts so you do not have to type it each time.",
     placement: "bottom",
+    cardAnchor: "viewportUpper",
   },
   {
     id: "finish",
@@ -89,7 +92,7 @@ export function resolveTourTarget(step: TourStep): string | undefined {
     const primary = document.querySelector(`[data-tour="${step.target}"]`);
 
     if (step.alternateTarget) {
-      const isMobile = window.matchMedia("(max-width: 767px)").matches;
+      const isMobile = isTourMobileViewport();
       const alternate = document.querySelector(`[data-tour="${step.alternateTarget}"]`);
 
       if (isMobile && alternate) {

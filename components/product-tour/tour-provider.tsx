@@ -21,8 +21,9 @@ import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { completeTour } from "@/lib/api/bootstrap";
+import { isTourMobileViewport } from "@/components/product-tour/tour-layout";
 
-const TARGET_POLL_TIMEOUT_MS = 2000;
+const TARGET_POLL_TIMEOUT_MS = 3000;
 const TARGET_POLL_INTERVAL_MS = 50;
 
 export interface ProductTourContextValue {
@@ -106,7 +107,10 @@ export function ProductTourProvider({ children }: ProductTourProviderProps) {
       return;
     }
 
-    element.scrollIntoView({ block: "nearest", behavior: "auto" });
+    element.scrollIntoView({
+      block: isTourMobileViewport() ? "center" : "nearest",
+      behavior: isTourMobileViewport() ? "smooth" : "auto",
+    });
     setTargetRect(element.getBoundingClientRect());
   }, []);
 
