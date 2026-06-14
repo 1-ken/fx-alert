@@ -37,6 +37,7 @@ import {
   CALL_CUSTOM_MESSAGE_MAX_CHARS,
   CUSTOM_MESSAGE_MAX_CHARS,
 } from "@/lib/alert-preferences";
+import { saveUserPhone } from "@/lib/api/bootstrap";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { AlertCreationFeedbackDialog } from "@/components/feedback/alert-creation-feedback-dialog";
 import {
@@ -363,11 +364,18 @@ export function CreateAlertForm({
       return;
     }
 
+    const serverPhone = bootstrap?.phone?.trim();
+    if (serverPhone) {
+      form.setValue("phone", serverPhone, { shouldDirty: false, shouldValidate: true });
+      window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, serverPhone);
+      return;
+    }
+
     const savedPhone = window.localStorage.getItem(ALERT_DEFAULT_PHONE_STORAGE_KEY)?.trim();
     if (savedPhone) {
       form.setValue("phone", savedPhone, { shouldDirty: false, shouldValidate: true });
     }
-  }, [form]);
+  }, [bootstrap?.phone, form]);
 
   useEffect(() => {
     setRecentPairs(readRecentPairs());
@@ -567,6 +575,12 @@ export function CreateAlertForm({
           direction: values.direction,
           threshold: parseNumericString(values.threshold ?? ""),
         });
+      }
+
+      if (needsPhone && values.phone?.trim()) {
+        const phoneResult = await saveUserPhone(session, values.phone, { onlyIfEmpty: true });
+        const savedPhone = phoneResult.phone?.trim() || values.phone.trim();
+        window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, savedPhone);
       }
 
       writeRecentPairs(values.pair);

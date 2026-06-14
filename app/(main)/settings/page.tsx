@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon, Cog6ToothIcon, CreditCardIcon } from "@heroicons/react/24/outline";
+import { useSession } from "next-auth/react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,17 +20,37 @@ import { logoutUser } from "@/lib/auth-client";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { PlanPricingDialog } from "@/components/subscription/paywall-modal";
 import { tierDisplayName } from "@/lib/pricing";
+import { saveUserPhone } from "@/lib/api/bootstrap";
 
 export default function SettingsPage() {
-  const { bootstrap } = useBootstrap();
+  const { data: session } = useSession();
+  const { bootstrap, refetch } = useBootstrap();
   const [pricingOpen, setPricingOpen] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState(() => {
-    if (typeof window === "undefined") {
-      return "";
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [isSavingPhone, setIsSavingPhone] = useState(false);
+  const [phoneInitialized, setPhoneInitialized] = useState(false);
+
+  useEffect(() => {
+    if (phoneInitialized) {
+      return;
     }
 
-    return window.localStorage.getItem(ALERT_DEFAULT_PHONE_STORAGE_KEY) ?? "";
-  });
+    const serverPhone = bootstrap?.phone?.trim();
+    if (serverPhone) {
+      setPhoneNumber(serverPhone);
+      window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, serverPhone);
+      setPhoneInitialized(true);
+      return;
+    }
+
+    if (bootstrap !== null) {
+      const savedPhone = window.localStorage.getItem(ALERT_DEFAULT_PHONE_STORAGE_KEY)?.trim();
+      if (savedPhone) {
+        setPhoneNumber(savedPhone);
+      }
+      setPhoneInitialized(true);
+    }
+  }, [bootstrap, phoneInitialized]);
 
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => {
     if (typeof window === "undefined") {
@@ -39,9 +60,29 @@ export default function SettingsPage() {
     return isSoundAlertsEnabled();
   });
 
-  const savePhoneNumber = () => {
-    window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, phoneNumber.trim());
-    toast.success("Default alert phone number saved");
+  const savePhoneNumber = async () => {
+    const trimmed = phoneNumber.trim();
+    if (!trimmed) {
+      toast.error("Enter a phone number");
+      return;
+    }
+
+    setIsSavingPhone(true);
+    try {
+      const result = await saveUserPhone(session, trimmed);
+      if (!result.success) {
+        toast.error(result.error ?? "Failed to save phone number");
+        return;
+      }
+
+      const saved = result.phone?.trim() || trimmed;
+      window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, saved);
+      setPhoneNumber(saved);
+      await refetch();
+      toast.success("Default alert phone number saved");
+    } finally {
+      setIsSavingPhone(false);
+    }
   };
 
   const handleSoundToggle = async (enabled: boolean) => {
@@ -165,7 +206,7 @@ export default function SettingsPage() {
             placeholder="e.g. +254700000000"
             className="h-12"
           />
-          <Button className="h-11 w-full" onClick={savePhoneNumber}>
+          <Button className="h-11 w-full" onClick={() => void savePhoneNumber()} disabled={isSavingPhone}>
             Save Number
           </Button>
         </CardContent>

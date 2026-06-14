@@ -19,6 +19,7 @@ export interface BootstrapData {
   authRequired: boolean;
   wsUrl: string;
   apiBaseUrl?: string;
+  phone?: string | null;
   subscriptionTier?: string;
   trialStartedAt?: string | null;
   tourCompletedAt?: string | null;
@@ -74,6 +75,63 @@ export async function getMe(session: Session | null): Promise<BootstrapData | nu
   } catch (error) {
     console.error("[getMe] Exception during bootstrap fetch:", error);
     return null;
+  }
+}
+
+export interface SaveUserPhoneResult {
+  success: boolean;
+  phone: string | null;
+  error?: string;
+}
+
+/**
+ * Save the user's phone number (Settings overwrites; alert create uses only_if_empty).
+ */
+export async function saveUserPhone(
+  session: Session | null,
+  phone: string,
+  options?: { onlyIfEmpty?: boolean },
+): Promise<SaveUserPhoneResult> {
+  if (!session?.user?.id) {
+    return { success: false, phone: null, error: "Not signed in" };
+  }
+
+  try {
+    const token = (session as { accessToken?: string }).accessToken;
+    const query = options?.onlyIfEmpty ? "?only_if_empty=true" : "";
+    const response = await fetch(`/api/bootstrap/user/phone${query}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      body: JSON.stringify({ phone: phone.trim() }),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      let error = "Failed to save phone number";
+      try {
+        const data = (await response.json()) as { detail?: string; error?: string };
+        error = data.detail?.trim() || data.error?.trim() || error;
+      } catch {
+        // ignore parse errors
+      }
+      return { success: false, phone: null, error };
+    }
+
+    const data = (await response.json()) as { success?: boolean; phone?: string | null };
+    return {
+      success: data.success ?? true,
+      phone: typeof data.phone === "string" ? data.phone : null,
+    };
+  } catch (error) {
+    console.error("[saveUserPhone] failed:", error);
+    return {
+      success: false,
+      phone: null,
+      error: error instanceof Error ? error.message : "Failed to save phone number",
+    };
   }
 }
 

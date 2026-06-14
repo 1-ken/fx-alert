@@ -61,6 +61,7 @@ type AdminUserRow = {
   user_id: string;
   username: string;
   email: string | null;
+  phone: string | null;
   auth_provider: string;
   created_at: string | null;
   referred_by_marketer_code: string | null;
@@ -499,6 +500,7 @@ export function AdminPanel() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>User</TableHead>
+                      <TableHead>Phone</TableHead>
                       <TableHead>Marketer</TableHead>
                       <TableHead>Provider</TableHead>
                       <TableHead>Alerts</TableHead>
@@ -524,6 +526,9 @@ export function AdminPanel() {
                           <span className="block text-xs text-muted-foreground">
                             {user.email ?? "No email"}
                           </span>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {user.phone ?? "—"}
                         </TableCell>
                         <TableCell>
                           {user.referred_by_marketer_code ? (
