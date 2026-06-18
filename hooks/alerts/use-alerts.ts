@@ -40,7 +40,23 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     return null;
   }
 
-  const alertType: AlertType = record.alert_type === "candle_close" ? "candle_close" : "price";
+  const alertType: AlertType =
+    record.alert_type === "candle_close"
+      ? "candle_close"
+      : record.alert_type === "prev_day_level"
+        ? "prev_day_level"
+        : "price";
+  const levelRef =
+    record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
+      ? record.level_ref
+      : null;
+  const dolTrigger =
+    record.dol_trigger === "sweep" ||
+    record.dol_trigger === "displacement" ||
+    record.dol_trigger === "reversal" ||
+    record.dol_trigger === "draw_met"
+      ? record.dol_trigger
+      : null;
   const condition: AlertCondition | null =
     record.condition === "above" || record.condition === "below" || record.condition === "equal"
       ? record.condition
@@ -100,6 +116,9 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     created_at: typeof record.created_at === "string" ? record.created_at : "",
     triggered_at: typeof record.triggered_at === "string" ? record.triggered_at : null,
     last_checked_price: toNullableNumber(record.last_checked_price),
+    level_ref: levelRef,
+    dol_trigger: dolTrigger,
+    batch_id: typeof record.batch_id === "string" ? record.batch_id : null,
   };
 }
 
@@ -233,6 +252,9 @@ function buildOptimisticAlert(input: AlertUpsertInput): Alert {
     created_at: new Date().toISOString(),
     triggered_at: null,
     last_checked_price: null,
+    level_ref: input.level_ref ?? null,
+    dol_trigger: input.dol_trigger ?? null,
+    batch_id: null,
   };
 }
 

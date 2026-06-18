@@ -65,10 +65,14 @@ import {
   priceFromChartCoordinate,
   saveChartLayout,
   syncAlertOverlays,
+  syncDrawHistory,
   syncLivePriceOverlay,
+  syncPrevDayLevels,
   type ChartLayoutSnapshot,
   type KLineChartType,
 } from "@/lib/klinechart-utils";
+import { useDrawOnLiquidity } from "@/hooks/historical/use-draw-on-liquidity";
+import { biasLabel, drawLabel } from "@/lib/draw-on-liquidity";
 import type { OhlcCandle } from "@/types/historical";
 import { cn } from "@/lib/utils";
 import { PlusIcon } from "@heroicons/react/24/outline";
@@ -94,6 +98,10 @@ export interface InteractiveTradingChartProps {
   height?: number;
   onCreateAlert?: (draft: ChartAlertDraft) => void;
   className?: string;
+  /** Show previous-day-high/low levels + daily bias badge (default true). */
+  showDrawOnLiquidity?: boolean;
+  /** Show per-day PDH/PDL history segments across the chart (default false). */
+  showDrawHistory?: boolean;
 };
 
 function normalizePairKey(pair: string): string {
@@ -127,6 +135,8 @@ export function InteractiveTradingChart({
   height = 380,
   onCreateAlert,
   className,
+  showDrawOnLiquidity = true,
+  showDrawHistory = false,
 }: InteractiveTradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
@@ -599,6 +609,40 @@ export function InteractiveTradingChart({
     syncLivePriceOverlay(chart, displayLivePrice);
   }, [displayLivePrice]);
 
+  const { live: drawLive, biasSeries: drawBiasSeries } = useDrawOnLiquidity(
+    showDrawOnLiquidity ? pair : "",
+    displayLivePrice,
+  );
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    if (!showDrawOnLiquidity || !drawLive) {
+      syncPrevDayLevels(chart, null);
+      return;
+    }
+    syncPrevDayLevels(chart, {
+      pdh: drawLive.pdh,
+      pdl: drawLive.pdl,
+      draw: drawLive.draw,
+    });
+    // Re-apply after bar-close resets (closedForChart change clears overlays).
+  }, [showDrawOnLiquidity, drawLive, closedForChart]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    if (showDrawOnLiquidity && showDrawHistory) {
+      syncDrawHistory(chart, drawBiasSeries);
+    } else {
+      syncDrawHistory(chart, []);
+    }
+  }, [showDrawOnLiquidity, showDrawHistory, drawBiasSeries, closedForChart]);
+
   const toggleIndicator = useCallback((name: string) => {
     const chart = chartRef.current;
     if (!chart) {
@@ -661,6 +705,26 @@ export function InteractiveTradingChart({
             <span className="text-xs font-normal text-muted-foreground">Live</span>
           ) : formingStreamStatus === "connecting" ? (
             <span className="text-xs font-normal text-muted-foreground">Connecting…</span>
+          ) : null}
+          {showDrawOnLiquidity && drawLive ? (
+            <span
+              className={cn(
+                "rounded-full px-2 py-0.5 text-xs font-normal",
+                drawLive.bias === "bullish"
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : drawLive.bias === "bearish"
+                    ? "bg-red-500/15 text-red-600 dark:text-red-400"
+                    : "bg-muted text-muted-foreground",
+              )}
+              title="Daily bias from previous-day high/low"
+            >
+              {biasLabel(drawLive.bias)}
+              {drawLive.draw !== "none"
+                ? ` · Draw ${drawLabel(drawLive.draw)} ${
+                    drawLive.drawTargetPrice?.toFixed(5) ?? ""
+                  }${drawLive.drawReached ? " ✓" : ""}`
+                : ""}
+            </span>
           ) : null}
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">

@@ -27,7 +27,7 @@ type AlertStatusFilter =
   | "triggered-today"
   | "triggered-5m";
 
-type AlertTypeFilter = "all" | "price" | "candle_close";
+type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -48,7 +48,7 @@ function normalizeStatus(value?: string): AlertStatusFilter {
 }
 
 function normalizeType(value?: string): AlertTypeFilter {
-  if (value === "price" || value === "candle_close") {
+  if (value === "price" || value === "candle_close" || value === "prev_day_level") {
     return value;
   }
 
@@ -117,6 +117,34 @@ function formatDirection(direction: string | null): string {
   }
 
   return "-";
+}
+
+function formatDrawTrigger(trigger: string | null | undefined): string {
+  switch (trigger) {
+    case "sweep":
+      return "Liquidity sweep";
+    case "displacement":
+      return "Displacement (daily close)";
+    case "reversal":
+      return "Reversal (daily close)";
+    case "draw_met":
+      return "Draw reached";
+    default:
+      return "-";
+  }
+}
+
+function formatDrawLevel(level: string | null | undefined): string {
+  switch (level) {
+    case "high":
+      return "Previous-day high (PDH)";
+    case "low":
+      return "Previous-day low (PDL)";
+    case "both":
+      return "PDH & PDL";
+    default:
+      return "-";
+  }
 }
 
 function formatDateTime(value: string | null): string {
@@ -232,6 +260,7 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
       all: source.length,
       price: source.filter((alert) => alert.alert_type === "price").length,
       candle_close: source.filter((alert) => alert.alert_type === "candle_close").length,
+      prev_day_level: source.filter((alert) => alert.alert_type === "prev_day_level").length,
     };
   }, [alerts?.all]);
 
@@ -351,6 +380,11 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
               <Button asChild variant={type === "candle_close" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "candle_close")}>Candle close ({typeCounts.candle_close})</Link>
               </Button>
+              <Button asChild variant={type === "prev_day_level" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "prev_day_level")}>
+                  Draw on liquidity ({typeCounts.prev_day_level})
+                </Link>
+              </Button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant={status === "all" ? "default" : "outline"} size="sm">
@@ -431,7 +465,13 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                     <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{alert.alert_type === "candle_close" ? "candle close" : "price"}</Badge>
+                    <Badge variant="outline">
+                      {alert.alert_type === "candle_close"
+                        ? "candle close"
+                        : alert.alert_type === "prev_day_level"
+                          ? "draw on liquidity"
+                          : "price"}
+                    </Badge>
                     <Badge variant={alert.status === "active" ? "default" : "secondary"}>
                       {alert.status}
                     </Badge>
@@ -469,6 +509,33 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                       {formatCondition(alert.condition ?? "equal")} {alert.target_price ?? "-"}
                     </span>
                   </p>
+                ) : alert.alert_type === "prev_day_level" ? (
+                  <>
+                    <p>
+                      Trigger:{" "}
+                      <span className="text-foreground">
+                        {formatDrawTrigger(alert.dol_trigger)}
+                      </span>
+                    </p>
+                    <p>
+                      Level:{" "}
+                      <span className="text-foreground">{formatDrawLevel(alert.level_ref)}</span>
+                    </p>
+                    {alert.batch_id ? (
+                      <p>
+                        Multi-pair group:{" "}
+                        <span className="text-foreground">
+                          {alert.batch_id.slice(0, 8)}
+                        </span>
+                      </p>
+                    ) : null}
+                    <p>
+                      Last evaluated candle:{" "}
+                      <span className="text-foreground">
+                        {formatDateTime(alert.last_evaluated_candle_time)}
+                      </span>
+                    </p>
+                  </>
                 ) : (
                   <>
                     <p>

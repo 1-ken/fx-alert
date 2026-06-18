@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/input-group";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
+import { useDrawOnLiquidity } from "@/hooks/historical/use-draw-on-liquidity";
+import { biasLabel, drawLabel } from "@/lib/draw-on-liquidity";
 import { shouldApplyInitialNotifyVia } from "@/lib/alert-form-utils";
 import type { AlertCondition, AlertType, CandleDirection } from "@/types/alerts";
 import { cn } from "@/lib/utils";
@@ -134,10 +136,50 @@ function parseNumericString(value: string): number {
   return Number(value.replace(/,/g, "").trim());
 }
 
+const drawTriggerOptions: Array<{
+  value: "sweep" | "displacement" | "reversal" | "draw_met";
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "sweep",
+    label: "Liquidity sweep",
+    description: "Price trades through the previous-day high/low (live).",
+  },
+  {
+    value: "draw_met",
+    label: "Draw reached",
+    description: "Price reaches the model's projected draw on liquidity (live).",
+  },
+  {
+    value: "displacement",
+    label: "Displacement",
+    description: "Daily candle closes beyond the previous-day level.",
+  },
+  {
+    value: "reversal",
+    label: "Reversal",
+    description: "Daily candle sweeps a level then closes back inside.",
+  },
+];
+
+const drawLevelOptions: Array<{
+  value: "high" | "low" | "both";
+  label: string;
+  description: string;
+}> = [
+  { value: "both", label: "PDH & PDL", description: "Either previous-day extreme." },
+  { value: "high", label: "PDH only", description: "Previous-day high." },
+  { value: "low", label: "PDL only", description: "Previous-day low." },
+];
+
 const alertFormSchema = z
   .object({
-    alert_type: z.enum(["price", "candle_close"]),
-    pair: z.string().min(1, "Please select a pair"),
+    alert_type: z.enum(["price", "candle_close", "prev_day_level"]),
+    pair: z.string().optional(),
+    pairs: z.array(z.string()).optional(),
+    level_ref: z.enum(["high", "low", "both"]).optional(),
+    dol_trigger: z.enum(["sweep", "displacement", "reversal", "draw_met"]).optional(),
     target_price: z.string().optional(),
     condition: z.enum(["above", "below", "equal"]).optional(),
     interval: z.string().optional(),
@@ -158,6 +200,38 @@ const alertFormSchema = z
         path: ["notifyVia"],
         message: "Select notification channels",
       });
+    }
+
+    if (value.alert_type !== "prev_day_level" && !value.pair) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pair"],
+        message: "Please select a pair",
+      });
+    }
+
+    if (value.alert_type === "prev_day_level") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      }
+      if (!value.dol_trigger) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["dol_trigger"],
+          message: "Select a trigger",
+        });
+      }
+      if (!value.level_ref) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["level_ref"],
+          message: "Select which level to watch",
+        });
+      }
     }
 
     if (value.alert_type === "price") {
@@ -342,8 +416,16 @@ export function CreateAlertForm({
   const form = useForm<AlertFormValues>({
     resolver: zodResolver(alertFormSchema),
     defaultValues: {
-      alert_type: initialAlertType === "candle_close" ? "candle_close" : "price",
+      alert_type:
+        initialAlertType === "candle_close"
+          ? "candle_close"
+          : initialAlertType === "prev_day_level"
+            ? "prev_day_level"
+            : "price",
       pair: normalizedInitialPair,
+      pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
+      level_ref: "both",
+      dol_trigger: "sweep",
       target_price: initialAlertType === "price" ? normalizedInitialTargetPrice : "",
       condition: "above",
       interval: initialInterval && candleIntervalOptions.includes(initialInterval as (typeof candleIntervalOptions)[number])
@@ -396,6 +478,13 @@ export function CreateAlertForm({
     if (initialAlertType === "price") {
       form.setValue("alert_type", "price", { shouldDirty: false, shouldValidate: true });
     }
+
+    if (initialAlertType === "prev_day_level") {
+      form.setValue("alert_type", "prev_day_level", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
   }, [form, initialAlertType]);
 
   useEffect(() => {
@@ -443,8 +532,30 @@ export function CreateAlertForm({
 
   const selectedPair = form.watch("pair");
   const selectedAlertType = form.watch("alert_type");
+  const selectedDolPairs = form.watch("pairs") ?? [];
   const [pairSearch, setPairSearch] = useState(() => selectedPair || "");
   const [isPairInputFocused, setIsPairInputFocused] = useState(false);
+  const [dolPairSearch, setDolPairSearch] = useState("");
+
+  const dolPairSearchText = useMemo(
+    () => dolPairSearch.replace(/[^a-z0-9]/gi, "").toUpperCase(),
+    [dolPairSearch],
+  );
+  const dolFilteredPairs = useMemo(() => {
+    if (!dolPairSearchText) {
+      return pairs.slice(0, 8);
+    }
+    return pairs
+      .filter((pair) =>
+        pair.replace(/[^a-z0-9]/gi, "").toUpperCase().includes(dolPairSearchText),
+      )
+      .slice(0, 8);
+  }, [dolPairSearchText, pairs]);
+
+  const firstDolPair = selectedDolPairs[0]
+    ? normalizePair(selectedDolPairs[0]).replace("/", "")
+    : "";
+  const { live: dolLive } = useDrawOnLiquidity(firstDolPair);
   const pairSearchText = useMemo(
     () => pairSearch.replace(/[^a-z0-9]/gi, "").toUpperCase(),
     [pairSearch]
@@ -555,14 +666,25 @@ export function CreateAlertForm({
       const needsEmail = channelsToCreate.includes("email");
       const basePayload = {
         alert_type: alertType,
-        pair: normalizePair(values.pair).replace("/", ""),
+        pair: normalizePair(values.pair ?? "").replace("/", ""),
         channels: channelsToCreate,
         email: needsEmail ? values.email : undefined,
         phone: needsPhone ? values.phone : "",
         custom_message: values.custom_message || undefined,
       };
 
-      if (alertType === "price") {
+      if (alertType === "prev_day_level") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
+        await createAlert({
+          ...basePayload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
+          level_ref: values.level_ref,
+          dol_trigger: values.dol_trigger,
+        });
+      } else if (alertType === "price") {
         await createAlert({
           ...basePayload,
           target_price: parseNumericString(values.target_price ?? ""),
@@ -583,8 +705,11 @@ export function CreateAlertForm({
         window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, savedPhone);
       }
 
-      writeRecentPairs(values.pair);
-      setRecentPairs(readRecentPairs());
+      const recentPairToStore = values.pair || values.pairs?.[0] || "";
+      if (recentPairToStore) {
+        writeRecentPairs(recentPairToStore);
+        setRecentPairs(readRecentPairs());
+      }
 
       const userId = session?.user?.id ?? bootstrap?.userId ?? "";
       const createCount = incrementAlertCreateCount(userId);
@@ -629,12 +754,23 @@ export function CreateAlertForm({
                         value={field.value}
                         onValueChange={(value) => {
                           field.onChange(value);
-                          form.clearErrors(["target_price", "condition", "interval", "direction", "threshold"]);
+                          form.clearErrors([
+                            "target_price",
+                            "condition",
+                            "interval",
+                            "direction",
+                            "threshold",
+                            "pair",
+                            "pairs",
+                            "level_ref",
+                            "dol_trigger",
+                          ]);
                         }}
                       >
-                        <TabsList className="grid w-full grid-cols-2 h-12">
-                          <TabsTrigger value="price">Price Alert</TabsTrigger>
-                          <TabsTrigger value="candle_close">Candle Close Alert</TabsTrigger>
+                        <TabsList className="grid w-full grid-cols-3 h-12">
+                          <TabsTrigger value="price">Price</TabsTrigger>
+                          <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
+                          <TabsTrigger value="prev_day_level">Draw on Liquidity</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -643,6 +779,7 @@ export function CreateAlertForm({
                 )}
               />
 
+              {selectedAlertType !== "prev_day_level" ? (
               <FormField
                 control={form.control}
                 name="pair"
@@ -731,6 +868,181 @@ export function CreateAlertForm({
                   </FormItem>
                 )}
               />
+              ) : null}
+
+              {selectedAlertType === "prev_day_level" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="pairs"
+                    render={({ field }) => {
+                      const selected = field.value ?? [];
+                      const togglePair = (pair: string) => {
+                        const next = selected.includes(pair)
+                          ? selected.filter((item) => item !== pair)
+                          : [...selected, pair];
+                        field.onChange(next);
+                        form.clearErrors("pairs");
+                      };
+                      return (
+                        <FormItem>
+                          <FormLabel>Pairs to watch</FormLabel>
+                          <FormControl>
+                            <div className="space-y-2">
+                              <Input
+                                value={dolPairSearch}
+                                onChange={(event) =>
+                                  setDolPairSearch(event.target.value.toUpperCase())
+                                }
+                                placeholder="Search pairs, e.g. EURUSD"
+                                className="h-12 border-border bg-background"
+                              />
+                              {selected.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {selected.map((pair) => (
+                                    <button
+                                      key={pair}
+                                      type="button"
+                                      onClick={() => togglePair(pair)}
+                                      className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-medium text-foreground"
+                                    >
+                                      {formatPairLabel(pair)} ✕
+                                    </button>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div className="max-h-44 overflow-y-auto rounded-md border border-border bg-card p-1 shadow-sm">
+                                {dolFilteredPairs.length > 0 ? (
+                                  dolFilteredPairs.map((pair) => {
+                                    const isSelected = selected.includes(pair);
+                                    return (
+                                      <button
+                                        key={pair}
+                                        type="button"
+                                        onClick={() => togglePair(pair)}
+                                        className={cn(
+                                          "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition",
+                                          isSelected
+                                            ? "bg-primary/10 text-foreground"
+                                            : "text-foreground hover:bg-accent hover:text-accent-foreground",
+                                        )}
+                                      >
+                                        <span>{formatPairLabel(pair)}</span>
+                                        {isSelected ? <span>✓</span> : null}
+                                      </button>
+                                    );
+                                  })
+                                ) : (
+                                  <p className="px-3 py-2 text-sm text-muted-foreground">
+                                    No pairs found.
+                                  </p>
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Selected {selected.length} pair{selected.length === 1 ? "" : "s"}.
+                                One alert is created per pair.
+                              </p>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }}
+                  />
+
+                  {firstDolPair && dolLive ? (
+                    <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{firstDolPair}</span> bias:{" "}
+                      {biasLabel(dolLive.bias)} · PDH {dolLive.pdh.toFixed(5)} · PDL{" "}
+                      {dolLive.pdl.toFixed(5)}
+                      {dolLive.draw !== "none"
+                        ? ` · draw ${drawLabel(dolLive.draw)}`
+                        : ""}
+                    </div>
+                  ) : null}
+
+                  <FormField
+                    control={form.control}
+                    name="dol_trigger"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Trigger</FormLabel>
+                        <div className="space-y-3">
+                          {drawTriggerOptions.map((option) => {
+                            const active = field.value === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => field.onChange(option.value)}
+                                className={cn(
+                                  "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card/60 text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "flex h-5 w-5 items-center justify-center rounded-full border",
+                                    active ? "border-primary" : "border-muted-foreground/40",
+                                  )}
+                                >
+                                  <span
+                                    className={cn(
+                                      "h-2.5 w-2.5 rounded-full",
+                                      active ? "bg-primary" : "bg-transparent",
+                                    )}
+                                  />
+                                </span>
+                                <span className="space-y-1">
+                                  <span className="block text-sm font-medium">{option.label}</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {option.description}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="level_ref"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Level</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {drawLevelOptions.map((option) => {
+                            const active = field.value === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => field.onChange(option.value)}
+                                title={option.description}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : null}
 
               {selectedAlertType === "price" ? (
                 <>
@@ -806,7 +1118,7 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
-              ) : (
+              ) : selectedAlertType === "candle_close" ? (
                 <>
                   <FormField
                     control={form.control}
@@ -912,7 +1224,7 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
-              )}
+              ) : null}
 
               {!createLimit.allowed ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

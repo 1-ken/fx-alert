@@ -12,9 +12,22 @@ import type { ChartInterval } from "@/lib/chart-utils";
 import { mergeFormingCandle, toChartTime } from "@/lib/chart-utils";
 import type { OhlcCandle } from "@/types/historical";
 import type { Alert } from "@/types/alerts";
+import type { DayBias, DrawTarget } from "@/lib/draw-on-liquidity";
 
 export const LIVE_OVERLAY_ID = "fx-live-price";
 export const ALERT_OVERLAY_PREFIX = "fx-alert-";
+export const PDH_OVERLAY_ID = "fx-pdh";
+export const PDL_OVERLAY_ID = "fx-pdl";
+export const DOL_SEGMENT_PREFIX = "fx-dol-";
+
+const DAY_MS = 86_400_000;
+const PDH_COLOR = "#22d3ee";
+const PDL_COLOR = "#f59e0b";
+const DRAW_ACTIVE_COLOR = "#a855f7";
+const OUTCOME_DISPLACED_UP = "#16a34a";
+const OUTCOME_DISPLACED_DOWN = "#dc2626";
+const OUTCOME_REVERSAL = "#a855f7";
+const OUTCOME_NEUTRAL = "#94a3b8";
 
 const STACKED_INDICATORS = new Set(["MA", "EMA", "BOLL"]);
 
@@ -72,7 +85,13 @@ export function isSystemOverlayId(id?: string): boolean {
   if (!id) {
     return false;
   }
-  return id === LIVE_OVERLAY_ID || id.startsWith(ALERT_OVERLAY_PREFIX);
+  return (
+    id === LIVE_OVERLAY_ID ||
+    id === PDH_OVERLAY_ID ||
+    id === PDL_OVERLAY_ID ||
+    id.startsWith(ALERT_OVERLAY_PREFIX) ||
+    id.startsWith(DOL_SEGMENT_PREFIX)
+  );
 }
 
 export function snapshotUserOverlays(chart: Chart): UserOverlaySnapshot[] {
@@ -372,6 +391,127 @@ export function mergedKLineData(
   forming: OhlcCandle | null | undefined,
 ): KLineData[] {
   return ohlcListToKLineData(mergeFormingCandle(closed, forming));
+}
+
+function upsertPriceLine(
+  chart: Chart,
+  id: string,
+  value: number,
+  color: string,
+  size: number,
+): void {
+  const styles = {
+    line: { style: "dashed" as const, color, size, dashedValue: [6, 4] },
+  };
+  if (chart.getOverlays({ id }).length > 0) {
+    chart.overrideOverlay({ id, points: [{ value }], styles });
+    return;
+  }
+  chart.createOverlay({
+    name: "priceLine",
+    id,
+    lock: true,
+    points: [{ value }],
+    styles,
+  });
+}
+
+/**
+ * Draw the current-day previous-day-high/low levels as horizontal lines, with
+ * the active draw-on-liquidity target emphasized.
+ */
+export function syncPrevDayLevels(
+  chart: Chart,
+  levels: { pdh: number; pdl: number; draw?: DrawTarget } | null,
+): void {
+  if (!levels || !Number.isFinite(levels.pdh) || !Number.isFinite(levels.pdl)) {
+    chart.removeOverlay({ id: PDH_OVERLAY_ID });
+    chart.removeOverlay({ id: PDL_OVERLAY_ID });
+    return;
+  }
+  const draw = levels.draw ?? "none";
+  upsertPriceLine(
+    chart,
+    PDH_OVERLAY_ID,
+    levels.pdh,
+    draw === "high" ? DRAW_ACTIVE_COLOR : PDH_COLOR,
+    draw === "high" ? 2 : 1,
+  );
+  upsertPriceLine(
+    chart,
+    PDL_OVERLAY_ID,
+    levels.pdl,
+    draw === "low" ? DRAW_ACTIVE_COLOR : PDL_COLOR,
+    draw === "low" ? 2 : 1,
+  );
+}
+
+function outcomeColor(outcome: DayBias["outcome"]): string {
+  switch (outcome) {
+    case "displaced_up":
+      return OUTCOME_DISPLACED_UP;
+    case "displaced_down":
+      return OUTCOME_DISPLACED_DOWN;
+    case "reversal_from_high":
+    case "reversal_from_low":
+      return OUTCOME_REVERSAL;
+    default:
+      return OUTCOME_NEUTRAL;
+  }
+}
+
+/**
+ * Draw per-day PDH/PDL as horizontal segments spanning each day, colored by the
+ * day's outcome. Used for the historical / backtest visualization.
+ */
+export function syncDrawHistory(chart: Chart, series: DayBias[]): void {
+  for (const overlay of chart.getOverlays()) {
+    if (overlay.id?.startsWith(DOL_SEGMENT_PREFIX)) {
+      chart.removeOverlay({ id: overlay.id });
+    }
+  }
+
+  for (let i = 0; i < series.length; i += 1) {
+    const day = series[i];
+    const startMs = new Date(day.date).getTime();
+    if (!Number.isFinite(startMs)) {
+      continue;
+    }
+    const endMs = startMs + DAY_MS;
+    const color = outcomeColor(day.outcome);
+
+    chart.createOverlay({
+      name: "segment",
+      id: `${DOL_SEGMENT_PREFIX}h-${i}`,
+      lock: true,
+      points: [
+        { timestamp: startMs, value: day.pdh },
+        { timestamp: endMs, value: day.pdh },
+      ],
+      styles: { line: { style: "solid", color: PDH_COLOR, size: 1 } },
+    });
+    chart.createOverlay({
+      name: "segment",
+      id: `${DOL_SEGMENT_PREFIX}l-${i}`,
+      lock: true,
+      points: [
+        { timestamp: startMs, value: day.pdl },
+        { timestamp: endMs, value: day.pdl },
+      ],
+      styles: { line: { style: "solid", color: PDL_COLOR, size: 1 } },
+    });
+    if (day.sweptHigh || day.sweptLow) {
+      const markValue = day.sweptHigh ? day.pdh : day.pdl;
+      chart.createOverlay({
+        name: "simpleAnnotation",
+        id: `${DOL_SEGMENT_PREFIX}m-${i}`,
+        lock: true,
+        points: [{ timestamp: startMs + DAY_MS / 2, value: markValue }],
+        extendData: day.displaced ? "D" : "R",
+        styles: { text: { color, size: 10 } },
+      });
+    }
+  }
 }
 
 export function priceFromChartCoordinate(

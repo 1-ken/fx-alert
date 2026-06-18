@@ -15,17 +15,18 @@ import {
 } from "@/components/ui/popover"
 import { useIsMobile } from "@/hooks/use-mobile"
 
+export type PresetOption = {
+  label: string
+  getValue: () => { from: Date; to: Date }
+}
+
 interface DateRangePickerProps {
   dateFrom?: string
   dateTo?: string
   onDateChange: (dateFrom: string | undefined, dateTo: string | undefined) => void
   className?: string
   applyPresetImmediately?: boolean
-}
-
-type PresetOption = {
-  label: string
-  getValue: () => { from: Date; to: Date }
+  presets?: PresetOption[]
 }
 
 export function DateRangePicker({
@@ -34,6 +35,7 @@ export function DateRangePicker({
   onDateChange,
   className,
   applyPresetImmediately = true,
+  presets,
 }: DateRangePickerProps) {
   const isMobile = useIsMobile()
   const [open, setOpen] = React.useState(false)
@@ -63,6 +65,10 @@ export function DateRangePicker({
   }, [dateFrom, dateTo])
 
   const getPresetOptions = (): PresetOption[] => {
+    if (presets) {
+      return presets
+    }
+
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 

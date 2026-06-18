@@ -6,12 +6,14 @@ import { useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   BellAlertIcon,
+  SparklesIcon,
   StarIcon,
 } from "@heroicons/react/24/outline";
 import { StarIcon as StarSolidIcon } from "@heroicons/react/24/solid";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/ui/spinner";
 import {
   InteractiveTradingChart,
   type ChartAlertDraft,
@@ -20,6 +22,8 @@ import { ChartAlertSheet } from "@/components/alerts/chart-alert-sheet";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useFavorites } from "@/hooks/favorites/use-favorites";
 import { useObserverStreamContext } from "@/components/stream-alerts-provider";
+import { useDrawOnLiquidity } from "@/hooks/historical/use-draw-on-liquidity";
+import { biasLabel, drawLabel, type LiveBias } from "@/lib/draw-on-liquidity";
 import { formatKenyaDateTime } from "@/lib/datetime";
 
 function decodePairSlug(slug: string): string {
@@ -57,6 +61,7 @@ export function PairDetailPageContent() {
 
   const [alertDraft, setAlertDraft] = useState<ChartAlertDraft | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [showBias, setShowBias] = useState(false);
 
   const rawQueryPrice = searchParams.get("price");
   const queryPrice = rawQueryPrice
@@ -71,6 +76,13 @@ export function PairDetailPageContent() {
   )?.price;
 
   const displayPrice = livePrice ?? queryPrice;
+
+  const {
+    live: todayBias,
+    isLoading: biasLoading,
+    isError: biasError,
+    refresh: refreshBias,
+  } = useDrawOnLiquidity(showBias ? pair : "", displayPrice);
 
   const pairAlerts = [...alerts.active, ...alerts.triggered]
     .filter((alert) => normalizePairKey(alert.pair) === pairKey)
@@ -138,6 +150,28 @@ export function PairDetailPageContent() {
             )}
           </Button>
         </header>
+
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold">Today&apos;s bias</h2>
+          <Button
+            type="button"
+            variant={showBias ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setShowBias((prev) => !prev)}
+          >
+            <SparklesIcon className="mr-2 h-4 w-4" />
+            {showBias ? "Hide bias" : "Determine bias"}
+          </Button>
+        </div>
+
+        {showBias ? (
+          <TodayBiasCard
+            loading={biasLoading}
+            error={biasError}
+            bias={todayBias}
+            onRetry={refreshBias}
+          />
+        ) : null}
 
         <section data-tour="pair-chart-alert">
         <InteractiveTradingChart
@@ -216,5 +250,109 @@ export function PairDetailPageContent() {
         draft={alertDraft}
       />
     </div>
+  );
+}
+
+function biasBadgeClass(bias: LiveBias["bias"]): string {
+  if (bias === "bullish") {
+    return "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400";
+  }
+  if (bias === "bearish") {
+    return "bg-red-500/15 text-red-600 dark:text-red-400";
+  }
+  return "bg-muted text-muted-foreground";
+}
+
+function TodayBiasCard({
+  loading,
+  error,
+  bias,
+  onRetry,
+}: {
+  loading: boolean;
+  error: boolean;
+  bias: LiveBias | null;
+  onRetry: () => void;
+}) {
+  if (loading && !bias) {
+    return (
+      <Card>
+        <CardContent className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+          <Spinner className="h-4 w-4" />
+          Computing today&apos;s bias from daily history…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error && !bias) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-start gap-3 py-6 text-sm text-muted-foreground">
+          <span>Couldn&apos;t load daily history. The market data source may be busy.</span>
+          <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!bias) {
+    return (
+      <Card>
+        <CardContent className="py-6 text-sm text-muted-foreground">
+          Not enough daily history to determine today&apos;s bias yet.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const drawTarget = drawLabel(bias.draw);
+  const status = bias.drawReached
+    ? "Draw target reached"
+    : bias.displacedUp
+      ? "Displaced above PDH"
+      : bias.displacedDown
+        ? "Displaced below PDL"
+        : bias.sweptHigh
+          ? "Swept PDH"
+          : bias.sweptLow
+            ? "Swept PDL"
+            : "Inside the previous-day range";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">Model prediction for today</CardTitle>
+          <span
+            className={`rounded-full px-2.5 py-1 text-xs font-medium ${biasBadgeClass(bias.bias)}`}
+          >
+            {biasLabel(bias.bias)}
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+        <div>
+          <p className="text-xs text-muted-foreground">Draw on liquidity</p>
+          <p className="font-medium">
+            {drawTarget === "—" ? "No directional draw" : `Toward ${drawTarget}`}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">PDH</p>
+          <p className="font-mono">{bias.pdh.toFixed(5)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">PDL</p>
+          <p className="font-mono">{bias.pdl.toFixed(5)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Status</p>
+          <p className="font-medium">{status}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
