@@ -2,20 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { API_ENDPOINTS } from "@/lib/constants";
 import { validateApiAuth } from "@/lib/api-auth";
 import { proxyObserverRequest } from "@/lib/observer-api";
+import { normalizeClosedDailyCandles } from "@/lib/daily-trading-day";
+import type { OhlcCandle, OhlcResponse } from "@/types/historical";
 
 const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL?.trim() || "http://localhost:8100";
-
-interface OhlcCandleResponse {
-  candles?: Array<{
-    timestamp: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    is_forming?: boolean;
-  }>;
-}
 
 /**
  * Backtest proxy: pulls daily candles from the C++ observer (server-side, with
@@ -67,30 +58,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const ohlc = (await ohlcResponse.json()) as OhlcCandleResponse;
-  // cTrader D1 bars are timestamped at the broker's daily open (evening UTC of
-  // the previous calendar day), so normalize each candle to its trading day by
-  // rounding the open to the nearest UTC midnight. This maps an evening open
-  // (e.g. Thu 22:00) up to the correct trading date (Fri) and leaves a true
-  // midnight-aligned broker unchanged. Sessions that open Sunday evening map to
-  // Monday, so weekends never produce a candle.
-  const DAY_MS = 86_400_000;
-  const todayMidnightMs = Math.floor(Date.now() / DAY_MS) * DAY_MS;
-  const candles = (ohlc.candles ?? [])
-    .filter((c) => !c.is_forming)
-    .map((c) => {
-      const normMs = Math.round(new Date(c.timestamp).getTime() / DAY_MS) * DAY_MS;
-      return { normMs, open: c.open, high: c.high, low: c.low, close: c.close };
-    })
-    // Drop the current, still-forming trading day (its session has not closed).
-    .filter((c) => Number.isFinite(c.normMs) && c.normMs < todayMidnightMs)
-    .map((c) => ({
-      timestamp: new Date(c.normMs).toISOString(),
-      open: c.open,
-      high: c.high,
-      low: c.low,
-      close: c.close,
-    }));
+  const ohlc = (await ohlcResponse.json()) as OhlcResponse;
+  const candles: OhlcCandle[] = normalizeClosedDailyCandles(ohlc.candles ?? []);
 
   if (candles.length < 2) {
     return NextResponse.json(

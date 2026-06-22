@@ -6,10 +6,16 @@ import {
 import {
   computeBiasSeries,
   computeLiveBias,
+  computeLiveBiasDetails,
   type DayBias,
   type LiveBias,
+  type LiveBiasDetails,
 } from "@/lib/draw-on-liquidity";
 import { extractFormingCandle } from "@/lib/chart-utils";
+import {
+  normalizeClosedDailyCandles,
+  normalizeFormingDailyCandle,
+} from "@/lib/daily-trading-day";
 import type { OhlcCandle } from "@/types/historical";
 
 const DAILY_INTERVAL = "1d";
@@ -19,6 +25,8 @@ export interface DrawOnLiquidityResult {
   levels: { pdh: number; pdl: number } | null;
   /** Live bias/draw for the forming day, refined by live price. */
   live: LiveBias | null;
+  /** Reference candles/outcome backing the live bias (for verification UI). */
+  details: LiveBiasDetails | null;
   /** Per-day classified history (oldest -> newest). */
   biasSeries: DayBias[];
   /** Closed daily candles backing the model. */
@@ -59,20 +67,25 @@ export function useDrawOnLiquidity(
     });
 
   const dailyCandles = useMemo(
-    () => closedData?.candles?.filter((c) => !c.is_forming) ?? [],
+    () => normalizeClosedDailyCandles(closedData?.candles ?? []),
     [closedData],
   );
 
-  const todayCandle = useMemo(
-    () => extractFormingCandle(formingData),
-    [formingData],
-  );
+  const todayCandle = useMemo(() => {
+    const forming = extractFormingCandle(formingData);
+    return forming ? normalizeFormingDailyCandle(forming) : null;
+  }, [formingData]);
 
   const biasSeries = useMemo(() => computeBiasSeries(dailyCandles), [dailyCandles]);
 
   const live = useMemo(
     () => computeLiveBias(dailyCandles, todayCandle, livePrice),
     [dailyCandles, todayCandle, livePrice],
+  );
+
+  const details = useMemo(
+    () => computeLiveBiasDetails(dailyCandles, todayCandle),
+    [dailyCandles, todayCandle],
   );
 
   const levels = useMemo(
@@ -96,6 +109,7 @@ export function useDrawOnLiquidity(
   return {
     levels,
     live,
+    details,
     biasSeries,
     dailyCandles,
     isLoading,

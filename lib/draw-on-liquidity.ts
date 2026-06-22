@@ -1,4 +1,8 @@
 import type { OhlcCandle } from "@/types/historical";
+import {
+  formatTradingDayDate,
+  isTodayTradingDayCandle,
+} from "@/lib/daily-trading-day";
 
 /**
  * Previous-day-high/low (PDH/PDL) "draw on liquidity" + daily bias model.
@@ -82,6 +86,25 @@ export interface LiveBias {
   displacedDown: boolean;
   /** Whether the active draw target has been reached so far today. */
   drawReached: boolean;
+  /**
+   * True when today's forming daily bar (or merged live price on it) backs
+   * sweep/reach flags. When false, sweep/reach are not inferred from price alone.
+   */
+  hasIntradayData: boolean;
+}
+
+/** Reference candles and outcome used to derive today's live bias. */
+export interface LiveBiasDetails {
+  /** UTC date (YYYY-MM-DD) of the candle that supplies PDH/PDL. */
+  pdhReferenceDate: string;
+  pdhReference: Pick<OhlcCandle, "open" | "high" | "low" | "close">;
+  /** UTC date of the classified day that set today's bias/draw. */
+  classifiedDate: string;
+  classified: Pick<OhlcCandle, "open" | "high" | "low" | "close"> & {
+    outcome: DailyOutcome;
+  };
+  /** Forming daily bar for today, when available and aligned to the UTC bucket. */
+  todayForming: Pick<OhlcCandle, "timestamp" | "open" | "high" | "low" | "close"> | null;
 }
 
 const NEG_INF = Number.NEGATIVE_INFINITY;
@@ -201,16 +224,38 @@ export function computeLiveBias(
     draw = classification.draw;
   }
 
+  const validToday =
+    today != null &&
+    today.is_forming !== false &&
+    isTodayTradingDayCandle(today);
   const hasLive = typeof livePrice === "number" && Number.isFinite(livePrice);
-  const todayHigh = Math.max(today?.high ?? NEG_INF, hasLive ? (livePrice as number) : NEG_INF);
-  const todayLow = Math.min(today?.low ?? POS_INF, hasLive ? (livePrice as number) : POS_INF);
-  const close = hasLive ? (livePrice as number) : today?.close ?? lastDay.close;
+  const hasIntradayData = validToday;
 
-  const sweptHigh = Number.isFinite(todayHigh) && todayHigh >= pdh;
-  const sweptLow = Number.isFinite(todayLow) && todayLow <= pdl;
+  let todayHigh = NEG_INF;
+  let todayLow = POS_INF;
+  let close = lastDay.close;
+
+  if (validToday) {
+    todayHigh = today.high;
+    todayLow = today.low;
+    close = today.close;
+    if (hasLive) {
+      todayHigh = Math.max(todayHigh, livePrice as number);
+      todayLow = Math.min(todayLow, livePrice as number);
+      close = livePrice as number;
+    }
+  } else if (hasLive) {
+    close = livePrice as number;
+  }
+
+  const sweptHigh =
+    hasIntradayData && Number.isFinite(todayHigh) && todayHigh >= pdh;
+  const sweptLow =
+    hasIntradayData && Number.isFinite(todayLow) && todayLow <= pdl;
   const drawTargetPrice = draw === "high" ? pdh : draw === "low" ? pdl : null;
   const drawReached =
-    draw === "high" ? sweptHigh : draw === "low" ? sweptLow : false;
+    hasIntradayData &&
+    (draw === "high" ? sweptHigh : draw === "low" ? sweptLow : false);
 
   return {
     pdh,
@@ -223,6 +268,59 @@ export function computeLiveBias(
     displacedUp: close > pdh,
     displacedDown: close < pdl,
     drawReached,
+    hasIntradayData,
+  };
+}
+
+/**
+ * Diagnostic context for verifying bias/draw against the underlying daily candles.
+ */
+export function computeLiveBiasDetails(
+  dailyCandles: OhlcCandle[],
+  today: OhlcCandle | null | undefined,
+): LiveBiasDetails | null {
+  const closed = sortedClosedDaily(dailyCandles);
+  if (closed.length < 1) {
+    return null;
+  }
+
+  const lastDay = closed[closed.length - 1];
+  let outcome: DailyOutcome = "inside";
+  if (closed.length >= 2) {
+    const prev = closed[closed.length - 2];
+    outcome = classifyDay(prev.high, prev.low, lastDay).outcome;
+  }
+
+  const validToday =
+    today != null &&
+    today.is_forming !== false &&
+    isTodayTradingDayCandle(today);
+
+  return {
+    pdhReferenceDate: formatTradingDayDate(lastDay.timestamp),
+    pdhReference: {
+      open: lastDay.open,
+      high: lastDay.high,
+      low: lastDay.low,
+      close: lastDay.close,
+    },
+    classifiedDate: formatTradingDayDate(lastDay.timestamp),
+    classified: {
+      open: lastDay.open,
+      high: lastDay.high,
+      low: lastDay.low,
+      close: lastDay.close,
+      outcome,
+    },
+    todayForming: validToday
+      ? {
+          timestamp: today.timestamp,
+          open: today.open,
+          high: today.high,
+          low: today.low,
+          close: today.close,
+        }
+      : null,
   };
 }
 

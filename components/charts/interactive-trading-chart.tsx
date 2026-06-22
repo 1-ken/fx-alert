@@ -722,7 +722,7 @@ export function InteractiveTradingChart({
               {drawLive.draw !== "none"
                 ? ` · Draw ${drawLabel(drawLive.draw)} ${
                     drawLive.drawTargetPrice?.toFixed(5) ?? ""
-                  }${drawLive.drawReached ? " ✓" : ""}`
+                  }${drawLive.hasIntradayData && drawLive.drawReached ? " ✓" : ""}`
                 : ""}
             </span>
           ) : null}

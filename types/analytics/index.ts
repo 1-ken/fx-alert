@@ -40,3 +40,5 @@ export interface BacktestResult {
   start?: string | null;
   end?: string | null;
 }
+
+export type { PredictionRecord, PredictionScorecard, PredictionStatus, PredictionSummary } from "@/lib/prediction-scorecard";

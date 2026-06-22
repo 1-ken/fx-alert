@@ -23,7 +23,14 @@ import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useFavorites } from "@/hooks/favorites/use-favorites";
 import { useObserverStreamContext } from "@/components/stream-alerts-provider";
 import { useDrawOnLiquidity } from "@/hooks/historical/use-draw-on-liquidity";
-import { biasLabel, drawLabel, type LiveBias } from "@/lib/draw-on-liquidity";
+import {
+  biasLabel,
+  drawLabel,
+  outcomeLabel,
+  type LiveBias,
+  type LiveBiasDetails,
+} from "@/lib/draw-on-liquidity";
+import { formatTradingDayLabel } from "@/lib/daily-trading-day";
 import { formatKenyaDateTime } from "@/lib/datetime";
 
 function decodePairSlug(slug: string): string {
@@ -79,6 +86,7 @@ export function PairDetailPageContent() {
 
   const {
     live: todayBias,
+    details: biasDetails,
     isLoading: biasLoading,
     isError: biasError,
     refresh: refreshBias,
@@ -169,6 +177,7 @@ export function PairDetailPageContent() {
             loading={biasLoading}
             error={biasError}
             bias={todayBias}
+            details={biasDetails}
             onRetry={refreshBias}
           />
         ) : null}
@@ -267,11 +276,13 @@ function TodayBiasCard({
   loading,
   error,
   bias,
+  details,
   onRetry,
 }: {
   loading: boolean;
   error: boolean;
   bias: LiveBias | null;
+  details: LiveBiasDetails | null;
   onRetry: () => void;
 }) {
   if (loading && !bias) {
@@ -309,17 +320,22 @@ function TodayBiasCard({
   }
 
   const drawTarget = drawLabel(bias.draw);
-  const status = bias.drawReached
-    ? "Draw target reached"
-    : bias.displacedUp
-      ? "Displaced above PDH"
-      : bias.displacedDown
-        ? "Displaced below PDL"
-        : bias.sweptHigh
-          ? "Swept PDH"
-          : bias.sweptLow
-            ? "Swept PDL"
-            : "Inside the previous-day range";
+  const status = !bias.hasIntradayData
+    ? "Waiting for today's daily bar"
+    : bias.drawReached
+      ? "Draw target reached"
+      : bias.displacedUp
+        ? "Displaced above PDH"
+        : bias.displacedDown
+          ? "Displaced below PDL"
+          : bias.sweptHigh
+            ? "Swept PDH"
+            : bias.sweptLow
+              ? "Swept PDL"
+              : "Inside the previous-day range";
+
+  const priceDecimals =
+    bias.pdh >= 100 ? 3 : bias.pdh >= 10 ? 4 : 5;
 
   return (
     <Card>
@@ -332,26 +348,76 @@ function TodayBiasCard({
             {biasLabel(bias.bias)}
           </span>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Uses cTrader UTC daily candles. TradingView NY session levels may differ.
+        </p>
       </CardHeader>
-      <CardContent className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-        <div>
-          <p className="text-xs text-muted-foreground">Draw on liquidity</p>
-          <p className="font-medium">
-            {drawTarget === "—" ? "No directional draw" : `Toward ${drawTarget}`}
-          </p>
+      <CardContent className="space-y-4 text-sm">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Draw on liquidity</p>
+            <p className="font-medium">
+              {drawTarget === "—" ? "No directional draw" : `Toward ${drawTarget}`}
+            </p>
+            {bias.drawTargetPrice != null ? (
+              <p className="font-mono text-xs text-muted-foreground">
+                Target {bias.drawTargetPrice.toFixed(priceDecimals)}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">PDH</p>
+            <p className="font-mono">{bias.pdh.toFixed(priceDecimals)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">PDL</p>
+            <p className="font-mono">{bias.pdl.toFixed(priceDecimals)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Status</p>
+            <p className="font-medium">{status}</p>
+          </div>
         </div>
-        <div>
-          <p className="text-xs text-muted-foreground">PDH</p>
-          <p className="font-mono">{bias.pdh.toFixed(5)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">PDL</p>
-          <p className="font-mono">{bias.pdl.toFixed(5)}</p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Status</p>
-          <p className="font-medium">{status}</p>
-        </div>
+
+        {details ? (
+          <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs">
+            <p className="mb-2 font-medium text-foreground">Reference (trading day, UTC)</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <p className="text-muted-foreground">
+                  PDH/PDL from {formatTradingDayLabel(`${details.pdhReferenceDate}T00:00:00Z`)}
+                </p>
+                <p className="font-mono">
+                  H {details.pdhReference.high.toFixed(priceDecimals)} · L{" "}
+                  {details.pdhReference.low.toFixed(priceDecimals)} · C{" "}
+                  {details.pdhReference.close.toFixed(priceDecimals)}
+                </p>
+              </div>
+              <div>
+                <p className="text-muted-foreground">
+                  Bias set by {formatTradingDayLabel(`${details.classifiedDate}T00:00:00Z`)}{" "}
+                  ({outcomeLabel(details.classified.outcome)})
+                </p>
+                <p className="font-mono">
+                  H {details.classified.high.toFixed(priceDecimals)} · L{" "}
+                  {details.classified.low.toFixed(priceDecimals)} · C{" "}
+                  {details.classified.close.toFixed(priceDecimals)}
+                </p>
+              </div>
+            </div>
+            <p className="mt-2 text-muted-foreground">
+              Today&apos;s forming bar:{" "}
+              {details.todayForming ? (
+                <span className="font-mono text-foreground">
+                  H {details.todayForming.high.toFixed(priceDecimals)} · L{" "}
+                  {details.todayForming.low.toFixed(priceDecimals)}
+                </span>
+              ) : (
+                "not available yet"
+              )}
+            </p>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

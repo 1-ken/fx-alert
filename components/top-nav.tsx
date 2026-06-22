@@ -10,6 +10,7 @@ import {
   CogIcon,
   ArrowRightOnRectangleIcon,
   ChartBarSquareIcon,
+  CheckCircleIcon,
 } from "@heroicons/react/24/outline";
 
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,11 @@ const NAV_ITEMS: NavItem[] = [
     title: "Backtest",
     url: "/backtest",
     icon: ChartBarSquareIcon,
+  },
+  {
+    title: "Predictions",
+    url: "/predictions",
+    icon: CheckCircleIcon,
   },
   {
     title: "Settings",
