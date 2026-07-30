@@ -9,9 +9,9 @@ import { BootstrapProvider } from "@/components/bootstrap-provider";
 import { ReferralClaimer } from "@/components/referral-claimer";
 import { SWR_DEFAULT_OPTIONS } from "@/lib/swr-config";
 
-export function Providers({ children }: { children: React.ReactNode }) {
+export function Providers({ children, session }: { children: React.ReactNode; session: any }) {
   return (
-    <SessionProvider refetchInterval={30 * 60} refetchOnWindowFocus={false}>
+    <SessionProvider session={session} refetchInterval={30 * 60} refetchOnWindowFocus={false}>
       <SWRConfig value={SWR_DEFAULT_OPTIONS}>
         <ThemeProvider
           attribute="class"
