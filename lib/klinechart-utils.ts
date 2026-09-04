@@ -142,10 +142,10 @@ export function syncChartIndicators(chart: Chart, desiredNames: Iterable<string>
       continue;
     }
     const isStack = STACKED_INDICATORS.has(name);
-    chart.createIndicator(name, {
+    chart.createIndicator(
+      isStack ? { name, paneId: "candle_pane" } : name,
       isStack,
-      pane: isStack ? { id: "candle_pane" } : undefined,
-    });
+    );
   }
 }
 

@@ -654,10 +654,10 @@ export function InteractiveTradingChart({
       active.delete(name);
     } else {
       const isStack = name === "MA" || name === "EMA" || name === "BOLL";
-      chart.createIndicator(name, {
+      chart.createIndicator(
+        isStack ? { name, paneId: "candle_pane" } : name,
         isStack,
-        pane: isStack ? { id: "candle_pane" } : undefined,
-      });
+      );
       active.add(name);
     }
     syncActiveIndicatorsState(active);
