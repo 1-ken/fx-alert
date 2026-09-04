@@ -132,7 +132,10 @@ describe("syncChartIndicators", () => {
     syncChartIndicators(chart, ["MA", "RSI"]);
 
     expect(removeIndicator).toHaveBeenCalledWith({ name: "MACD" });
-    expect(createIndicator).toHaveBeenCalledWith("RSI", false);
+    expect(createIndicator).toHaveBeenCalledWith("RSI", {
+      isStack: false,
+      pane: undefined,
+    });
     expect(createIndicator).not.toHaveBeenCalledWith("MA", expect.anything());
   });
 });
