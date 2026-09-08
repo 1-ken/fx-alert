@@ -3,6 +3,17 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api-fetch";
 
+function isDeadUpstream(status: number, body: string, contentType: string): boolean {
+  if (status !== 404) return false;
+  const normalized = body.trim().toLowerCase();
+  // Traefik / reverse-proxy default when no service is routed
+  if (normalized === "404 page not found") return true;
+  if (!contentType.includes("application/json") && normalized.includes("404 page not found")) {
+    return true;
+  }
+  return false;
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -23,6 +34,20 @@ export async function GET() {
 
     const contentType = response.headers.get("content-type") ?? "application/json";
     const body = await response.text();
+
+    if (isDeadUpstream(response.status, body, contentType)) {
+      console.error(
+        `Upstream observer unavailable at ${apiBaseUrl}/me (reverse-proxy 404). Restart the Dokploy ctraderplus service and confirm NEXT_PUBLIC_API_URL.`,
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Observer API is unreachable (upstream 404). Check NEXT_PUBLIC_API_URL and restart the backend on Dokploy.",
+          upstream: `${apiBaseUrl}/me`,
+        },
+        { status: 502 },
+      );
+    }
 
     return new NextResponse(body, {
       status: response.status,
