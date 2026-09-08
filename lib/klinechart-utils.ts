@@ -19,6 +19,10 @@ export const ALERT_OVERLAY_PREFIX = "fx-alert-";
 export const PDH_OVERLAY_ID = "fx-pdh";
 export const PDL_OVERLAY_ID = "fx-pdl";
 export const DOL_SEGMENT_PREFIX = "fx-dol-";
+export const SETUP_ENTRY_OVERLAY_ID = "fx-setup-entry";
+export const SETUP_SL_OVERLAY_ID = "fx-setup-sl";
+export const SETUP_TP_OVERLAY_ID = "fx-setup-tp";
+export const SETUP_SWEEP_OVERLAY_ID = "fx-setup-sweep";
 
 const DAY_MS = 86_400_000;
 const PDH_COLOR = "#22d3ee";
@@ -89,6 +93,10 @@ export function isSystemOverlayId(id?: string): boolean {
     id === LIVE_OVERLAY_ID ||
     id === PDH_OVERLAY_ID ||
     id === PDL_OVERLAY_ID ||
+    id === SETUP_ENTRY_OVERLAY_ID ||
+    id === SETUP_SL_OVERLAY_ID ||
+    id === SETUP_TP_OVERLAY_ID ||
+    id === SETUP_SWEEP_OVERLAY_ID ||
     id.startsWith(ALERT_OVERLAY_PREFIX) ||
     id.startsWith(DOL_SEGMENT_PREFIX)
   );
@@ -393,6 +401,13 @@ export function mergedKLineData(
   return ohlcListToKLineData(mergeFormingCandle(closed, forming));
 }
 
+const SETUP_TRADE_OVERLAY_IDS = [
+  SETUP_ENTRY_OVERLAY_ID,
+  SETUP_SL_OVERLAY_ID,
+  SETUP_TP_OVERLAY_ID,
+  SETUP_SWEEP_OVERLAY_ID,
+] as const;
+
 function upsertPriceLine(
   chart: Chart,
   id: string,
@@ -414,6 +429,22 @@ function upsertPriceLine(
     points: [{ value }],
     styles,
   });
+}
+
+export function syncTradeSetupLevels(
+  chart: Chart,
+  trade: { entry: number; sl: number; tp: number; sweep_level: number } | null,
+): void {
+  if (!trade) {
+    for (const id of SETUP_TRADE_OVERLAY_IDS) {
+      chart.removeOverlay({ id });
+    }
+    return;
+  }
+  upsertPriceLine(chart, SETUP_ENTRY_OVERLAY_ID, trade.entry, "#3b82f6", 2);
+  upsertPriceLine(chart, SETUP_SL_OVERLAY_ID, trade.sl, "#dc2626", 1);
+  upsertPriceLine(chart, SETUP_TP_OVERLAY_ID, trade.tp, "#16a34a", 1);
+  upsertPriceLine(chart, SETUP_SWEEP_OVERLAY_ID, trade.sweep_level, "#f59e0b", 1);
 }
 
 /**

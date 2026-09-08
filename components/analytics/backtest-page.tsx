@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import { subDays } from "date-fns";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,11 +20,19 @@ import {
 import { BacktestChart } from "@/components/analytics/backtest-chart";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
 import { useBacktest } from "@/hooks/analytics/use-backtest";
+import {
+  backtestSetupUrl,
+  saveBacktestSetup,
+  type BacktestSetup,
+} from "@/lib/backtest-setup";
+import { formatKenyaCompactDateTime } from "@/lib/datetime";
 import { outcomeLabel } from "@/lib/draw-on-liquidity";
 import {
   isTradeBacktest,
+  type BacktestDay,
   type BacktestStats,
   type BacktestStrategy,
+  type BacktestTrade,
   type TradeBacktestStats,
 } from "@/types/analytics";
 
@@ -115,9 +124,8 @@ function formatPrice(value: number): string {
   return value.toFixed(5);
 }
 
-function formatStamp(value: string | null): string {
-  if (!value) return "—";
-  return value.replace("T", " ").replace(".000Z", "Z").slice(0, 16);
+function activateRowKey(event: KeyboardEvent): boolean {
+  return event.key === "Enter" || event.key === " ";
 }
 
 const statRows: Array<{ key: keyof BacktestStats; label: string; suffix: string }> = [
@@ -130,8 +138,9 @@ const statRows: Array<{ key: keyof BacktestStats; label: string; suffix: string 
 ];
 
 export function BacktestPageContent() {
+  const router = useRouter();
   const { data: snapshot } = useObserverSnapshot(false);
-  const { data, isLoading, error, run } = useBacktest();
+  const { data, isLoading, error, run, params: cachedParams } = useBacktest();
 
   const pairs = useMemo(() => {
     const streamed = (snapshot?.pairs ?? []).map((p) => normalizePair(p.pair));
@@ -144,6 +153,44 @@ export function BacktestPageContent() {
   const [end, setEnd] = useState<string>(today);
   const presets = useMemo(() => rollingPresets(), []);
   const selected = STRATEGIES.find((item) => item.value === strategy) ?? STRATEGIES[0];
+
+  useEffect(() => {
+    if (!cachedParams) {
+      return;
+    }
+    setPair(normalizePair(cachedParams.pair));
+    setStrategy(cachedParams.strategy);
+    if (cachedParams.start) {
+      setStart(cachedParams.start.slice(0, 10));
+    }
+    if (cachedParams.end) {
+      setEnd(cachedParams.end.slice(0, 10));
+    }
+  }, [cachedParams]);
+
+  const openSetup = (setup: BacktestSetup) => {
+    saveBacktestSetup(setup);
+    router.push(backtestSetupUrl(setup));
+  };
+
+  const openDay = (day: BacktestDay) => {
+    if (!data) {
+      return;
+    }
+    openSetup({ kind: "draw_on_liquidity", pair: data.pair, day });
+  };
+
+  const openTrade = (trade: BacktestTrade) => {
+    if (!data || !isTradeBacktest(data)) {
+      return;
+    }
+    openSetup({
+      kind: "trade",
+      pair: data.pair,
+      strategy: data.strategy,
+      trade,
+    });
+  };
 
   const onRun = () => {
     void run({
@@ -289,12 +336,15 @@ export function BacktestPageContent() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Trades ({data.count})</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Click a row to open the setup on a chart.
+              </p>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="py-2 pr-3">Time</th>
+                    <th className="py-2 pr-3">Time (UTC+3)</th>
                     <th className="py-2 pr-3">Side</th>
                     <th className="py-2 pr-3">Entry</th>
                     <th className="py-2 pr-3">Stop</th>
@@ -305,9 +355,22 @@ export function BacktestPageContent() {
                 </thead>
                 <tbody>
                   {[...data.trades].reverse().map((trade) => (
-                    <tr key={`${trade.time}-${trade.side}`} className="border-b/50 border-b">
+                    <tr
+                      key={`${trade.time}-${trade.side}`}
+                      className="border-b/50 cursor-pointer border-b hover:bg-muted/50"
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open ${trade.side} setup at ${formatKenyaCompactDateTime(trade.time)}`}
+                      onClick={() => openTrade(trade)}
+                      onKeyDown={(event) => {
+                        if (activateRowKey(event)) {
+                          event.preventDefault();
+                          openTrade(trade);
+                        }
+                      }}
+                    >
                       <td className="py-1.5 pr-3 font-mono text-xs">
-                        {formatStamp(trade.time)}
+                        {formatKenyaCompactDateTime(trade.time)}
                       </td>
                       <td className="py-1.5 pr-3 capitalize">{trade.side}</td>
                       <td className="py-1.5 pr-3 font-mono text-xs">
@@ -382,6 +445,9 @@ export function BacktestPageContent() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Daily detail ({data.count})</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Click a row to open that day on a chart.
+              </p>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
@@ -398,7 +464,20 @@ export function BacktestPageContent() {
                 </thead>
                 <tbody>
                   {[...data.series].reverse().map((day) => (
-                    <tr key={day.date} className="border-b/50 border-b">
+                    <tr
+                      key={day.date}
+                      className="border-b/50 cursor-pointer border-b hover:bg-muted/50"
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`Open ${day.date.slice(0, 10)} setup`}
+                      onClick={() => openDay(day)}
+                      onKeyDown={(event) => {
+                        if (activateRowKey(event)) {
+                          event.preventDefault();
+                          openDay(day);
+                        }
+                      }}
+                    >
                       <td className="py-1.5 pr-3 font-mono text-xs">
                         {day.date.slice(0, 10)}
                       </td>

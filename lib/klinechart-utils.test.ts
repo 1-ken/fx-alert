@@ -3,6 +3,7 @@ import type { Chart } from "klinecharts";
 import {
   ALERT_OVERLAY_PREFIX,
   LIVE_OVERLAY_ID,
+  SETUP_ENTRY_OVERLAY_ID,
   alertOverlayId,
   captureChartLayout,
   chartIntervalToPeriod,
@@ -91,6 +92,7 @@ describe("isSystemOverlayId", () => {
   it("recognizes live price and alert overlays", () => {
     expect(isSystemOverlayId(LIVE_OVERLAY_ID)).toBe(true);
     expect(isSystemOverlayId(`${ALERT_OVERLAY_PREFIX}xyz`)).toBe(true);
+    expect(isSystemOverlayId(SETUP_ENTRY_OVERLAY_ID)).toBe(true);
     expect(isSystemOverlayId("user-trend-line")).toBe(false);
     expect(isSystemOverlayId(undefined)).toBe(false);
   });

@@ -1,4 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import {
+  loadLastBacktest,
+  saveLastBacktest,
+  type CachedBacktestParams,
+} from "@/lib/backtest-setup";
 import type { AnyBacktestResult, BacktestStrategy } from "@/types/analytics";
 
 export interface BacktestParams {
@@ -12,17 +17,39 @@ interface BacktestState {
   data: AnyBacktestResult | null;
   isLoading: boolean;
   error: string | null;
+  params: CachedBacktestParams | null;
 }
 
 /**
  * Runs the selected strategy backtest via the analytics proxy.
+ * The last successful result is restored from sessionStorage so returning
+ * from a setup chart still shows the table.
  */
 export function useBacktest() {
   const [state, setState] = useState<BacktestState>({
     data: null,
     isLoading: false,
     error: null,
+    params: null,
   });
+
+  useEffect(() => {
+    const cached = loadLastBacktest();
+    if (!cached) {
+      return;
+    }
+    setState((prev) => {
+      if (prev.data) {
+        return prev;
+      }
+      return {
+        data: cached.result,
+        isLoading: false,
+        error: null,
+        params: cached.params,
+      };
+    });
+  }, []);
 
   const run = useCallback(async (params: BacktestParams) => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
@@ -41,18 +68,20 @@ export function useBacktest() {
             : typeof payload?.detail === "string"
               ? payload.detail
               : "Backtest failed";
-        setState({ data: null, isLoading: false, error: message });
+        setState({ data: null, isLoading: false, error: message, params });
         return null;
       }
 
       const result = payload as AnyBacktestResult;
-      setState({ data: result, isLoading: false, error: null });
+      saveLastBacktest(params, result);
+      setState({ data: result, isLoading: false, error: null, params });
       return result;
     } catch (error) {
       setState({
         data: null,
         isLoading: false,
         error: error instanceof Error ? error.message : "Backtest failed",
+        params,
       });
       return null;
     }

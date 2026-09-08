@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useTheme } from "next-themes";
 import { dispose, init, utils, type KLineData } from "klinecharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DISPLAY_CHART_TIMEZONE } from "@/lib/backtest-setup";
 import {
   chartIntervalToPeriod,
   getKLineChartStyles,
@@ -11,8 +12,6 @@ import {
 } from "@/lib/klinechart-utils";
 import type { DayBias } from "@/lib/draw-on-liquidity";
 import type { BacktestDay } from "@/types/analytics";
-
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function seriesToKLineData(series: BacktestDay[]): KLineData[] {
   return series
@@ -72,18 +71,26 @@ export function BacktestChart({ pair, series, height = 420 }: BacktestChartProps
       return;
     }
 
-    const chart = init(container, { styles: getKLineChartStyles(isDark) });
+    const chart = init(container, {
+      styles: getKLineChartStyles(isDark),
+      timezone: DISPLAY_CHART_TIMEZONE,
+    });
     if (!chart) {
       return;
     }
 
+    chart.setTimezone(DISPLAY_CHART_TIMEZONE);
     chart.setSymbol({ ticker: pair, pricePrecision: 5, volumePrecision: 0 });
     chart.setPeriod(chartIntervalToPeriod("1d"));
     chart.setFormatter({
       formatDate: ({ dateTimeFormat, timestamp, template, type }) => {
         const base = utils.formatDate(dateTimeFormat, timestamp, template);
         if (type === "tooltip" || type === "crosshair") {
-          return `${WEEKDAYS[new Date(timestamp).getUTCDay()]} ${base}`;
+          const weekday = new Intl.DateTimeFormat("en-US", {
+            timeZone: DISPLAY_CHART_TIMEZONE,
+            weekday: "short",
+          }).format(new Date(timestamp));
+          return `${weekday} ${base}`;
         }
         return base;
       },
