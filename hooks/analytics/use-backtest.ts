@@ -1,20 +1,21 @@
 import { useCallback, useState } from "react";
-import type { BacktestResult } from "@/types/analytics";
+import type { AnyBacktestResult, BacktestStrategy } from "@/types/analytics";
 
 export interface BacktestParams {
   pair: string;
+  strategy: BacktestStrategy;
   start?: string;
   end?: string;
 }
 
 interface BacktestState {
-  data: BacktestResult | null;
+  data: AnyBacktestResult | null;
   isLoading: boolean;
   error: string | null;
 }
 
 /**
- * Runs a draw-on-liquidity backtest via the analytics proxy.
+ * Runs the selected strategy backtest via the analytics proxy.
  */
 export function useBacktest() {
   const [state, setState] = useState<BacktestState>({
@@ -35,12 +36,16 @@ export function useBacktest() {
       const payload = await response.json();
       if (!response.ok) {
         const message =
-          typeof payload?.error === "string" ? payload.error : "Backtest failed";
+          typeof payload?.error === "string"
+            ? payload.error
+            : typeof payload?.detail === "string"
+              ? payload.detail
+              : "Backtest failed";
         setState({ data: null, isLoading: false, error: message });
         return null;
       }
 
-      const result = payload as BacktestResult;
+      const result = payload as AnyBacktestResult;
       setState({ data: result, isLoading: false, error: null });
       return result;
     } catch (error) {

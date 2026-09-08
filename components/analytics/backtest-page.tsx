@@ -20,7 +20,12 @@ import { BacktestChart } from "@/components/analytics/backtest-chart";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
 import { useBacktest } from "@/hooks/analytics/use-backtest";
 import { outcomeLabel } from "@/lib/draw-on-liquidity";
-import type { BacktestStats } from "@/types/analytics";
+import {
+  isTradeBacktest,
+  type BacktestStats,
+  type BacktestStrategy,
+  type TradeBacktestStats,
+} from "@/types/analytics";
 
 const fallbackPairs = [
   "EUR/USD",
@@ -68,6 +73,53 @@ function rollingPresets(): PresetOption[] {
   ];
 }
 
+const STRATEGIES: Array<{ value: BacktestStrategy; label: string; blurb: string }> = [
+  {
+    value: "draw_on_liquidity",
+    label: "Draw on liquidity",
+    blurb:
+      "Replay the previous-day high/low model on daily candles to see how bias and draw targets performed.",
+  },
+  {
+    value: "liquidity_sweep",
+    label: "Liquidity sweep",
+    blurb:
+      "A closed 1H low or high is swept on the next hour's 5m chart, then an aggressive CISD is entered at 2.5R.",
+  },
+  {
+    value: "pdhl_cisd",
+    label: "PDH/PDL CISD",
+    blurb:
+      "Price takes the previous day's low or high, a 1H CISD prints, then the next hour continues on a 5m CISD at 2R.",
+  },
+];
+
+const tradeStatRows: Array<{
+  key: keyof TradeBacktestStats;
+  label: string;
+  format: (value: number | null) => string;
+}> = [
+  { key: "win_rate", label: "Win rate", format: (value) => `${value ?? 0}%` },
+  { key: "expectancy_r", label: "Expectancy", format: (value) => `${value ?? 0}R` },
+  {
+    key: "profit_factor",
+    label: "Profit factor",
+    format: (value) => (value === null ? "—" : String(value)),
+  },
+  { key: "trades", label: "Trades", format: (value) => String(value ?? 0) },
+  { key: "wins", label: "Wins", format: (value) => String(value ?? 0) },
+  { key: "losses", label: "Losses", format: (value) => String(value ?? 0) },
+];
+
+function formatPrice(value: number): string {
+  return value.toFixed(5);
+}
+
+function formatStamp(value: string | null): string {
+  if (!value) return "—";
+  return value.replace("T", " ").replace(".000Z", "Z").slice(0, 16);
+}
+
 const statRows: Array<{ key: keyof BacktestStats; label: string; suffix: string }> = [
   { key: "draw_hit_rate", label: "Draw hit rate", suffix: "%" },
   { key: "sweep_rate", label: "Sweep rate", suffix: "%" },
@@ -87,13 +139,16 @@ export function BacktestPageContent() {
   }, [snapshot?.pairs]);
 
   const [pair, setPair] = useState<string>("EUR/USD");
+  const [strategy, setStrategy] = useState<BacktestStrategy>("draw_on_liquidity");
   const [start, setStart] = useState<string>(defaultStart);
   const [end, setEnd] = useState<string>(today);
   const presets = useMemo(() => rollingPresets(), []);
+  const selected = STRATEGIES.find((item) => item.value === strategy) ?? STRATEGIES[0];
 
   const onRun = () => {
     void run({
       pair,
+      strategy,
       start: start ? new Date(`${start}T00:00:00.000Z`).toISOString() : undefined,
       end: end ? new Date(`${end}T23:59:59.999Z`).toISOString() : undefined,
     });
@@ -102,18 +157,33 @@ export function BacktestPageContent() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 p-4">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">Draw on Liquidity Backtest</h1>
-        <p className="text-sm text-muted-foreground">
-          Replay the previous-day high/low model on historical daily candles to see
-          how the daily bias and draw targets performed.
-        </p>
+        <h1 className="text-2xl font-semibold">Backtest</h1>
+        <p className="text-sm text-muted-foreground">{selected.blurb}</p>
       </header>
 
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Parameters</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-4">
+        <CardContent className="grid gap-4 sm:grid-cols-5">
+          <div className="space-y-1.5 sm:col-span-1">
+            <label className="text-xs font-medium text-muted-foreground">Strategy</label>
+            <Select
+              value={strategy}
+              onValueChange={(value) => setStrategy(value as BacktestStrategy)}
+            >
+              <SelectTrigger className="h-11">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STRATEGIES.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1.5 sm:col-span-1">
             <label className="text-xs font-medium text-muted-foreground">Pair</label>
             <Select value={pair} onValueChange={setPair}>
@@ -165,20 +235,102 @@ export function BacktestPageContent() {
       {data && data.count === 0 ? (
         <Card>
           <CardContent className="space-y-2 py-6 text-sm text-muted-foreground">
-            <p>
-              No completed trading days in this range to backtest. Today&apos;s
-              daily candle is still forming, and weekends are skipped.
-            </p>
-            <p>
-              To see the model&apos;s prediction for the current day, open a pair
-              and use the <span className="font-medium">Today&apos;s bias</span>{" "}
-              button.
-            </p>
+            {isTradeBacktest(data) ? (
+              <p>
+                No {selected.label.toLowerCase()} setups in this range. The model
+                needs a closed 1H level, a sweep or previous-day extreme, and a
+                CISD on 5m before it will place a trade.
+              </p>
+            ) : (
+              <>
+                <p>
+                  No completed trading days in this range to backtest. Today&apos;s
+                  daily candle is still forming, and weekends are skipped.
+                </p>
+                <p>
+                  To see the model&apos;s prediction for the current day, open a pair
+                  and use the <span className="font-medium">Today&apos;s bias</span>{" "}
+                  button.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : null}
 
-      {data && data.count > 0 ? (
+      {data && isTradeBacktest(data) && data.count > 0 ? (
+        <>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Conclusions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {data.conclusions.map((line, index) => (
+                <p key={index} className="text-sm text-muted-foreground">
+                  {line}
+                </p>
+              ))}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            {tradeStatRows.map((row) => (
+              <Card key={row.key}>
+                <CardContent className="py-4">
+                  <p className="text-xs text-muted-foreground">{row.label}</p>
+                  <p className="text-xl font-semibold">
+                    {row.format(data.stats[row.key] as number | null)}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Trades ({data.count})</CardTitle>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b text-left text-xs text-muted-foreground">
+                    <th className="py-2 pr-3">Time</th>
+                    <th className="py-2 pr-3">Side</th>
+                    <th className="py-2 pr-3">Entry</th>
+                    <th className="py-2 pr-3">Stop</th>
+                    <th className="py-2 pr-3">Target</th>
+                    <th className="py-2 pr-3">Result</th>
+                    <th className="py-2 pr-3">R</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...data.trades].reverse().map((trade) => (
+                    <tr key={`${trade.time}-${trade.side}`} className="border-b/50 border-b">
+                      <td className="py-1.5 pr-3 font-mono text-xs">
+                        {formatStamp(trade.time)}
+                      </td>
+                      <td className="py-1.5 pr-3 capitalize">{trade.side}</td>
+                      <td className="py-1.5 pr-3 font-mono text-xs">
+                        {formatPrice(trade.entry)}
+                      </td>
+                      <td className="py-1.5 pr-3 font-mono text-xs">
+                        {formatPrice(trade.sl)}
+                      </td>
+                      <td className="py-1.5 pr-3 font-mono text-xs">
+                        {formatPrice(trade.tp)}
+                      </td>
+                      <td className="py-1.5 pr-3 capitalize">{trade.result}</td>
+                      <td className="py-1.5 pr-3">{trade.rr === null ? "—" : trade.rr}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+
+      {data && !isTradeBacktest(data) && data.count > 0 ? (
         <>
           <BacktestChart pair={data.pair} series={data.series} height={420} />
 
