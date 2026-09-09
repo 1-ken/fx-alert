@@ -10,11 +10,9 @@ const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL?.trim() || "http://localhost:8100";
 
 const DAY_MS = 86_400_000;
-const CHUNK_CONCURRENCY = 4;
-const CHUNK_CACHE_TTL_MS = 5 * 60 * 1000;
-
-type CachedChunk = { expires: number; candles: OhlcCandle[] };
-const chunkCache = new Map<string, CachedChunk>();
+const FIVE_MIN_MS = 5 * 60 * 1000;
+const OBSERVER_LIMIT = 5000;
+const RATE_LIMIT_BACKOFF_MS = 2000;
 
 class UpstreamError extends Error {
   status: number;
@@ -31,9 +29,8 @@ const STRATEGIES = new Set<BacktestStrategy>([
 ]);
 
 /**
- * Backtest proxy: pulls OHLC from the C++ observer (server-side, with the
- * user's token), then forwards candles to the stateless FastAPI analytics
- * service for the selected strategy.
+ * Backtest proxy: asks analytics which closed ranges are already stored, pulls
+ * only those gaps from the C++ observer, then forwards the stored candles.
  */
 export async function POST(request: NextRequest) {
   const auth = await validateApiAuth();
@@ -96,7 +93,7 @@ async function drawPayload(
   body: { start?: string; end?: string; limit?: number },
 ) {
   const candles = normalizeClosedDailyCandles(
-    await fetchInterval(pair, "1d", shiftIso(body.start, -10), body.end, body.limit ?? 400),
+    await ensureHistory(pair, "1d", shiftIso(body.start, -10), body.end),
   );
   if (candles.length < 2) {
     throw new Error("Not enough daily candles for the selected range.");
@@ -123,10 +120,8 @@ async function tradePayload(
   body: { start?: string; end?: string; side?: string },
 ) {
   const fetchStart = shiftIso(body.start, -2);
-  const [candles1h, candles5m] = await Promise.all([
-    fetchChunked(pair, "1h", fetchStart, body.end, 20).then(dropForming),
-    fetchChunked(pair, "5m", fetchStart, body.end, 14).then(dropForming),
-  ]);
+  const candles1h = await ensureHistory(pair, "1h", fetchStart, body.end);
+  const candles5m = await ensureHistory(pair, "5m", fetchStart, body.end);
 
   if (candles1h.length < 2 || candles5m.length < 3) {
     throw new Error("Not enough 1h and 5m candles for the selected range.");
@@ -144,7 +139,7 @@ async function tradePayload(
 
   if (strategy === "pdhl_cisd") {
     const daily = normalizeClosedDailyCandles(
-      await fetchInterval(pair, "1d", shiftIso(body.start, -10), body.end, 400),
+      await ensureHistory(pair, "1d", shiftIso(body.start, -10), body.end),
     );
     if (daily.length < 2) {
       throw new Error("Not enough daily candles to compute previous-day high and low.");
@@ -174,24 +169,70 @@ function shiftIso(iso: string | undefined, days: number): string | undefined {
   return new Date(new Date(iso).getTime() + days * DAY_MS).toISOString();
 }
 
-async function fetchChunked(
+type HistoryWindow = { start: string; end: string };
+
+async function ensureHistory(
   pair: string,
   interval: string,
   start: string | undefined,
   end: string | undefined,
-  chunkDays: number,
 ): Promise<OhlcCandle[]> {
   if (!start || !end) {
-    return fetchInterval(pair, interval, start, end, 5000);
+    return fetchObserver(pair, interval, start, end);
   }
 
+  const closed = closedEnd(interval, end);
+  if (new Date(start).getTime() >= new Date(closed).getTime()) {
+    return [];
+  }
+
+  const gaps = await historyGaps(pair, interval, start, closed);
+  for (const gap of gaps) {
+    for (const chunk of splitWindow(gap.start, gap.end, chunkDaysFor(interval))) {
+      const candles = await fetchObserver(pair, interval, chunk.start, chunk.end);
+      await storeWindow(pair, interval, chunk.start, chunk.end, candles);
+    }
+  }
+  return readHistory(pair, interval, start, closed);
+}
+
+function closedEnd(interval: string, end: string, now = Date.now()): string {
+  const requested = new Date(end).getTime();
+  if (!Number.isFinite(requested)) {
+    return end;
+  }
+  return new Date(Math.min(requested, lastCompletedOpen(interval, now))).toISOString();
+}
+
+function lastCompletedOpen(interval: string, nowMs: number): number {
+  const now = new Date(nowMs);
+  if (interval === "1d") {
+    return Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  }
+  if (interval === "1h") {
+    return Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      now.getUTCHours(),
+    );
+  }
+  return Math.floor(nowMs / FIVE_MIN_MS) * FIVE_MIN_MS;
+}
+
+function chunkDaysFor(interval: string): number {
+  if (interval === "5m") return 14;
+  if (interval === "1h") return 20;
+  return 365;
+}
+
+function splitWindow(start: string, end: string, chunkDays: number): HistoryWindow[] {
   const startMs = new Date(start).getTime();
   const endMs = new Date(end).getTime();
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-    return fetchInterval(pair, interval, start, end, 5000);
+    return [];
   }
-
-  const ranges: Array<{ start: string; end: string }> = [];
+  const ranges: HistoryWindow[] = [];
   for (let from = startMs; from < endMs; from += chunkDays * DAY_MS) {
     const to = Math.min(from + chunkDays * DAY_MS, endMs);
     ranges.push({
@@ -199,51 +240,104 @@ async function fetchChunked(
       end: new Date(to).toISOString(),
     });
   }
-
-  const merged: OhlcCandle[] = [];
-  for (let index = 0; index < ranges.length; index += CHUNK_CONCURRENCY) {
-    const batch = ranges.slice(index, index + CHUNK_CONCURRENCY);
-    const chunks = await Promise.all(
-      batch.map((range) =>
-        fetchInterval(pair, interval, range.start, range.end, 5000),
-      ),
-    );
-    for (const chunk of chunks) {
-      merged.push(...chunk);
-    }
-  }
-  return dedupe(merged);
+  return ranges;
 }
 
-async function fetchInterval(
+async function historyGaps(
+  pair: string,
+  interval: string,
+  start: string,
+  end: string,
+): Promise<HistoryWindow[]> {
+  const payload = (await analyticsJson("/history/gaps", {
+    method: "POST",
+    body: JSON.stringify({ pair, interval, start, end }),
+  })) as { gaps?: HistoryWindow[] };
+  return payload.gaps ?? [];
+}
+
+async function storeWindow(
+  pair: string,
+  interval: string,
+  start: string,
+  end: string,
+  candles: OhlcCandle[],
+): Promise<void> {
+  await analyticsJson("/history/candles", {
+    method: "POST",
+    body: JSON.stringify({
+      pair,
+      interval,
+      start,
+      end,
+      candles: candles.map(toCandle),
+    }),
+  });
+}
+
+async function readHistory(
+  pair: string,
+  interval: string,
+  start: string,
+  end: string,
+): Promise<OhlcCandle[]> {
+  const params = new URLSearchParams({ pair, interval, start, end });
+  const payload = (await analyticsJson(`/history/candles?${params.toString()}`)) as {
+    candles?: Array<Pick<OhlcCandle, "timestamp" | "open" | "high" | "low" | "close">>;
+  };
+  return (payload.candles ?? []).map((candle) => ({
+    timestamp: candle.timestamp,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    volume: 0,
+    is_forming: false,
+  }));
+}
+
+async function analyticsJson(path: string, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(`${ANALYTICS_SERVICE_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new UpstreamError(
+      readableError(text, "Analytics history request failed"),
+      response.status,
+    );
+  }
+  return response.json();
+}
+
+async function fetchObserver(
   pair: string,
   interval: string,
   start: string | undefined,
   end: string | undefined,
-  limit: number,
 ): Promise<OhlcCandle[]> {
-  const cacheKey =
-    start && end ? `${pair}|${interval}|${start}|${end}|${limit}` : null;
-  if (cacheKey) {
-    const cached = chunkCache.get(cacheKey);
-    if (cached && cached.expires > Date.now()) {
-      return cached.candles;
-    }
-    if (cached) {
-      chunkCache.delete(cacheKey);
-    }
+  const load = () => {
+    const params = new URLSearchParams();
+    params.set("pair", pair);
+    params.set("interval", interval);
+    params.set("limit", String(OBSERVER_LIMIT));
+    if (start) params.set("start", start);
+    if (end) params.set("end", end);
+    return proxyObserverRequest(
+      `${API_ENDPOINTS.STREAMING.HISTORICAL_OHLC}?${params.toString()}`,
+    );
+  };
+
+  let response = await load();
+  if (response.status === 429) {
+    await sleep(RATE_LIMIT_BACKOFF_MS);
+    response = await load();
   }
-
-  const params = new URLSearchParams();
-  params.set("pair", pair);
-  params.set("interval", interval);
-  params.set("limit", String(limit));
-  if (start) params.set("start", start);
-  if (end) params.set("end", end);
-
-  const response = await proxyObserverRequest(
-    `${API_ENDPOINTS.STREAMING.HISTORICAL_OHLC}?${params.toString()}`,
-  );
   if (!response.ok) {
     const text = await response.text();
     throw new UpstreamError(
@@ -253,24 +347,15 @@ async function fetchInterval(
   }
 
   const ohlc = (await response.json()) as OhlcResponse;
-  const candles = ohlc.candles ?? [];
-  if (cacheKey) {
-    chunkCache.set(cacheKey, {
-      expires: Date.now() + CHUNK_CACHE_TTL_MS,
-      candles,
-    });
+  const candles = dropForming(ohlc.candles ?? []);
+  if (candles.length >= OBSERVER_LIMIT) {
+    throw new UpstreamError(`History response for ${interval} was truncated`, 502);
   }
   return candles;
 }
 
-function dedupe(candles: OhlcCandle[]): OhlcCandle[] {
-  const byTime = new Map<string, OhlcCandle>();
-  for (const candle of candles) {
-    byTime.set(candle.timestamp, candle);
-  }
-  return Array.from(byTime.values()).sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp),
-  );
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function readableError(text: string, fallback: string): string {
