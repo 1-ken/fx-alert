@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { subDays } from "date-fns";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { subDays, subMonths } from "date-fns";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -28,8 +28,14 @@ import {
 import { formatKenyaCompactDateTime } from "@/lib/datetime";
 import { outcomeLabel } from "@/lib/draw-on-liquidity";
 import {
+  backtestExportFilename,
+  buildBacktestExportPayload,
+  downloadJsonFile,
+} from "@/lib/backtest-export";
+import {
   isTradeBacktest,
   type BacktestDay,
+  type BacktestSide,
   type BacktestStats,
   type BacktestStrategy,
   type BacktestTrade,
@@ -79,6 +85,9 @@ function rollingPresets(): PresetOption[] {
       getValue: () => ({ from: subDays(base, 14), to: base }),
     },
     { label: "Last month", getValue: () => ({ from: subDays(base, 30), to: base }) },
+    { label: "Last 3 months", getValue: () => ({ from: subMonths(base, 3), to: base }) },
+    { label: "Last 6 months", getValue: () => ({ from: subMonths(base, 6), to: base }) },
+    { label: "Last year", getValue: () => ({ from: subMonths(base, 12), to: base }) },
   ];
 }
 
@@ -93,13 +102,13 @@ const STRATEGIES: Array<{ value: BacktestStrategy; label: string; blurb: string 
     value: "liquidity_sweep",
     label: "Liquidity sweep",
     blurb:
-      "A closed 1H low or high is swept on the next hour's 5m chart, then an aggressive CISD is entered at 2.5R.",
+      "1H sweep then a 5m CISD at 2.5R, only in London open, New York, or early Asia. No Friday. Blow-off CISDs use a 50% limit, and the stop moves to entry at 1.2R.",
   },
   {
     value: "pdhl_cisd",
     label: "PDH/PDL CISD",
     blurb:
-      "Price takes the previous day's low or high, a 1H CISD prints, then the next hour continues on a 5m CISD at 2R.",
+      "A 1H bar must trade through the previous day's 1H high or low before a 1H CISD, then the next hour continues on a 5m CISD at 2R.",
   },
 ];
 
@@ -149,6 +158,7 @@ export function BacktestPageContent() {
 
   const [pair, setPair] = useState<string>("EUR/USD");
   const [strategy, setStrategy] = useState<BacktestStrategy>("draw_on_liquidity");
+  const [side, setSide] = useState<BacktestSide>("all");
   const [start, setStart] = useState<string>(defaultStart);
   const [end, setEnd] = useState<string>(today);
   const presets = useMemo(() => rollingPresets(), []);
@@ -158,8 +168,12 @@ export function BacktestPageContent() {
     if (!cachedParams) {
       return;
     }
-    setPair(normalizePair(cachedParams.pair));
+    const restored = normalizePair(cachedParams.pair);
+    setPair(restored || "EUR/USD");
     setStrategy(cachedParams.strategy);
+    if (cachedParams.side) {
+      setSide(cachedParams.side);
+    }
     if (cachedParams.start) {
       setStart(cachedParams.start.slice(0, 10));
     }
@@ -196,9 +210,20 @@ export function BacktestPageContent() {
     void run({
       pair,
       strategy,
+      side,
       start: start ? new Date(`${start}T00:00:00.000Z`).toISOString() : undefined,
       end: end ? new Date(`${end}T23:59:59.999Z`).toISOString() : undefined,
     });
+  };
+
+  const exportResult = () => {
+    if (!data || data.count === 0) {
+      return;
+    }
+    downloadJsonFile(
+      backtestExportFilename(data.strategy ?? strategy, data.pair, data.start, data.end),
+      buildBacktestExportPayload(data, new Date().toISOString()),
+    );
   };
 
   return (
@@ -212,7 +237,7 @@ export function BacktestPageContent() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Parameters</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-5">
+        <CardContent className="grid gap-4 sm:grid-cols-6">
           <div className="space-y-1.5 sm:col-span-1">
             <label className="text-xs font-medium text-muted-foreground">Strategy</label>
             <Select
@@ -232,15 +257,32 @@ export function BacktestPageContent() {
             </Select>
           </div>
           <div className="space-y-1.5 sm:col-span-1">
+            <label className="text-xs font-medium text-muted-foreground">Side</label>
+            <Select
+              value={side}
+              onValueChange={(value) => setSide(value as BacktestSide)}
+              disabled={strategy === "draw_on_liquidity"}
+            >
+              <SelectTrigger className="h-11">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="bullish">Bullish</SelectItem>
+                <SelectItem value="bearish">Bearish</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 sm:col-span-1">
             <label className="text-xs font-medium text-muted-foreground">Pair</label>
             <Select value={pair} onValueChange={setPair}>
               <SelectTrigger className="h-11">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {pairs.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p}
+                {pairs.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {item}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -310,6 +352,11 @@ export function BacktestPageContent() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Conclusions</CardTitle>
+              <CardAction>
+                <Button type="button" size="sm" variant="outline" className="h-8" onClick={exportResult}>
+                  Export trades
+                </Button>
+              </CardAction>
             </CardHeader>
             <CardContent className="space-y-2">
               {data.conclusions.map((line, index) => (
@@ -400,6 +447,11 @@ export function BacktestPageContent() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Conclusions</CardTitle>
+              <CardAction>
+                <Button type="button" size="sm" variant="outline" className="h-8" onClick={exportResult}>
+                  Export trades
+                </Button>
+              </CardAction>
             </CardHeader>
             <CardContent className="space-y-2">
               {data.conclusions.map((line, index) => (

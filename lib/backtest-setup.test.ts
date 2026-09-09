@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  LAST_BACKTEST_STORAGE_KEY,
   backtestSetupUrl,
   candleWindowForSetup,
   defaultIntervalForStrategy,
   findSetupInResult,
+  saveLastBacktest,
   setupFocusIso,
   type BacktestSetup,
 } from "@/lib/backtest-setup";
@@ -153,5 +155,107 @@ describe("findSetupInResult", () => {
       time: trade.time,
     });
     expect(setupFocusIso(found as BacktestSetup)).toBe(trade.time);
+  });
+});
+
+describe("saveLastBacktest", () => {
+  const store = new Map<string, string>();
+
+  afterEach(() => {
+    store.clear();
+    vi.unstubAllGlobals();
+  });
+
+  function stubStorage(setItem: (key: string, value: string) => void) {
+    const sessionStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem,
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+    };
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("sessionStorage", sessionStorage);
+  }
+
+  const sweepResult: TradeBacktestResult = {
+    strategy: "liquidity_sweep",
+    pair: "XAU/USD",
+    count: 1,
+    trades: [
+      {
+        ...trade,
+        context: {
+          hour_utc: 11,
+          weekday: 1,
+          bars_into_hour: 2,
+          bars_held: 1,
+          duration_minutes: 5,
+          sweep_depth: 1,
+          cisd: { timestamp: trade.time, open: 1.1, high: 1.11, low: 1.09, close: 1.1 },
+          cisd_body: 0.01,
+          aggressive_ratio: 2,
+          mae_r: 0.2,
+          mfe_r: 2.6,
+          risk: 0.002,
+          planned_r: 2.5,
+          prev_day: { date: "2026-03-11", open: 1.09, high: 1.1, low: 1.08, close: 1.095 },
+          candles_1h: [
+            { timestamp: "2026-03-12T08:00:00.000Z", open: 1.1, high: 1.11, low: 1.09, close: 1.1 },
+          ],
+          candles_5m: [
+            { timestamp: "2026-03-12T09:00:00.000Z", open: 1.1, high: 1.11, low: 1.09, close: 1.1 },
+          ],
+          candles_1h_prev_day: [
+            { timestamp: "2026-03-11T12:00:00.000Z", open: 1.09, high: 1.1, low: 1.08, close: 1.095 },
+          ],
+          candles_5m_prev_day: [
+            { timestamp: "2026-03-11T12:00:00.000Z", open: 1.09, high: 1.1, low: 1.08, close: 1.095 },
+          ],
+        },
+      },
+    ],
+    stats: {
+      trades: 1,
+      wins: 1,
+      losses: 0,
+      open: 0,
+      win_rate: 100,
+      avg_r: 2.5,
+      expectancy_r: 2.5,
+      profit_factor: 2.5,
+      bullish: 1,
+      bearish: 0,
+    },
+    conclusions: [],
+  };
+
+  it("omits heavy candle arrays but keeps trade fields", () => {
+    stubStorage((key, value) => {
+      store.set(key, value);
+    });
+    saveLastBacktest(
+      { pair: "XAU/USD", strategy: "liquidity_sweep" },
+      sweepResult,
+    );
+    const saved = JSON.parse(store.get(LAST_BACKTEST_STORAGE_KEY) ?? "{}") as {
+      result: TradeBacktestResult;
+    };
+    const context = saved.result.trades[0].context;
+    expect(context?.candles_5m).toBeUndefined();
+    expect(context?.candles_5m_prev_day).toBeUndefined();
+    expect(context?.candles_1h_prev_day).toBeUndefined();
+    expect(context?.mae_r).toBe(0.2);
+    expect(saved.result.trades[0].entry).toBe(trade.entry);
+    expect(sweepResult.trades[0].context?.candles_5m).toHaveLength(1);
+  });
+
+  it("does not throw when sessionStorage quota is exceeded", () => {
+    stubStorage(() => {
+      throw new Error("Setting the value exceeded the quota.");
+    });
+    expect(() =>
+      saveLastBacktest({ pair: "XAU/USD", strategy: "liquidity_sweep" }, sweepResult),
+    ).not.toThrow();
   });
 });

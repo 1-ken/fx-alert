@@ -47,6 +47,68 @@ export interface BacktestResult {
   end?: string | null;
 }
 
+export interface BacktestOhlcBar {
+  timestamp: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface SweepPrevDay {
+  date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number | null;
+}
+
+export type BacktestSide = "all" | "bullish" | "bearish";
+
+export interface PdhlTakeBar extends BacktestOhlcBar {
+  took: "pdh" | "pdl";
+}
+
+export interface SweepTradeContext {
+  hour_utc: number;
+  weekday: number;
+  bars_into_hour: number;
+  bars_held: number;
+  duration_minutes: number;
+  sweep_depth: number;
+  cisd: BacktestOhlcBar;
+  cisd_body: number;
+  aggressive_ratio: number | null;
+  mae_r: number;
+  mfe_r: number;
+  risk: number;
+  planned_r: number;
+  prev_day: SweepPrevDay;
+  cisd_1h?: BacktestOhlcBar;
+  take?: PdhlTakeBar;
+  candles_1h: BacktestOhlcBar[];
+  candles_5m?: BacktestOhlcBar[];
+  candles_1h_prev_day?: BacktestOhlcBar[];
+  candles_5m_prev_day?: BacktestOhlcBar[];
+}
+
+export interface SweepStrategyRules {
+  reward_r: number;
+  entry: string;
+  stop: string;
+  sweep_window: string;
+  aggressive_body_mult: number;
+  aggressive_lookback: number;
+  side_filter?: BacktestSide;
+}
+
+export interface PdhlStrategyRules {
+  strict_trade_through: boolean;
+  side_filter: BacktestSide;
+  sequence: string;
+  reward_r: number;
+}
+
 export interface BacktestTrade {
   time: string;
   side: "bullish" | "bearish";
@@ -57,6 +119,8 @@ export interface BacktestTrade {
   result: "win" | "loss" | "open" | "gap";
   rr: number | null;
   sweep_level: number;
+  sweep_time?: string | null;
+  context?: SweepTradeContext;
 }
 
 export interface TradeBacktestStats {
@@ -82,6 +146,8 @@ export interface TradeBacktestResult {
   conclusions: string[];
   start?: string | null;
   end?: string | null;
+  side_filter?: BacktestSide | null;
+  rules?: SweepStrategyRules | PdhlStrategyRules;
 }
 
 export type AnyBacktestResult = BacktestResult | TradeBacktestResult;

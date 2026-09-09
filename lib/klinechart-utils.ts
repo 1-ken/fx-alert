@@ -13,6 +13,7 @@ import { mergeFormingCandle, toChartTime } from "@/lib/chart-utils";
 import type { OhlcCandle } from "@/types/historical";
 import type { Alert } from "@/types/alerts";
 import type { DayBias, DrawTarget } from "@/lib/draw-on-liquidity";
+import { TRADE_POSITION_OVERLAY_ID } from "@/lib/position-math";
 
 export const LIVE_OVERLAY_ID = "fx-live-price";
 export const ALERT_OVERLAY_PREFIX = "fx-alert-";
@@ -23,6 +24,9 @@ export const SETUP_ENTRY_OVERLAY_ID = "fx-setup-entry";
 export const SETUP_SL_OVERLAY_ID = "fx-setup-sl";
 export const SETUP_TP_OVERLAY_ID = "fx-setup-tp";
 export const SETUP_SWEEP_OVERLAY_ID = "fx-setup-sweep";
+export const SETUP_ENTRY_MARK_ID = "fx-setup-entry-mark";
+export const SETUP_EXIT_MARK_ID = "fx-setup-exit-mark";
+export const SETUP_SWEEP_1H_MARK_ID = "fx-setup-sweep-1h-mark";
 
 const DAY_MS = 86_400_000;
 const PDH_COLOR = "#22d3ee";
@@ -97,6 +101,10 @@ export function isSystemOverlayId(id?: string): boolean {
     id === SETUP_SL_OVERLAY_ID ||
     id === SETUP_TP_OVERLAY_ID ||
     id === SETUP_SWEEP_OVERLAY_ID ||
+    id === SETUP_ENTRY_MARK_ID ||
+    id === SETUP_EXIT_MARK_ID ||
+    id === SETUP_SWEEP_1H_MARK_ID ||
+    id === TRADE_POSITION_OVERLAY_ID ||
     id.startsWith(ALERT_OVERLAY_PREFIX) ||
     id.startsWith(DOL_SEGMENT_PREFIX)
   );
@@ -401,13 +409,6 @@ export function mergedKLineData(
   return ohlcListToKLineData(mergeFormingCandle(closed, forming));
 }
 
-const SETUP_TRADE_OVERLAY_IDS = [
-  SETUP_ENTRY_OVERLAY_ID,
-  SETUP_SL_OVERLAY_ID,
-  SETUP_TP_OVERLAY_ID,
-  SETUP_SWEEP_OVERLAY_ID,
-] as const;
-
 function upsertPriceLine(
   chart: Chart,
   id: string,
@@ -434,17 +435,136 @@ function upsertPriceLine(
 export function syncTradeSetupLevels(
   chart: Chart,
   trade: { entry: number; sl: number; tp: number; sweep_level: number } | null,
+  showSweepLevel = true,
 ): void {
-  if (!trade) {
-    for (const id of SETUP_TRADE_OVERLAY_IDS) {
-      chart.removeOverlay({ id });
-    }
+  for (const id of [SETUP_ENTRY_OVERLAY_ID, SETUP_SL_OVERLAY_ID, SETUP_TP_OVERLAY_ID]) {
+    chart.removeOverlay({ id });
+  }
+  if (!trade || !showSweepLevel) {
+    chart.removeOverlay({ id: SETUP_SWEEP_OVERLAY_ID });
     return;
   }
-  upsertPriceLine(chart, SETUP_ENTRY_OVERLAY_ID, trade.entry, "#3b82f6", 2);
-  upsertPriceLine(chart, SETUP_SL_OVERLAY_ID, trade.sl, "#dc2626", 1);
-  upsertPriceLine(chart, SETUP_TP_OVERLAY_ID, trade.tp, "#16a34a", 1);
   upsertPriceLine(chart, SETUP_SWEEP_OVERLAY_ID, trade.sweep_level, "#f59e0b", 1);
+}
+
+function upsertAnnotation(
+  chart: Chart,
+  id: string,
+  timestamp: number,
+  value: number,
+  text: string,
+  color: string,
+): void {
+  const points = [{ timestamp, value }];
+  if (chart.getOverlays({ id }).length > 0) {
+    chart.overrideOverlay({ id, points, extendData: text });
+    return;
+  }
+  chart.createOverlay({
+    name: "simpleAnnotation",
+    id,
+    lock: true,
+    points,
+    extendData: text,
+    styles: {
+      text: { color, size: 11 },
+      line: { color, style: "dashed" },
+    },
+  });
+}
+
+export function syncEntryExitMarkers(
+  chart: Chart,
+  bars: KLineData[],
+  trade: {
+    time: string;
+    exit_time: string | null;
+    result: "win" | "loss" | "open" | "gap";
+  } | null,
+  nearestIndex: (timestampMs: number) => number,
+  options?: {
+    showEntry?: boolean;
+    showExit?: boolean;
+    entryLabel?: string;
+  },
+): void {
+  const showEntry = options?.showEntry !== false;
+  const showExit = options?.showExit !== false;
+  const entryLabel = options?.entryLabel ?? "Entry";
+
+  if (!trade || bars.length === 0) {
+    chart.removeOverlay({ id: SETUP_ENTRY_MARK_ID });
+    chart.removeOverlay({ id: SETUP_EXIT_MARK_ID });
+    return;
+  }
+
+  const entryIndex = nearestIndex(new Date(trade.time).getTime());
+  const entryBar = entryIndex >= 0 ? bars[entryIndex] : null;
+  if (showEntry && entryBar) {
+    upsertAnnotation(
+      chart,
+      SETUP_ENTRY_MARK_ID,
+      entryBar.timestamp,
+      entryBar.high,
+      entryLabel,
+      "#3b82f6",
+    );
+  } else {
+    chart.removeOverlay({ id: SETUP_ENTRY_MARK_ID });
+  }
+
+  if (!showExit || !trade.exit_time || trade.result === "open") {
+    chart.removeOverlay({ id: SETUP_EXIT_MARK_ID });
+    return;
+  }
+  const exitIndex = nearestIndex(new Date(trade.exit_time).getTime());
+  const exitBar = exitIndex >= 0 ? bars[exitIndex] : null;
+  if (!exitBar) {
+    chart.removeOverlay({ id: SETUP_EXIT_MARK_ID });
+    return;
+  }
+  const isWin = trade.result === "win";
+  const isGap = trade.result === "gap";
+  upsertAnnotation(
+    chart,
+    SETUP_EXIT_MARK_ID,
+    exitBar.timestamp,
+    isWin ? exitBar.high : exitBar.low,
+    isWin ? "Win" : isGap ? "Gap" : "Stop",
+    isWin ? "#089981" : isGap ? "#a1a1aa" : "#F23645",
+  );
+}
+
+export function syncSweepCandleTags(
+  chart: Chart,
+  bars: KLineData[],
+  trade: {
+    side: "bullish" | "bearish";
+    sweep_level: number;
+    sweep_time?: string | null;
+  } | null,
+  nearestIndex: (timestampMs: number) => number,
+  show: boolean,
+): void {
+  if (!show || !trade?.sweep_time || bars.length === 0) {
+    chart.removeOverlay({ id: SETUP_SWEEP_1H_MARK_ID });
+    return;
+  }
+  const index = nearestIndex(new Date(trade.sweep_time).getTime());
+  const bar = index >= 0 ? bars[index] : null;
+  if (!bar) {
+    chart.removeOverlay({ id: SETUP_SWEEP_1H_MARK_ID });
+    return;
+  }
+  const isLow = trade.side === "bullish";
+  upsertAnnotation(
+    chart,
+    SETUP_SWEEP_1H_MARK_ID,
+    bar.timestamp,
+    trade.sweep_level,
+    isLow ? "1H low" : "1H high",
+    "#f59e0b",
+  );
 }
 
 /**

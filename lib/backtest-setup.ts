@@ -15,9 +15,17 @@ import { isTradeBacktest } from "@/types/analytics";
 
 export type CachedBacktestParams = {
   pair: string;
+  pairs?: string[];
   strategy: BacktestStrategy;
+  side?: "all" | "bullish" | "bearish";
   start?: string;
   end?: string;
+};
+
+export type BacktestPairRun = {
+  pair: string;
+  result: AnyBacktestResult | null;
+  error: string | null;
 };
 
 export const BACKTEST_SETUP_STORAGE_KEY = "fx-alert:backtest-setup";
@@ -51,7 +59,8 @@ export type BacktestSetup = DrawOnLiquiditySetup | TradeSetup;
 
 export type LastBacktestCache = {
   params: CachedBacktestParams;
-  result: AnyBacktestResult;
+  result?: AnyBacktestResult;
+  runs?: BacktestPairRun[];
 };
 
 export type BacktestSetupQuery = {
@@ -113,15 +122,101 @@ export function loadBacktestSetup(): BacktestSetup | null {
   return parseJson<BacktestSetup>(sessionStorage.getItem(BACKTEST_SETUP_STORAGE_KEY));
 }
 
+function withoutSweepCandles(result: AnyBacktestResult): AnyBacktestResult {
+  if (!isTradeBacktest(result)) {
+    return result;
+  }
+  return {
+    ...result,
+    trades: result.trades.map((trade) => {
+      if (!trade.context) {
+        return trade;
+      }
+      const {
+        candles_5m: _candles5m,
+        candles_5m_prev_day: _candles5mPrev,
+        candles_1h_prev_day: _candles1hPrev,
+        ...context
+      } = trade.context;
+      return { ...trade, context };
+    }),
+  };
+}
+
+function withoutTradeContext(result: AnyBacktestResult): AnyBacktestResult {
+  if (!isTradeBacktest(result)) {
+    return result;
+  }
+  return {
+    ...result,
+    trades: result.trades.map(({ context: _context, ...trade }) => trade),
+  };
+}
+
+function writeLastBacktest(payload: LastBacktestCache): void {
+  sessionStorage.setItem(LAST_BACKTEST_STORAGE_KEY, JSON.stringify(payload));
+}
+
+function slimRun(run: BacktestPairRun, dropContext: boolean): BacktestPairRun {
+  if (!run.result) {
+    return run;
+  }
+  const result = dropContext
+    ? withoutTradeContext(run.result)
+    : withoutSweepCandles(run.result);
+  return { ...run, result };
+}
+
+function writeLastBacktestOrDrop(payload: LastBacktestCache): void {
+  try {
+    writeLastBacktest(payload);
+  } catch {
+    try {
+      sessionStorage.removeItem(LAST_BACKTEST_STORAGE_KEY);
+    } catch {
+      // Ignore storage failures so a successful backtest still renders.
+    }
+  }
+}
+
 export function saveLastBacktest(
   params: CachedBacktestParams,
   result: AnyBacktestResult,
 ): void {
+  saveLastBacktestRuns(params, [{ pair: result.pair, result, error: null }]);
+}
+
+export function saveLastBacktestRuns(
+  params: CachedBacktestParams,
+  runs: BacktestPairRun[],
+): void {
   if (!canUseSessionStorage()) {
     return;
   }
-  const payload: LastBacktestCache = { params, result };
-  sessionStorage.setItem(LAST_BACKTEST_STORAGE_KEY, JSON.stringify(payload));
+  const slimRuns = runs.map((run) => slimRun(run, false));
+  const active =
+    slimRuns.find((run) => run.pair === params.pair && run.result)?.result ??
+    slimRuns.find((run) => run.result)?.result;
+  const slim: LastBacktestCache = {
+    params,
+    result: active,
+    runs: slimRuns,
+  };
+  try {
+    writeLastBacktest(slim);
+    return;
+  } catch {
+    // sessionStorage quota — retry without per-trade context.
+  }
+  try {
+    const lighter = slimRuns.map((run) => slimRun(run, true));
+    const lighterActive =
+      lighter.find((run) => run.pair === params.pair && run.result)?.result ??
+      lighter.find((run) => run.result)?.result;
+    writeLastBacktest({ params, result: lighterActive, runs: lighter });
+  } catch {
+    writeLastBacktestOrDrop({ params });
+  }
 }
 
 export function loadLastBacktest(): LastBacktestCache | null {
@@ -216,7 +311,18 @@ export function resolveBacktestSetup(query: BacktestSetupQuery): BacktestSetup |
     return stored;
   }
   const last = loadLastBacktest();
-  if (last) {
+  if (last?.runs) {
+    for (const run of last.runs) {
+      if (!run.result) {
+        continue;
+      }
+      const fromRun = findSetupInResult(run.result, query);
+      if (fromRun) {
+        return fromRun;
+      }
+    }
+  }
+  if (last?.result) {
     const fromResult = findSetupInResult(last.result, query);
     if (fromResult) {
       return fromResult;

@@ -10,6 +10,11 @@ const ANALYTICS_SERVICE_URL =
   process.env.ANALYTICS_SERVICE_URL?.trim() || "http://localhost:8100";
 
 const DAY_MS = 86_400_000;
+const CHUNK_CONCURRENCY = 4;
+const CHUNK_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type CachedChunk = { expires: number; candles: OhlcCandle[] };
+const chunkCache = new Map<string, CachedChunk>();
 
 class UpstreamError extends Error {
   status: number;
@@ -37,6 +42,7 @@ export async function POST(request: NextRequest) {
   let body: {
     pair?: string;
     strategy?: string;
+    side?: string;
     start?: string;
     end?: string;
     limit?: number;
@@ -104,14 +110,23 @@ async function drawPayload(
   };
 }
 
+function requestedSide(side: string | undefined): "all" | "bullish" | "bearish" {
+  if (side === "bullish" || side === "bearish") {
+    return side;
+  }
+  return "all";
+}
+
 async function tradePayload(
   pair: string,
   strategy: "liquidity_sweep" | "pdhl_cisd",
-  body: { start?: string; end?: string },
+  body: { start?: string; end?: string; side?: string },
 ) {
   const fetchStart = shiftIso(body.start, -2);
-  const candles1h = dropForming(await fetchChunked(pair, "1h", fetchStart, body.end, 20));
-  const candles5m = dropForming(await fetchChunked(pair, "5m", fetchStart, body.end, 3));
+  const [candles1h, candles5m] = await Promise.all([
+    fetchChunked(pair, "1h", fetchStart, body.end, 20).then(dropForming),
+    fetchChunked(pair, "5m", fetchStart, body.end, 14).then(dropForming),
+  ]);
 
   if (candles1h.length < 2 || candles5m.length < 3) {
     throw new Error("Not enough 1h and 5m candles for the selected range.");
@@ -120,6 +135,7 @@ async function tradePayload(
   const payload: Record<string, unknown> = {
     pair,
     strategy,
+    side: requestedSide(body.side),
     candles_1h: candles1h.map(toCandle),
     candles_5m: candles5m.map(toCandle),
     start: body.start,
@@ -175,17 +191,26 @@ async function fetchChunked(
     return fetchInterval(pair, interval, start, end, 5000);
   }
 
-  const merged: OhlcCandle[] = [];
+  const ranges: Array<{ start: string; end: string }> = [];
   for (let from = startMs; from < endMs; from += chunkDays * DAY_MS) {
     const to = Math.min(from + chunkDays * DAY_MS, endMs);
-    const chunk = await fetchInterval(
-      pair,
-      interval,
-      new Date(from).toISOString(),
-      new Date(to).toISOString(),
-      5000,
+    ranges.push({
+      start: new Date(from).toISOString(),
+      end: new Date(to).toISOString(),
+    });
+  }
+
+  const merged: OhlcCandle[] = [];
+  for (let index = 0; index < ranges.length; index += CHUNK_CONCURRENCY) {
+    const batch = ranges.slice(index, index + CHUNK_CONCURRENCY);
+    const chunks = await Promise.all(
+      batch.map((range) =>
+        fetchInterval(pair, interval, range.start, range.end, 5000),
+      ),
     );
-    merged.push(...chunk);
+    for (const chunk of chunks) {
+      merged.push(...chunk);
+    }
   }
   return dedupe(merged);
 }
@@ -197,6 +222,18 @@ async function fetchInterval(
   end: string | undefined,
   limit: number,
 ): Promise<OhlcCandle[]> {
+  const cacheKey =
+    start && end ? `${pair}|${interval}|${start}|${end}|${limit}` : null;
+  if (cacheKey) {
+    const cached = chunkCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      return cached.candles;
+    }
+    if (cached) {
+      chunkCache.delete(cacheKey);
+    }
+  }
+
   const params = new URLSearchParams();
   params.set("pair", pair);
   params.set("interval", interval);
@@ -216,7 +253,14 @@ async function fetchInterval(
   }
 
   const ohlc = (await response.json()) as OhlcResponse;
-  return ohlc.candles ?? [];
+  const candles = ohlc.candles ?? [];
+  if (cacheKey) {
+    chunkCache.set(cacheKey, {
+      expires: Date.now() + CHUNK_CACHE_TTL_MS,
+      candles,
+    });
+  }
+  return candles;
 }
 
 function dedupe(candles: OhlcCandle[]): OhlcCandle[] {
