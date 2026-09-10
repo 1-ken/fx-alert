@@ -17,6 +17,7 @@ import {
   DateRangePicker,
   type PresetOption,
 } from "@/components/ui/date-range-picker";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BacktestChart } from "@/components/analytics/backtest-chart";
 import { useObserverSnapshot } from "@/hooks/snapshot/use-snapshot";
 import { useBacktest } from "@/hooks/analytics/use-backtest";
@@ -25,11 +26,13 @@ import {
   saveBacktestSetup,
   type BacktestSetup,
 } from "@/lib/backtest-setup";
+import { CHART_INTERVAL_OPTIONS, type ChartInterval } from "@/lib/chart-utils";
 import { formatKenyaCompactDateTime } from "@/lib/datetime";
 import { outcomeLabel } from "@/lib/draw-on-liquidity";
 import {
   backtestExportFilename,
   buildBacktestExportPayload,
+  candlesExportFilename,
   downloadJsonFile,
 } from "@/lib/backtest-export";
 import {
@@ -161,6 +164,9 @@ export function BacktestPageContent() {
   const [side, setSide] = useState<BacktestSide>("all");
   const [start, setStart] = useState<string>(defaultStart);
   const [end, setEnd] = useState<string>(today);
+  const [exportIntervals, setExportIntervals] = useState<ChartInterval[]>(["1h", "5m"]);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const presets = useMemo(() => rollingPresets(), []);
   const selected = STRATEGIES.find((item) => item.value === strategy) ?? STRATEGIES[0];
 
@@ -224,6 +230,58 @@ export function BacktestPageContent() {
       backtestExportFilename(data.strategy ?? strategy, data.pair, data.start, data.end),
       buildBacktestExportPayload(data, new Date().toISOString()),
     );
+  };
+
+  const toggleExportInterval = (interval: ChartInterval, checked: boolean) => {
+    setExportIntervals((current) => {
+      if (checked) {
+        return CHART_INTERVAL_OPTIONS.filter(
+          (option) => option === interval || current.includes(option),
+        );
+      }
+      return current.filter((option) => option !== interval);
+    });
+  };
+
+  const exportCandles = async () => {
+    if (!pair || !start || !end || exportIntervals.length === 0) {
+      return;
+    }
+    setExportLoading(true);
+    setExportError(null);
+    try {
+      const response = await fetch("/api/analytics/candles/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pair,
+          start: new Date(`${start}T00:00:00.000Z`).toISOString(),
+          end: new Date(`${end}T23:59:59.999Z`).toISOString(),
+          intervals: exportIntervals,
+        }),
+      });
+      const payload = (await response.json()) as {
+        error?: string;
+        exported_at?: string;
+        pair?: string;
+        start?: string;
+        end?: string;
+        intervals?: string[];
+        counts?: Record<string, number>;
+        candles?: Record<string, unknown[]>;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to fetch candles");
+      }
+      downloadJsonFile(
+        candlesExportFilename(pair, start, end, exportIntervals),
+        payload,
+      );
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Candle export failed");
+    } finally {
+      setExportLoading(false);
+    }
   };
 
   return (
@@ -312,6 +370,74 @@ export function BacktestPageContent() {
               )}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Fetch &amp; export candles</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Uses the pair and date range from Parameters above. Closed OHLC only;
+            fills history gaps the same way as backtests.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm">
+            <span className="text-muted-foreground">Exporting </span>
+            <span className="font-medium">{pair || "—"}</span>
+            <span className="text-muted-foreground"> from </span>
+            <span className="font-mono text-xs">{start || "—"}</span>
+            <span className="text-muted-foreground"> to </span>
+            <span className="font-mono text-xs">{end || "—"}</span>
+          </p>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">Timeframes</label>
+            <div className="flex flex-wrap gap-3">
+              {CHART_INTERVAL_OPTIONS.map((interval) => {
+                const checked = exportIntervals.includes(interval);
+                return (
+                  <label
+                    key={interval}
+                    className="flex cursor-pointer items-center gap-2 text-sm"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(value) =>
+                        toggleExportInterval(interval, value === true)
+                      }
+                    />
+                    <span className="font-mono text-xs">{interval}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11"
+              onClick={() => void exportCandles()}
+              disabled={
+                exportLoading || !pair || !start || !end || exportIntervals.length === 0
+              }
+            >
+              {exportLoading ? (
+                <>
+                  <Spinner className="mr-2 h-4 w-4" />
+                  Fetching…
+                </>
+              ) : (
+                "Fetch & export JSON"
+              )}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Change pair or dates in Parameters, then export again.
+            </p>
+          </div>
+          {exportError ? (
+            <p className="text-sm text-destructive">{exportError}</p>
+          ) : null}
         </CardContent>
       </Card>
 

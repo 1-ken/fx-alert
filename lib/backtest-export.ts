@@ -15,6 +15,18 @@ export function backtestExportFilename(
   return `${strategy}-${compactPair(pair)}-${from}-${to}.json`;
 }
 
+export function candlesExportFilename(
+  pair: string,
+  start?: string | null,
+  end?: string | null,
+  intervals?: string[],
+): string {
+  const from = (start ?? "all").slice(0, 10);
+  const to = (end ?? "all").slice(0, 10);
+  const tfs = (intervals ?? []).join("-") || "ohlc";
+  return `candles-${compactPair(pair)}-${from}-${to}-${tfs}.json`;
+}
+
 export function sweepExportFilename(
   pair: string,
   start?: string | null,
