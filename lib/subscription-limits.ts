@@ -1,5 +1,5 @@
 import type { BootstrapData } from "@/lib/api/bootstrap";
-import { FREE_MAX_ALERTS, TRIAL_CALL_LIMIT, TRIAL_SMS_LIMIT } from "@/lib/pricing";
+import { FREE_MAX_ALERTS, TRIAL_SMS_LIMIT } from "@/lib/pricing";
 
 export interface ChannelLimitState {
   disabled: boolean;
@@ -47,7 +47,7 @@ export function getChannelLimitState(
         reason: "Daily SMS limit reached (resets midnight UTC).",
       };
     }
-    if (channel === "call" && usage && usage.calls >= (usage.callsLimit ?? TRIAL_CALL_LIMIT)) {
+    if (channel === "call" && usage && usage.callsLimit != null && usage.calls >= usage.callsLimit) {
       return {
         disabled: true,
         reason: "Daily call limit reached (resets midnight UTC).",

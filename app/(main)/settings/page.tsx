@@ -155,6 +155,11 @@ export default function SettingsPage() {
                   {bootstrap.dailyUsage.calls}/{bootstrap.dailyUsage.callsLimit} calls
                 </p>
               ) : null}
+              {tier === "pro" && bootstrap?.dailyUsage ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Today: {bootstrap.dailyUsage.calls}/unlimited calls
+                </p>
+              ) : null}
             </div>
           </div>
           <Button

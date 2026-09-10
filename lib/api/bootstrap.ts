@@ -4,7 +4,8 @@ export interface DailyUsage {
   sms: number;
   smsLimit: number;
   calls: number;
-  callsLimit: number;
+  /** null means unlimited (e.g. Pro). */
+  callsLimit: number | null;
 }
 
 export interface FreeTierLimits {

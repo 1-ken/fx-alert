@@ -60,6 +60,11 @@ export function PricingTable({
               {dailyUsage.callsLimit} calls (resets midnight UTC)
             </p>
           ) : null}
+          {activeTier === "pro" && dailyUsage ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Today: {dailyUsage.calls}/unlimited calls
+            </p>
+          ) : null}
         </div>
       ) : null}
 
