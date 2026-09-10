@@ -143,8 +143,8 @@ const drawTriggerOptions: Array<{
 }> = [
   {
     value: "sweep",
-    label: "Liquidity sweep",
-    description: "Price trades through the previous-day high/low (live).",
+    label: "PDH/PDL sweep",
+    description: "Notify when price sweeps previous day high and/or low.",
   },
   {
     value: "draw_met",
@@ -770,7 +770,7 @@ export function CreateAlertForm({
                         <TabsList className="grid w-full grid-cols-3 h-12">
                           <TabsTrigger value="price">Price</TabsTrigger>
                           <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
-                          <TabsTrigger value="prev_day_level">Draw on Liquidity</TabsTrigger>
+                          <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -884,9 +884,41 @@ export function CreateAlertForm({
                         field.onChange(next);
                         form.clearErrors("pairs");
                       };
+                      const selectAllPairs = () => {
+                        field.onChange([...pairs]);
+                        form.clearErrors("pairs");
+                      };
+                      const clearPairs = () => {
+                        field.onChange([]);
+                        form.clearErrors("pairs");
+                      };
                       return (
                         <FormItem>
-                          <FormLabel>Pairs to watch</FormLabel>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <FormLabel>Pairs to watch</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={selectAllPairs}
+                                disabled={pairs.length === 0}
+                              >
+                                Select all
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8"
+                                onClick={clearPairs}
+                                disabled={selected.length === 0}
+                              >
+                                Clear
+                              </Button>
+                            </div>
+                          </div>
                           <FormControl>
                             <div className="space-y-2">
                               <Input
@@ -939,7 +971,7 @@ export function CreateAlertForm({
                                 )}
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                Selected {selected.length} pair{selected.length === 1 ? "" : "s"}.
+                                {selected.length} selected / {pairs.length} available.
                                 One alert is created per pair.
                               </p>
                             </div>
