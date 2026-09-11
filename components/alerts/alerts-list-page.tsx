@@ -25,7 +25,8 @@ type AlertStatusFilter =
   | "active"
   | "triggered"
   | "triggered-today"
-  | "triggered-5m";
+  | "triggered-5m"
+  | "expired";
 
 type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level";
 
@@ -39,7 +40,8 @@ function normalizeStatus(value?: string): AlertStatusFilter {
     value === "active" ||
     value === "triggered" ||
     value === "triggered-today" ||
-    value === "triggered-5m"
+    value === "triggered-5m" ||
+    value === "expired"
   ) {
     return value;
   }
@@ -255,6 +257,10 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
       return triggeredLastFiveMinutes;
     }
 
+    if (status === "expired") {
+      return alerts.expired;
+    }
+
     return alerts.all;
   }, [alerts, status, triggeredLastFiveMinutes, triggeredSorted, triggeredToday]);
 
@@ -406,10 +412,16 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
               <Link href={hrefFor("active", type)}>Active ({alerts?.active.length ?? 0})</Link>
             </Button>
+            <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
+              <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
+            </Button>
+            <Button asChild variant={status === "expired" ? "default" : "outline"} size="sm">
+              <Link href={hrefFor("expired", type)}>Expired ({alerts?.expired.length ?? 0})</Link>
+            </Button>
             </div>
             {isTriggeredView ? (
               <div className="flex flex-wrap items-center gap-2">
-                <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
+                <Button asChild variant={status === "triggered" ? "default" : "outline"} size="sm">
                   <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
                 </Button>
                 <Button asChild variant={status === "triggered-today" ? "default" : "outline"} size="sm">
@@ -484,7 +496,7 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                     <Badge variant={alert.status === "active" ? "default" : "secondary"}>
                       {alert.status}
                     </Badge>
-                    {alert.status !== "triggered" ? (
+                    {alert.status !== "triggered" && alert.status !== "expired" ? (
                       <Button
                         type="button"
                         variant="ghost"

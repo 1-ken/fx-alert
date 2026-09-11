@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { ArrowLeftIcon, Cog6ToothIcon, CreditCardIcon } from "@heroicons/react/24/outline";
 import { useSession } from "next-auth/react";
@@ -10,10 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
+  clearCustomAlertSound,
+  getAlertSoundMode,
+  getCustomAlertSoundFileName,
+  getNotificationPermission,
+  hasCustomAlertSound,
   isSoundAlertsEnabled,
   playAlertSoundPreview,
+  requestSoundNotificationPermission,
+  saveCustomAlertSound,
+  setAlertSoundMode,
   setSoundAlertsEnabled,
-  unlockAlertAudio,  
+  type AlertSoundMode,
 } from "@/lib/alert-sound";
 import { ALERT_DEFAULT_PHONE_STORAGE_KEY } from "@/lib/alert-preferences";
 import { logoutUser } from "@/lib/auth-client";
@@ -21,6 +29,7 @@ import { useBootstrap } from "@/components/bootstrap-provider";
 import { PlanPricingDialog } from "@/components/subscription/paywall-modal";
 import { tierDisplayName } from "@/lib/pricing";
 import { saveUserPhone } from "@/lib/api/bootstrap";
+import { cn } from "@/lib/utils";
 
 export default function SettingsPage() {
   const { data: session } = useSession();
@@ -29,6 +38,7 @@ export default function SettingsPage() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isSavingPhone, setIsSavingPhone] = useState(false);
   const [phoneInitialized, setPhoneInitialized] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (phoneInitialized) {
@@ -60,6 +70,36 @@ export default function SettingsPage() {
     return isSoundAlertsEnabled();
   });
 
+  const [soundMode, setSoundModeState] = useState<AlertSoundMode>(() => {
+    if (typeof window === "undefined") {
+      return "default";
+    }
+    return getAlertSoundMode();
+  });
+
+  const [customFileName, setCustomFileName] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    return getCustomAlertSoundFileName();
+  });
+
+  const [notifPermission, setNotifPermission] = useState(() => {
+    if (typeof window === "undefined") {
+      return "unsupported" as const;
+    }
+    return getNotificationPermission();
+  });
+
+  useEffect(() => {
+    void hasCustomAlertSound().then((exists) => {
+      if (!exists && getAlertSoundMode() === "custom") {
+        setAlertSoundMode("default");
+        setSoundModeState("default");
+      }
+    });
+  }, []);
+
   const savePhoneNumber = async () => {
     const trimmed = phoneNumber.trim();
     if (!trimmed) {
@@ -87,15 +127,79 @@ export default function SettingsPage() {
 
   const handleSoundToggle = async (enabled: boolean) => {
     if (enabled) {
-      await unlockAlertAudio();
+      const permission = await requestSoundNotificationPermission();
+      setNotifPermission(permission);
+      setSoundAlertsEnabled(true);
+      setSoundAlertsEnabledState(true);
+      if (permission === "granted") {
+        toast.success("Sound alerts enabled — notifications allowed");
+      } else if (permission === "denied") {
+        toast.success(
+          "Sound alerts enabled. Allow notifications in browser settings for background alerts.",
+        );
+      } else if (permission === "unsupported") {
+        toast.success("Sound alerts enabled (this browser has no notification API)");
+      } else {
+        toast.success("Sound alerts enabled");
+      }
+      return;
     }
-    setSoundAlertsEnabled(enabled);
-    setSoundAlertsEnabledState(enabled);
-    toast.success(enabled ? "Sound alerts enabled" : "Sound alerts disabled");
+
+    setSoundAlertsEnabled(false);
+    setSoundAlertsEnabledState(false);
+    toast.success("Sound alerts disabled");
+  };
+
+  const handleSoundModeChange = async (mode: AlertSoundMode) => {
+    if (mode === "custom") {
+      const exists = await hasCustomAlertSound();
+      if (!exists) {
+        fileInputRef.current?.click();
+        toast.message("Choose an MP3 file for your custom alert sound");
+        return;
+      }
+      setAlertSoundMode("custom");
+      setSoundModeState("custom");
+      try {
+        await playAlertSoundPreview();
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    setAlertSoundMode("default");
+    setSoundModeState("default");
+  };
+
+  const handleCustomFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    try {
+      await saveCustomAlertSound(file);
+      setCustomFileName(file.name);
+      setSoundModeState("custom");
+      await playAlertSoundPreview();
+      toast.success(`Custom sound saved: ${file.name}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save MP3");
+    }
+  };
+
+  const handleClearCustomSound = async () => {
+    await clearCustomAlertSound();
+    setCustomFileName(null);
+    setSoundModeState("default");
+    toast.success("Using default alert sound");
   };
 
   const handleTestSound = async () => {
-    await unlockAlertAudio();
+    const permission = await requestSoundNotificationPermission();
+    setNotifPermission(permission);
     try {
       await playAlertSoundPreview();
       toast.success("Playing test sound");
@@ -181,16 +285,92 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Play a looping sound in the browser for 30 seconds when a sound-channel alert triggers.
+            Play a looping sound in the browser for 30 seconds when an alert triggers. The browser
+            may ask for notification permission so you can still be notified when the tab is in the
+            background.
           </p>
-          
+
           <div className="flex items-center justify-between rounded-lg border px-3 py-3">
             <div>
-              <p className="text-sm font-medium">Enable sound alerts</p>              
+              <p className="text-sm font-medium">Enable sound alerts</p>
+              {notifPermission === "denied" ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Notifications blocked — allow them in browser site settings for background alerts.
+                </p>
+              ) : notifPermission === "granted" ? (
+                <p className="mt-1 text-xs text-muted-foreground">Notifications allowed on this device.</p>
+              ) : null}
             </div>
-            <Switch checked={soundAlertsEnabled} onCheckedChange={handleSoundToggle} />
+            <Switch checked={soundAlertsEnabled} onCheckedChange={(v) => void handleSoundToggle(v)} />
           </div>
-          <Button type="button" variant="outline" className="h-11 w-full" onClick={handleTestSound}>
+
+          <div className="space-y-2 rounded-lg border px-3 py-3">
+            <p className="text-sm font-medium">Alert sound</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void handleSoundModeChange("default")}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm transition",
+                  soundMode === "default"
+                    ? "border-primary/40 bg-primary/10 text-foreground"
+                    : "border-border bg-card/60 text-muted-foreground hover:border-primary/30",
+                )}
+              >
+                Default sound
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSoundModeChange("custom")}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm transition",
+                  soundMode === "custom"
+                    ? "border-primary/40 bg-primary/10 text-foreground"
+                    : "border-border bg-card/60 text-muted-foreground hover:border-primary/30",
+                )}
+              >
+                Custom MP3
+              </button>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".mp3,audio/mpeg"
+              className="hidden"
+              onChange={(event) => void handleCustomFileChange(event)}
+            />
+
+            {soundMode === "custom" || customFileName ? (
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {customFileName ? "Replace MP3" : "Choose MP3"}
+                </Button>
+                {customFileName ? (
+                  <>
+                    <span className="truncate text-xs text-muted-foreground">{customFileName}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9"
+                      onClick={() => void handleClearCustomSound()}
+                    >
+                      Clear
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <Button type="button" variant="outline" className="h-11 w-full" onClick={() => void handleTestSound()}>
             Test sound
           </Button>
         </CardContent>

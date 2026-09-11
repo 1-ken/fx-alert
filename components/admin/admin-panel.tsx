@@ -684,6 +684,7 @@ export function AdminPanel() {
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="triggered">Triggered</SelectItem>
+              <SelectItem value="expired">Expired</SelectItem>
               <SelectItem value="disabled">Disabled</SelectItem>
             </SelectContent>
           </Select>
