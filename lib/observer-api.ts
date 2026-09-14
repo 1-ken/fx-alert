@@ -1,13 +1,15 @@
 import {
   API_ENDPOINTS,
   EXPLICIT_OBSERVER_WS_URL,
-  getApiUrl,
   normalizeObserverWebSocketUrl,
 } from "@/lib/constants";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 import { resolveObserverAccessToken } from "@/lib/observer-access-token";
 
-export function getObserverApiUrl(endpoint: string): string {
-  return getApiUrl(endpoint);
+export async function getObserverApiUrl(endpoint: string): Promise<string> {
+  const base = await getObserverServerBaseUrl();
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
+  return `${base}/${cleanEndpoint}`;
 }
 
 export async function proxyObserverRequest(
@@ -23,7 +25,7 @@ export async function proxyObserverRequest(
     });
   }
 
-  const upstreamResponse = await fetch(getObserverApiUrl(endpoint), {
+  const upstreamResponse = await fetch(await getObserverApiUrl(endpoint), {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -60,7 +62,7 @@ export async function getResolvedObserverWsUrl(accessToken?: string): Promise<st
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const configResponse = await fetch(getObserverApiUrl(API_ENDPOINTS.STREAMING.CLIENT_CONFIG), {
+    const configResponse = await fetch(await getObserverApiUrl(API_ENDPOINTS.STREAMING.CLIENT_CONFIG), {
       headers,
       cache: "no-store",
     });

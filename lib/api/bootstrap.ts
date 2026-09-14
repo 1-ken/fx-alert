@@ -19,7 +19,6 @@ export interface BootstrapData {
   onboardingCompletedAt: string | null;
   authRequired: boolean;
   wsUrl: string;
-  apiBaseUrl?: string;
   phone?: string | null;
   subscriptionTier?: string;
   trialStartedAt?: string | null;

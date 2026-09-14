@@ -1,4 +1,5 @@
 import { Session } from "next-auth";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 
 export interface MarketPair {
   pair: string;
@@ -34,7 +35,7 @@ export async function getSnapshot(session: Session | null): Promise<SnapshotResp
   }
 
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = await getObserverServerBaseUrl();
     const response = await fetch(`${apiUrl}/snapshot`, {
       method: "GET",
       headers: {
@@ -66,7 +67,7 @@ export async function getStreamHealth(session: Session | null): Promise<StreamHe
   }
 
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = await getObserverServerBaseUrl();
     const response = await fetch(`${apiUrl}/stream-health`, {
       method: "GET",
       headers: {

@@ -1,5 +1,7 @@
-function getAdminApiUrl(endpoint: string): string {
-  const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
+
+async function getAdminApiUrl(endpoint: string): Promise<string> {
+  const base = await getObserverServerBaseUrl();
   const cleanEndpoint = endpoint.startsWith("/") ? endpoint.slice(1) : endpoint;
   const cleanBaseUrl = base.endsWith("/") ? base.slice(0, -1) : base;
   return `${cleanBaseUrl}/${cleanEndpoint}`;
@@ -14,7 +16,7 @@ export async function proxyAdminRequest(
     headers.set("Content-Type", "application/json");
   }
 
-  const upstreamResponse = await fetch(getAdminApiUrl(endpoint), {
+  const upstreamResponse = await fetch(await getAdminApiUrl(endpoint), {
     ...init,
     headers,
     cache: "no-store",

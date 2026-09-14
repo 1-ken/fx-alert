@@ -3,9 +3,10 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api-fetch";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 
-function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+async function getApiBaseUrl(): Promise<string> {
+  return getObserverServerBaseUrl();
 }
 
 export async function POST(request: Request) {
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
     }
 
     const upstreamResponse = await apiFetch(
-      `${getApiBaseUrl()}/api/v1/auth/claim-referral`,
+      `${await getApiBaseUrl()}/api/v1/auth/claim-referral`,
       {
         method: "POST",
         headers: {

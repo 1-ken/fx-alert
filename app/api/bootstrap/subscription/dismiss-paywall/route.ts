@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api-fetch";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 
 export async function POST() {
   try {
@@ -11,7 +12,7 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiBaseUrl = await getObserverServerBaseUrl();
     const response = await apiFetch(`${apiBaseUrl}/subscription/dismiss-paywall`, {
       method: "POST",
       headers: {
