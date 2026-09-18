@@ -19,8 +19,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import {
+  chainLengthMap,
+  formatQueueStepLine,
+  groupAlertsIntoChainBlocks,
+  sortAlertsByChain,
+} from "@/lib/alert-chain";
 import { formatKenyaDateTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import type { Alert } from "@/types/alerts";
 
 type AlertStatusFilter =
   | "all"
@@ -264,7 +271,8 @@ export function AlertsListPage({
     }
 
     if (status === "active") {
-      return alerts.active;
+      // Match dashboard "Active" count: watching + queued (waiting) so chains stay visible.
+      return [...alerts.active, ...alerts.waiting];
     }
 
     if (status === "waiting") {
@@ -297,6 +305,21 @@ export function AlertsListPage({
 
     return listedAlerts.filter((alert) => alert.alert_type === type);
   }, [listedAlerts, type]);
+
+  const displayBlocks = useMemo(
+    () => groupAlertsIntoChainBlocks(sortAlertsByChain(typeFilteredAlerts)),
+    [typeFilteredAlerts],
+  );
+
+  const allById = useMemo(() => {
+    const map = new Map<string, Alert>();
+    for (const alert of alerts?.all ?? []) {
+      map.set(alert.id, alert);
+    }
+    return map;
+  }, [alerts?.all]);
+
+  const chainTotals = useMemo(() => chainLengthMap(alerts?.all ?? []), [alerts?.all]);
 
   useEffect(() => {
     if (!initialHighlight || highlightStartedRef.current || isInitialLoading) {
@@ -466,10 +489,14 @@ export function AlertsListPage({
               <Link href={hrefFor("all", type)}>All ({alerts?.all.length ?? 0})</Link>
             </Button>
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
-              <Link href={hrefFor("active", type)}>Active ({alerts?.active.length ?? 0})</Link>
+              <Link href={hrefFor("active", type)}>
+                Active ({(alerts?.active.length ?? 0) + (alerts?.waiting.length ?? 0)})
+              </Link>
             </Button>
             <Button asChild variant={status === "waiting" ? "default" : "outline"} size="sm">
-              <Link href={hrefFor("waiting", type)}>Waiting ({alerts?.waiting.length ?? 0})</Link>
+              <Link href={hrefFor("waiting", type)}>
+                Waiting ({alerts?.waiting.length ?? 0})
+              </Link>
             </Button>
             <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
               <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
@@ -535,185 +562,238 @@ export function AlertsListPage({
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {typeFilteredAlerts.map((alert) => (
-            <Card
-              key={alert.id}
-              id={`alert-row-${alert.id}`}
-              className={cn(
-                "transition-[box-shadow,ring-color] duration-300",
-                highlightId === alert.id &&
-                  "animate-pulse ring-2 ring-primary ring-offset-2 ring-offset-background",
-              )}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      checked={selectedAlertIds.has(alert.id)}
-                      onCheckedChange={(checked) => toggleAlertSelection(alert.id, Boolean(checked))}
-                      aria-label={`Select alert for ${alert.pair}`}
-                    />
-                    <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {formatAlertTypeBadge(alert.alert_type, alert.dol_trigger)}
-                    </Badge>
-                    <Badge variant={alert.status === "active" ? "default" : "secondary"}>
-                      {alert.status}
-                    </Badge>
-                    {alert.status !== "triggered" && alert.status !== "expired" ? (
+        <div className="space-y-4">
+          {displayBlocks.map((block) => {
+            const fullChainLen = block.chainId
+              ? (chainTotals.get(block.chainId) ?? block.alerts.length)
+              : 1;
+            const isQueue =
+              Boolean(block.chainId) &&
+              (fullChainLen > 1 ||
+                block.alerts.some(
+                  (a) => Boolean(a.depends_on_alert_id) || (a.sequence_index ?? 0) > 0,
+                ));
+
+            const cards = block.alerts.map((alert) => (
+              <Card
+                key={alert.id}
+                id={`alert-row-${alert.id}`}
+                className={cn(
+                  "transition-[box-shadow,ring-color] duration-300",
+                  isQueue && alert.status === "waiting" && "ml-3 border-dashed",
+                  highlightId === alert.id &&
+                    "animate-pulse ring-2 ring-primary ring-offset-2 ring-offset-background",
+                )}
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={selectedAlertIds.has(alert.id)}
+                        onCheckedChange={(checked) =>
+                          toggleAlertSelection(alert.id, Boolean(checked))
+                        }
+                        aria-label={`Select alert for ${alert.pair}`}
+                      />
+                      <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">
+                        {formatAlertTypeBadge(alert.alert_type, alert.dol_trigger)}
+                      </Badge>
+                      <Badge variant={alert.status === "active" ? "default" : "secondary"}>
+                        {alert.status}
+                      </Badge>
+                      {alert.status !== "triggered" && alert.status !== "expired" ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          asChild
+                        >
+                          <Link
+                            href={`/alerts/${alert.id}`}
+                            aria-label={`Edit alert for ${alert.pair}`}
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground"
-                        asChild
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => setDeleteTarget(alert)}
+                        aria-label={`Delete alert for ${alert.pair}`}
                       >
-                        <Link href={`/alerts/${alert.id}`} aria-label={`Edit alert for ${alert.pair}`}>
-                          <PencilIcon className="h-4 w-4" />
-                        </Link>
+                        <TrashIcon className="h-4 w-4" />
                       </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => setDeleteTarget(alert)}
-                      aria-label={`Delete alert for ${alert.pair}`}
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm text-muted-foreground">
-                {alert.alert_type === "price" ? (
+                </CardHeader>
+                <CardContent className="space-y-1 text-sm text-muted-foreground">
+                  {alert.chain_id || alert.depends_on_alert_id ? (
+                    <p>
+                      Queue:{" "}
+                      <span className="text-foreground">
+                        {formatQueueStepLine(
+                          alert,
+                          allById,
+                          block.chainId
+                            ? (chainTotals.get(block.chainId) ?? fullChainLen)
+                            : fullChainLen,
+                        )}
+                      </span>
+                    </p>
+                  ) : null}
+                  {alert.alert_type === "price" ? (
+                    <p>
+                      Condition:{" "}
+                      <span className="text-foreground">
+                        {formatCondition(alert.condition ?? "equal")} {alert.target_price ?? "-"}
+                      </span>
+                    </p>
+                  ) : alert.alert_type === "prev_day_level" ? (
+                    <>
+                      <p>
+                        Trigger:{" "}
+                        <span className="text-foreground">
+                          {formatDrawTrigger(alert.dol_trigger)}
+                        </span>
+                      </p>
+                      <p>
+                        Level:{" "}
+                        <span className="text-foreground">{formatDrawLevel(alert.level_ref)}</span>
+                      </p>
+                      {alert.batch_id ? (
+                        <p>
+                          Multi-pair group:{" "}
+                          <span className="text-foreground">{alert.batch_id.slice(0, 8)}</span>
+                        </p>
+                      ) : null}
+                      <p>
+                        Last evaluated candle:{" "}
+                        <span className="text-foreground">
+                          {formatDateTime(alert.last_evaluated_candle_time)}
+                        </span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "market_structure" ? (
+                    <>
+                      <p>
+                        Interval:{" "}
+                        <span className="text-foreground">{alert.interval ?? "-"}</span>
+                      </p>
+                      <p>
+                        Event:{" "}
+                        <span className="text-foreground uppercase">
+                          {alert.structure_event ?? "any"}
+                        </span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">
+                          {alert.structure_direction ?? "any"}
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        Interval:{" "}
+                        <span className="text-foreground">{alert.interval ?? "-"}</span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">
+                          {formatDirection(alert.direction)}
+                        </span>
+                      </p>
+                      <p>
+                        Threshold:{" "}
+                        <span className="text-foreground">{alert.threshold ?? "-"}</span>
+                      </p>
+                      <p>
+                        Last evaluated candle:{" "}
+                        <span className="text-foreground">
+                          {formatDateTime(alert.last_evaluated_candle_time)}
+                        </span>
+                      </p>
+                    </>
+                  )}
+                  {alert.last_checked_price !== null ? (
+                    <p>
+                      Last checked price:{" "}
+                      <span className="text-foreground">{alert.last_checked_price}</span>
+                    </p>
+                  ) : null}
                   <p>
-                    Condition:{" "}
-                    <span className="text-foreground">
-                      {formatCondition(alert.condition ?? "equal")} {alert.target_price ?? "-"}
+                    Channel:{" "}
+                    <span className="text-foreground uppercase">
+                      {(alert.channels && alert.channels.length > 0
+                        ? alert.channels
+                        : [alert.channel]
+                      ).join(", ")}
                     </span>
                   </p>
-                ) : alert.alert_type === "prev_day_level" ? (
-                  <>
+                  {alert.email ? (
                     <p>
-                      Trigger:{" "}
-                      <span className="text-foreground">
-                        {formatDrawTrigger(alert.dol_trigger)}
-                      </span>
+                      Email: <span className="text-foreground">{alert.email}</span>
                     </p>
+                  ) : null}
+                  {alert.phone ? (
                     <p>
-                      Level:{" "}
-                      <span className="text-foreground">{formatDrawLevel(alert.level_ref)}</span>
+                      Phone: <span className="text-foreground">{alert.phone}</span>
                     </p>
-                    {alert.batch_id ? (
-                      <p>
-                        Multi-pair group:{" "}
-                        <span className="text-foreground">
-                          {alert.batch_id.slice(0, 8)}
-                        </span>
-                      </p>
-                    ) : null}
+                  ) : null}
+                  {alert.custom_message ? (
                     <p>
-                      Last evaluated candle:{" "}
-                      <span className="text-foreground">
-                        {formatDateTime(alert.last_evaluated_candle_time)}
-                      </span>
+                      Message: <span className="text-foreground">{alert.custom_message}</span>
                     </p>
-                  </>
-                ) : alert.alert_type === "market_structure" ? (
-                  <>
-                    <p>
-                      Interval: <span className="text-foreground">{alert.interval ?? "-"}</span>
-                    </p>
-                    <p>
-                      Event:{" "}
-                      <span className="text-foreground uppercase">
-                        {alert.structure_event ?? "any"}
-                      </span>
-                    </p>
-                    <p>
-                      Direction:{" "}
-                      <span className="text-foreground">{alert.structure_direction ?? "any"}</span>
-                    </p>
-                    {alert.chain_id || alert.depends_on_alert_id ? (
-                      <p>
-                        Queue:{" "}
-                        <span className="text-foreground">
-                          step {(alert.sequence_index ?? 0) + 1}
-                          {alert.status === "waiting" && alert.depends_on_alert_id
-                            ? ` · waiting for ${alert.depends_on_alert_id.slice(0, 8)}…`
-                            : ""}
-                        </span>
-                      </p>
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      Interval: <span className="text-foreground">{alert.interval ?? "-"}</span>
-                    </p>
-                    <p>
-                      Direction: <span className="text-foreground">{formatDirection(alert.direction)}</span>
-                    </p>
-                    <p>
-                      Threshold: <span className="text-foreground">{alert.threshold ?? "-"}</span>
-                    </p>
-                    <p>
-                      Last evaluated candle: <span className="text-foreground">{formatDateTime(alert.last_evaluated_candle_time)}</span>
-                    </p>
-                  </>
-                )}
-                {alert.last_checked_price !== null ? (
+                  ) : null}
                   <p>
-                    Last checked price: <span className="text-foreground">{alert.last_checked_price}</span>
+                    Created:{" "}
+                    <span className="text-foreground">{formatDateTime(alert.created_at)}</span>
                   </p>
-                ) : null}
-                <p>
-                  Channel:{" "}
-                  <span className="text-foreground uppercase">
-                    {(alert.channels && alert.channels.length > 0
-                      ? alert.channels
-                      : [alert.channel]
-                    ).join(", ")}
-                  </span>
+                  {alert.expires_at ? (
+                    <p>
+                      Expires:{" "}
+                      <span className="text-foreground">{formatDateTime(alert.expires_at)}</span>
+                    </p>
+                  ) : null}
+                  <p>
+                    Triggered:{" "}
+                    <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
+                  </p>
+                  <p>
+                    Time to trigger:{" "}
+                    <span className="text-foreground">
+                      {formatTriggerDuration(alert.created_at, alert.triggered_at)}
+                    </span>
+                  </p>
+                </CardContent>
+              </Card>
+            ));
+
+            if (!isQueue) {
+              return <div key={block.key}>{cards}</div>;
+            }
+
+            return (
+              <div
+                key={block.key}
+                className="space-y-2 rounded-xl border border-border bg-muted/30 p-3 border-l-4 border-l-primary"
+              >
+                <p className="text-sm font-medium text-foreground">
+                  Queue · {formatPairLabel(block.pair)} · {fullChainLen} step
+                  {fullChainLen === 1 ? "" : "s"}
                 </p>
-                {alert.email ? (
-                  <p>
-                    Email: <span className="text-foreground">{alert.email}</span>
-                  </p>
-                ) : null}
-                {alert.phone ? (
-                  <p>
-                    Phone: <span className="text-foreground">{alert.phone}</span>
-                  </p>
-                ) : null}
-                {alert.custom_message ? (
-                  <p>
-                    Message: <span className="text-foreground">{alert.custom_message}</span>
-                  </p>
-                ) : null}
-                <p>
-                  Created: <span className="text-foreground">{formatDateTime(alert.created_at)}</span>
-                </p>
-                {alert.expires_at ? (
-                  <p>
-                    Expires:{" "}
-                    <span className="text-foreground">{formatDateTime(alert.expires_at)}</span>
-                  </p>
-                ) : null}
-                <p>
-                  Triggered: <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
-                </p>
-                <p>
-                  Time to trigger: <span className="text-foreground">{formatTriggerDuration(alert.created_at, alert.triggered_at)}</span>
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+                <div className="space-y-2">{cards}</div>
+              </div>
+            );
+          })}
         </div>
       )}
 

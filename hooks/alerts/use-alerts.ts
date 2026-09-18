@@ -381,8 +381,17 @@ export function useObserverAlerts() {
 
         const payload = (await response.json()) as AlertUpsertResponse;
         await mutate();
-        toast.success("Alert created successfully");
-        return payload.alert;
+
+        const created = payload.alert;
+        const wantedQueue = Boolean(input.depends_on_alert_id?.trim());
+        if (wantedQueue && created?.status !== "waiting") {
+          toast.error("Queue not applied — alert is watching immediately instead of waiting.");
+        } else if (created?.status === "waiting") {
+          toast.success("Queued — arms after the selected alert triggers.");
+        } else {
+          toast.success("Alert created successfully");
+        }
+        return created ?? null;
       } catch (createError) {
         await mutate();
         throw createError;
