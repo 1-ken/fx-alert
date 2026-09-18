@@ -56,7 +56,6 @@ const ALERT_RECENT_PAIRS_STORAGE_KEY = "fx-alert:recent-pairs";
 const channelOptions = [
   { value: "sms" as const, label: "SMS" },
   { value: "call" as const, label: "Call" },
-  { value: "sound" as const, label: "Sound (in-app)" },
   { value: "email" as const, label: "Email" },
 ];
 
@@ -143,8 +142,8 @@ const drawTriggerOptions: Array<{
 }> = [
   {
     value: "sweep",
-    label: "Liquidity sweep",
-    description: "Price trades through the previous-day high/low (live).",
+    label: "PDH/PDL sweep",
+    description: "Notify when price sweeps previous day high and/or low.",
   },
   {
     value: "draw_met",
@@ -191,16 +190,9 @@ const alertFormSchema = z
     custom_message: z.string().trim().optional(),
   })
   .superRefine((value, ctx) => {
+    // Sound is always included server-side; notifyVia may be empty (sound-only).
     const selectedChannels = value.notifyVia;
     const selectedSet = new Set(selectedChannels);
-
-    if (selectedSet.size === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["notifyVia"],
-        message: "Select notification channels",
-      });
-    }
 
     if (value.alert_type !== "prev_day_level" && !value.pair) {
       ctx.addIssue({
@@ -433,7 +425,7 @@ export function CreateAlertForm({
         : "1m",
       direction: "above",
       threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
-      notifyVia: initialNotifyVia ?? ["sms"],
+      notifyVia: initialNotifyVia ?? [],
       email: "",
       phone: "",
       custom_message: "",
@@ -524,10 +516,17 @@ export function CreateAlertForm({
       return;
     }
     initialNotifyViaAppliedRef.current = true;
-    form.setValue("notifyVia", initialNotifyVia, {
-      shouldDirty: false,
-      shouldValidate: true,
-    });
+    form.setValue(
+      "notifyVia",
+      initialNotifyVia.filter(
+        (channel): channel is "sms" | "call" | "email" =>
+          channel === "sms" || channel === "call" || channel === "email",
+      ),
+      {
+        shouldDirty: false,
+        shouldValidate: true,
+      },
+    );
   }, [form, initialNotifyVia]);
 
   const selectedPair = form.watch("pair");
@@ -652,13 +651,15 @@ export function CreateAlertForm({
 
     try {
       const alertType = values.alert_type as AlertType;
-      const channelsToCreate = values.notifyVia.filter(
-        (channel): channel is "sms" | "call" | "sound" | "email" =>
-          channel === "sms" ||
-          channel === "call" ||
-          channel === "sound" ||
-          channel === "email"
-      );
+      const channelsToCreate = [
+        ...new Set([
+          ...values.notifyVia.filter(
+            (channel): channel is "sms" | "call" | "email" =>
+              channel === "sms" || channel === "call" || channel === "email",
+          ),
+          "sound" as const,
+        ]),
+      ];
 
       const needsPhone = channelsToCreate.some(
         (channel) => channel === "sms" || channel === "call",
@@ -770,7 +771,7 @@ export function CreateAlertForm({
                         <TabsList className="grid w-full grid-cols-3 h-12">
                           <TabsTrigger value="price">Price</TabsTrigger>
                           <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
-                          <TabsTrigger value="prev_day_level">Draw on Liquidity</TabsTrigger>
+                          <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -884,9 +885,41 @@ export function CreateAlertForm({
                         field.onChange(next);
                         form.clearErrors("pairs");
                       };
+                      const selectAllPairs = () => {
+                        field.onChange([...pairs]);
+                        form.clearErrors("pairs");
+                      };
+                      const clearPairs = () => {
+                        field.onChange([]);
+                        form.clearErrors("pairs");
+                      };
                       return (
                         <FormItem>
-                          <FormLabel>Pairs to watch</FormLabel>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <FormLabel>Pairs to watch</FormLabel>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8"
+                                onClick={selectAllPairs}
+                                disabled={pairs.length === 0}
+                              >
+                                Select all
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8"
+                                onClick={clearPairs}
+                                disabled={selected.length === 0}
+                              >
+                                Clear
+                              </Button>
+                            </div>
+                          </div>
                           <FormControl>
                             <div className="space-y-2">
                               <Input
@@ -939,7 +972,7 @@ export function CreateAlertForm({
                                 )}
                               </div>
                               <p className="text-xs text-muted-foreground">
-                                Selected {selected.length} pair{selected.length === 1 ? "" : "s"}.
+                                {selected.length} selected / {pairs.length} available.
                                 One alert is created per pair.
                               </p>
                             </div>
@@ -949,6 +982,11 @@ export function CreateAlertForm({
                       );
                     }}
                   />
+
+                  <p className="text-xs text-muted-foreground">
+                    Valid for the current UTC day only. If it does not fire, it expires at the next
+                    UTC midnight.
+                  </p>
 
                   {firstDolPair && dolLive ? (
                     <div className="rounded-lg border border-border bg-card/60 px-3 py-2 text-xs text-muted-foreground">
@@ -1275,8 +1313,9 @@ export function CreateAlertForm({
                       })}
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Select one or more channels. SMS and call require a phone number; email requires
-                      an address. Sound plays in the browser when enabled in Settings.
+                      In-app sound is always included. Optionally add SMS, call, or email. SMS and
+                      call require a phone number; email requires an address. Sound plays in the
+                      browser when enabled in Settings.
                     </p>
                     <FormMessage />
                   </FormItem>

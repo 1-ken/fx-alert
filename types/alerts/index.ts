@@ -1,5 +1,5 @@
 export type AlertCondition = "above" | "below" | "equal";
-export type AlertStatus = "active" | "triggered" | "disabled";
+export type AlertStatus = "active" | "triggered" | "disabled" | "expired";
 export type AlertChannel = "email" | "sms" | "call" | "sound";
 export type AlertType = "price" | "candle_close" | "prev_day_level";
 export type CandleDirection = "above" | "below";
@@ -34,6 +34,7 @@ export interface AlertsResponse {
   total: number;
   active: Alert[];
   triggered: Alert[];
+  expired: Alert[];
   all: Alert[];
 }
 

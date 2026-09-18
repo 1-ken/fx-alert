@@ -3,9 +3,10 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 
 import { apiFetch } from "@/lib/api-fetch";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 
-function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+async function getApiBaseUrl(): Promise<string> {
+  return getObserverServerBaseUrl();
 }
 
 export const authOptions: NextAuthOptions = {
@@ -25,7 +26,7 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        const response = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/login`, {
+        const response = await apiFetch(`${await getApiBaseUrl()}/api/v1/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username, password }),
@@ -87,7 +88,7 @@ export const authOptions: NextAuthOptions = {
         if (account?.provider === "google" && user) {
           try {
             const syncResponse = await apiFetch(
-              `${getApiBaseUrl()}/api/v1/auth/oauth/google-sync`,
+              `${await getApiBaseUrl()}/api/v1/auth/oauth/google-sync`,
               {
               method: "POST",
               headers: {

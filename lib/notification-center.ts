@@ -50,7 +50,11 @@ export function toTriggerNotification(alert: Alert): TriggerNotification | null 
 }
 
 function isRecentSoundTrigger(notification: TriggerNotification, nowMs: number): boolean {
-  if (notification.channel !== "sound") {
+  const channels =
+    notification.alert.channels && notification.alert.channels.length > 0
+      ? notification.alert.channels
+      : [notification.channel];
+  if (!channels.includes("sound") && notification.channel !== "sound") {
     return false;
   }
 

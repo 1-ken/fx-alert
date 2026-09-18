@@ -125,6 +125,7 @@ export function useObserverStream() {
               total: normalizedAlerts.total,
               active: normalizedAlerts.active,
               triggered: normalizedAlerts.triggered,
+              expired: normalizedAlerts.expired,
               all: normalizedAlerts.all,
             },
             { revalidate: false },

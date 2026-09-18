@@ -25,7 +25,8 @@ type AlertStatusFilter =
   | "active"
   | "triggered"
   | "triggered-today"
-  | "triggered-5m";
+  | "triggered-5m"
+  | "expired";
 
 type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level";
 
@@ -39,7 +40,8 @@ function normalizeStatus(value?: string): AlertStatusFilter {
     value === "active" ||
     value === "triggered" ||
     value === "triggered-today" ||
-    value === "triggered-5m"
+    value === "triggered-5m" ||
+    value === "expired"
   ) {
     return value;
   }
@@ -122,7 +124,7 @@ function formatDirection(direction: string | null): string {
 function formatDrawTrigger(trigger: string | null | undefined): string {
   switch (trigger) {
     case "sweep":
-      return "Liquidity sweep";
+      return "PDH/PDL sweep";
     case "displacement":
       return "Displacement (daily close)";
     case "reversal":
@@ -132,6 +134,19 @@ function formatDrawTrigger(trigger: string | null | undefined): string {
     default:
       return "-";
   }
+}
+
+function formatAlertTypeBadge(
+  alertType: string,
+  dolTrigger?: string | null,
+): string {
+  if (alertType === "candle_close") {
+    return "candle close";
+  }
+  if (alertType === "prev_day_level") {
+    return dolTrigger === "sweep" ? "PDH/PDL sweep" : "prev day H/L";
+  }
+  return "price";
 }
 
 function formatDrawLevel(level: string | null | undefined): string {
@@ -240,6 +255,10 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
 
     if (status === "triggered-5m") {
       return triggeredLastFiveMinutes;
+    }
+
+    if (status === "expired") {
+      return alerts.expired;
     }
 
     return alerts.all;
@@ -382,7 +401,7 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
               </Button>
               <Button asChild variant={type === "prev_day_level" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "prev_day_level")}>
-                  Draw on liquidity ({typeCounts.prev_day_level})
+                  Prev day H/L ({typeCounts.prev_day_level})
                 </Link>
               </Button>
             </div>
@@ -393,10 +412,16 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
               <Link href={hrefFor("active", type)}>Active ({alerts?.active.length ?? 0})</Link>
             </Button>
+            <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
+              <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
+            </Button>
+            <Button asChild variant={status === "expired" ? "default" : "outline"} size="sm">
+              <Link href={hrefFor("expired", type)}>Expired ({alerts?.expired.length ?? 0})</Link>
+            </Button>
             </div>
             {isTriggeredView ? (
               <div className="flex flex-wrap items-center gap-2">
-                <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
+                <Button asChild variant={status === "triggered" ? "default" : "outline"} size="sm">
                   <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
                 </Button>
                 <Button asChild variant={status === "triggered-today" ? "default" : "outline"} size="sm">
@@ -466,16 +491,12 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">
-                      {alert.alert_type === "candle_close"
-                        ? "candle close"
-                        : alert.alert_type === "prev_day_level"
-                          ? "draw on liquidity"
-                          : "price"}
+                      {formatAlertTypeBadge(alert.alert_type, alert.dol_trigger)}
                     </Badge>
                     <Badge variant={alert.status === "active" ? "default" : "secondary"}>
                       {alert.status}
                     </Badge>
-                    {alert.status !== "triggered" ? (
+                    {alert.status !== "triggered" && alert.status !== "expired" ? (
                       <Button
                         type="button"
                         variant="ghost"

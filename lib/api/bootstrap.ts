@@ -4,7 +4,8 @@ export interface DailyUsage {
   sms: number;
   smsLimit: number;
   calls: number;
-  callsLimit: number;
+  /** null means unlimited (e.g. Pro). */
+  callsLimit: number | null;
 }
 
 export interface FreeTierLimits {
@@ -18,7 +19,6 @@ export interface BootstrapData {
   onboardingCompletedAt: string | null;
   authRequired: boolean;
   wsUrl: string;
-  apiBaseUrl?: string;
   phone?: string | null;
   subscriptionTier?: string;
   trialStartedAt?: string | null;

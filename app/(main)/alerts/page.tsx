@@ -33,8 +33,11 @@ export default async function AlertsPage({ searchParams }: AlertsPageProps) {
   const initialThreshold = firstSearchParam(resolvedSearchParams?.threshold);
   const initialInterval = firstSearchParam(resolvedSearchParams?.interval);
   const channelParam = firstSearchParam(resolvedSearchParams?.channel);
+  // Sound is always included; deep-link ?channel=sound means sound-only (no extra channels).
   const initialNotifyVia =
-    channelParam === "sound" ? (["sound"] as const) : undefined;
+    channelParam === "sms" || channelParam === "call" || channelParam === "email"
+      ? ([channelParam] as const)
+      : undefined;
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 py-8 text-foreground">

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { apiFetch } from "@/lib/api-fetch";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 
-function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+async function getApiBaseUrl(): Promise<string> {
+  return getObserverServerBaseUrl();
 }
 
 export async function POST(request: Request) {
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     payload.marketer_code = marketerCode;
   }
 
-  const upstreamResponse = await apiFetch(`${getApiBaseUrl()}/api/v1/auth/register`, {
+  const upstreamResponse = await apiFetch(`${await getApiBaseUrl()}/api/v1/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

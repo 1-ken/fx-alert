@@ -78,7 +78,10 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
         ? record.last_evaluated_candle_time
         : null,
     status:
-      record.status === "active" || record.status === "triggered" || record.status === "disabled"
+      record.status === "active" ||
+      record.status === "triggered" ||
+      record.status === "disabled" ||
+      record.status === "expired"
         ? record.status
         : "active",
     channel: (() => {
@@ -138,6 +141,7 @@ export function normalizeAlertsResponse(payload: unknown): AlertsResponse {
       total: 0,
       active: [],
       triggered: [],
+      expired: [],
       all: [],
     };
   }
@@ -145,14 +149,18 @@ export function normalizeAlertsResponse(payload: unknown): AlertsResponse {
   const record = payload as Record<string, unknown>;
   const active = normalizeAlertArray(record.active);
   const triggered = normalizeAlertArray(record.triggered);
+  const expired = normalizeAlertArray(record.expired);
   const all = normalizeAlertArray(record.all);
-  const mergedAll = all.length > 0 ? all : [...active, ...triggered];
+  const mergedAll = all.length > 0 ? all : [...active, ...triggered, ...expired];
+  const resolvedExpired =
+    expired.length > 0 ? expired : mergedAll.filter((alert) => alert.status === "expired");
   const total = typeof record.total === "number" ? record.total : mergedAll.length;
 
   return {
     total,
     active,
     triggered,
+    expired: resolvedExpired,
     all: mergedAll,
   };
 }
@@ -162,6 +170,7 @@ function toCachePayload(response: AlertsResponse): Record<string, unknown> {
     total: response.total,
     active: response.active,
     triggered: response.triggered,
+    expired: response.expired,
     all: response.all,
   };
 }
@@ -203,6 +212,7 @@ function patchAlertsCache(
     ...current,
     active: mapList(current.active),
     triggered: mapList(current.triggered),
+    expired: mapList(current.expired),
     all: mapList(current.all),
   });
 }
@@ -216,6 +226,7 @@ function appendAlertToCache(cache: unknown, alert: Alert): Record<string, unknow
     total: current.total + 1,
     active,
     triggered: current.triggered,
+    expired: current.expired,
     all,
   });
 }
@@ -228,6 +239,7 @@ function removeAlertFromCache(cache: unknown, alertId: string): Record<string, u
     total: current.total > 0 ? current.total - 1 : 0,
     active: filter(current.active),
     triggered: filter(current.triggered),
+    expired: filter(current.expired),
     all: filter(current.all),
   });
 }
@@ -288,6 +300,7 @@ export function useObserverAlerts() {
             total: 1,
             active: [optimisticAlert],
             triggered: [],
+            expired: [],
             all: [optimisticAlert],
           });
 

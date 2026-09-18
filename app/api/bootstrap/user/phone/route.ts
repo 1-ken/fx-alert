@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { apiFetch } from "@/lib/api-fetch";
+import { getObserverServerBaseUrl } from "@/lib/observer-server-url";
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
     const query =
       onlyIfEmpty === "true" || onlyIfEmpty === "1" ? "?only_if_empty=true" : "";
 
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiBaseUrl = await getObserverServerBaseUrl();
     const response = await apiFetch(`${apiBaseUrl}/user/phone${query}`, {
       method: "POST",
       headers: {

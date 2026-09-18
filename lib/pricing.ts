@@ -49,7 +49,7 @@ export const PRICING_TIERS: PricingTier[] = [
     name: "Pro",
     priceKes: 1999,
     priceLabel: "KES 1,999/mo",
-    includes: "250 SMS + 8 call credits",
+    includes: "250 SMS + unlimited calls",
   },
 ];
 
