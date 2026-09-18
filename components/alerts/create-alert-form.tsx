@@ -174,7 +174,7 @@ const drawLevelOptions: Array<{
 
 const alertFormSchema = z
   .object({
-    alert_type: z.enum(["price", "candle_close", "prev_day_level"]),
+    alert_type: z.enum(["price", "candle_close", "prev_day_level", "market_structure"]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
     level_ref: z.enum(["high", "low", "both"]).optional(),
@@ -184,6 +184,8 @@ const alertFormSchema = z
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
+    structure_event: z.enum(["bos", "choch", "sweep", "any"]).optional(),
+    structure_direction: z.enum(["bull", "bear", "any"]).optional(),
     notifyVia: z.array(z.enum(["sms", "call", "sound", "email"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
@@ -240,6 +242,30 @@ const alertFormSchema = z
           code: z.ZodIssueCode.custom,
           path: ["condition"],
           message: "Select a condition",
+        });
+      }
+    }
+
+    if (value.alert_type === "market_structure") {
+      if (!value.interval) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["interval"],
+          message: "Select a candle interval",
+        });
+      }
+      if (!value.structure_event) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_event"],
+          message: "Select a structure event",
+        });
+      }
+      if (!value.structure_direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Select a direction",
         });
       }
     }
@@ -330,6 +356,8 @@ type CreateAlertFormProps = {
   initialThreshold?: string;
   initialInterval?: string;
   initialNotifyVia?: NotifyChannel[];
+  initialStructureEvent?: "bos" | "choch" | "sweep" | "any";
+  initialStructureDirection?: "bull" | "bear" | "any";
 };
 
 function normalizeRecentPairs(value: unknown): string[] {
@@ -369,6 +397,8 @@ export function CreateAlertForm({
   initialThreshold,
   initialInterval,
   initialNotifyVia,
+  initialStructureEvent,
+  initialStructureDirection,
 }: CreateAlertFormProps) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -413,7 +443,9 @@ export function CreateAlertForm({
           ? "candle_close"
           : initialAlertType === "prev_day_level"
             ? "prev_day_level"
-            : "price",
+            : initialAlertType === "market_structure"
+              ? "market_structure"
+              : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -425,6 +457,8 @@ export function CreateAlertForm({
         : "1m",
       direction: "above",
       threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
+      structure_event: initialStructureEvent ?? "any",
+      structure_direction: initialStructureDirection ?? "any",
       notifyVia: initialNotifyVia ?? [],
       email: "",
       phone: "",
@@ -476,6 +510,10 @@ export function CreateAlertForm({
         shouldDirty: false,
         shouldValidate: true,
       });
+    }
+
+    if (initialAlertType === "market_structure") {
+      form.setValue("alert_type", "market_structure", { shouldDirty: false, shouldValidate: true });
     }
   }, [form, initialAlertType]);
 
@@ -691,6 +729,13 @@ export function CreateAlertForm({
           target_price: parseNumericString(values.target_price ?? ""),
           condition: values.condition,
         });
+      } else if (alertType === "market_structure") {
+        await createAlert({
+          ...basePayload,
+          interval: values.interval,
+          structure_event: values.structure_event,
+          structure_direction: values.structure_direction,
+        });
       } else {
         await createAlert({
           ...basePayload,
@@ -768,10 +813,11 @@ export function CreateAlertForm({
                           ]);
                         }}
                       >
-                        <TabsList className="grid w-full grid-cols-3 h-12">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
                           <TabsTrigger value="price">Price</TabsTrigger>
                           <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
                           <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
+                          <TabsTrigger value="market_structure">BOS / CHoCH</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -1256,6 +1302,93 @@ export function CreateAlertForm({
                               </button>
                             );
                           })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : selectedAlertType === "market_structure" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="interval"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Timeframe</FormLabel>
+                        <div className="grid grid-cols-4 gap-2">
+                          {candleIntervalOptions.map((interval) => {
+                            const active = field.value === interval;
+                            return (
+                              <button
+                                key={interval}
+                                type="button"
+                                onClick={() => field.onChange(interval)}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                {interval}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_event"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Event</FormLabel>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["bos", "choch", "sweep", "any"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm uppercase transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["bull", "bear", "any"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm capitalize transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
                         </div>
                         <FormMessage />
                       </FormItem>

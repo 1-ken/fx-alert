@@ -6,6 +6,7 @@ import {
   canUpdateSeriesLastBar,
   candleToSeriesPoint,
   chartTimeToUnix,
+  closedCandlesContentEqual,
   defaultVisibleRange,
   mergeFormingCandle,
   pickClosedBase,
@@ -110,7 +111,7 @@ describe("buildChartCandles", () => {
 });
 
 describe("applyLivePriceToForming", () => {
-  it("clamps forming wicks to closed history range", () => {
+  it("expands forming wicks to include live close without clamping", () => {
     const closed = [
       candle("2024-01-01T10:00:00Z", 1.16),
       candle("2024-01-01T10:05:00Z", 1.161),
@@ -119,8 +120,32 @@ describe("applyLivePriceToForming", () => {
     const updated = applyLivePriceToForming(forming, 2.5, closed);
     expect(updated).not.toBeNull();
     expect(updated!.close).toBe(2.5);
-    expect(updated!.high).toBeLessThanOrEqual(1.161 + 0.01);
-    expect(updated!.low).toBeGreaterThanOrEqual(1.16 - 0.01);
+    expect(updated!.high).toBe(2.5);
+    expect(updated!.low).toBe(Math.min(forming.open, forming.low, 2.5));
+  });
+
+  it("also expands when live is below the open", () => {
+    const forming = candle("2024-01-01T10:10:00Z", 1.162, true);
+    const updated = applyLivePriceToForming(forming, 1.0);
+    expect(updated!.close).toBe(1.0);
+    expect(updated!.low).toBe(1.0);
+    expect(updated!.high).toBe(Math.max(forming.open, forming.high, 1.0));
+  });
+});
+
+describe("closedCandlesContentEqual", () => {
+  it("treats identical content as equal regardless of array identity", () => {
+    const a = [candle("2024-01-01T10:00:00Z", 1.16), candle("2024-01-01T10:05:00Z", 1.161)];
+    const b = [candle("2024-01-01T10:00:00Z", 1.16), candle("2024-01-01T10:05:00Z", 1.161)];
+    expect(closedCandlesContentEqual(a, b)).toBe(true);
+  });
+
+  it("detects length or last-candle changes", () => {
+    const a = [candle("2024-01-01T10:00:00Z", 1.16)];
+    const b = [candle("2024-01-01T10:00:00Z", 1.16), candle("2024-01-01T10:05:00Z", 1.161)];
+    expect(closedCandlesContentEqual(a, b)).toBe(false);
+    const c = [candle("2024-01-01T10:00:00Z", 1.16), candle("2024-01-01T10:05:00Z", 1.2)];
+    expect(closedCandlesContentEqual(b, c)).toBe(false);
   });
 });
 

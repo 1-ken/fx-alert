@@ -28,7 +28,7 @@ type AlertStatusFilter =
   | "triggered-5m"
   | "expired";
 
-type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level";
+type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level" | "market_structure";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -50,7 +50,12 @@ function normalizeStatus(value?: string): AlertStatusFilter {
 }
 
 function normalizeType(value?: string): AlertTypeFilter {
-  if (value === "price" || value === "candle_close" || value === "prev_day_level") {
+  if (
+    value === "price" ||
+    value === "candle_close" ||
+    value === "prev_day_level" ||
+    value === "market_structure"
+  ) {
     return value;
   }
 
@@ -145,6 +150,9 @@ function formatAlertTypeBadge(
   }
   if (alertType === "prev_day_level") {
     return dolTrigger === "sweep" ? "PDH/PDL sweep" : "prev day H/L";
+  }
+  if (alertType === "market_structure") {
+    return "BOS / CHoCH";
   }
   return "price";
 }
@@ -280,6 +288,7 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
       price: source.filter((alert) => alert.alert_type === "price").length,
       candle_close: source.filter((alert) => alert.alert_type === "candle_close").length,
       prev_day_level: source.filter((alert) => alert.alert_type === "prev_day_level").length,
+      market_structure: source.filter((alert) => alert.alert_type === "market_structure").length,
     };
   }, [alerts?.all]);
 
@@ -402,6 +411,11 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
               <Button asChild variant={type === "prev_day_level" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "prev_day_level")}>
                   Prev day H/L ({typeCounts.prev_day_level})
+                </Link>
+              </Button>
+              <Button asChild variant={type === "market_structure" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "market_structure")}>
+                  BOS / CHoCH ({typeCounts.market_structure})
                 </Link>
               </Button>
             </div>
@@ -555,6 +569,22 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                       <span className="text-foreground">
                         {formatDateTime(alert.last_evaluated_candle_time)}
                       </span>
+                    </p>
+                  </>
+                ) : alert.alert_type === "market_structure" ? (
+                  <>
+                    <p>
+                      Interval: <span className="text-foreground">{alert.interval ?? "-"}</span>
+                    </p>
+                    <p>
+                      Event:{" "}
+                      <span className="text-foreground uppercase">
+                        {alert.structure_event ?? "any"}
+                      </span>
+                    </p>
+                    <p>
+                      Direction:{" "}
+                      <span className="text-foreground">{alert.structure_direction ?? "any"}</span>
                     </p>
                   </>
                 ) : (

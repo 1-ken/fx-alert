@@ -45,6 +45,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
   applyLivePriceToForming,
   CHART_INTERVAL_OPTIONS,
+  closedCandlesContentEqual,
   extractFormingCandle,
   pickClosedBase,
   resolveClosedCandles,
@@ -56,6 +57,7 @@ import {
   captureChartLayout,
   chartIntervalToPeriod,
   getKLineChartStyles,
+  isSystemOverlayId,
   KLINE_CHART_TYPE_OPTIONS,
   KLINE_DRAWING_OPTIONS,
   KLINE_INDICATOR_OPTIONS,
@@ -75,19 +77,30 @@ import { useDrawOnLiquidity } from "@/hooks/historical/use-draw-on-liquidity";
 import { biasLabel, drawLabel } from "@/lib/draw-on-liquidity";
 import type { OhlcCandle } from "@/types/historical";
 import { cn } from "@/lib/utils";
-import { PlusIcon } from "@heroicons/react/24/outline";
+import { computeMarketStructure, structureEventKey, type StructureEvent } from "@/lib/market-structure";
+import {
+  DEFAULT_STRUCTURE_LAYERS,
+  syncMarketStructureOverlays,
+  syncPendingStructureAlertOverlays,
+  type StructureLayerFlags,
+} from "@/lib/structure-overlay";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useChartPrefsStore } from "@/stores/chart-prefs-store";
 import {
   ChartBarIcon,
   PencilSquareIcon,
+  PlusIcon,
   Squares2X2Icon,
 } from "@heroicons/react/24/outline";
 
 export type ChartAlertDraft = {
   pair: string;
-  alertType: "price" | "candle_close";
+  alertType: "price" | "candle_close" | "market_structure";
   price: number;
   interval: ChartInterval;
   candleTime?: string;
+  structureEvent?: "bos" | "choch" | "sweep" | "any";
+  structureDirection?: "bull" | "bear" | "any";
 };
 
 export interface InteractiveTradingChartProps {
@@ -153,29 +166,58 @@ export function InteractiveTradingChart({
   const pairRef = useRef(pair);
   const intervalRef = useRef(intervalProp);
   const openAlertDraftRef = useRef<
-    (alertType: "price" | "candle_close", price: number, candleTime?: string) => void
+    (
+      alertType: "price" | "candle_close" | "market_structure",
+      price: number,
+      extra?: {
+        candleTime?: string;
+        structureEvent?: ChartAlertDraft["structureEvent"];
+        structureDirection?: ChartAlertDraft["structureDirection"];
+      },
+    ) => void
   >(() => undefined);
   const isMobileRef = useRef(false);
   const persistLayoutRef = useRef<() => void>(() => undefined);
+  const structureOnEventClickRef = useRef<(event: StructureEvent) => void>(() => undefined);
+  const drawingSnapRef = useRef(true);
+  const followLiveRef = useRef(true);
+  const structureLayersRef = useRef(DEFAULT_STRUCTURE_LAYERS);
+  const pinnedTooltipRef = useRef(false);
+  const closedForChartStableRef = useRef<OhlcCandle[]>([]);
+  const rehydrateOverlaysRef = useRef<() => void>(() => undefined);
 
   const [interval, setInterval] = useState<ChartInterval>(intervalProp);
   const [chartType, setChartType] = useState<KLineChartType>("candle_solid");
   const [hoverY, setHoverY] = useState<number | null>(null);
   const [hoverPrice, setHoverPrice] = useState<number | null>(null);
   const [hoverTimeLabel, setHoverTimeLabel] = useState<string | null>(null);
-  const [popoverOpen, setPopoverOpen] = useState(false);
-  const [clickPopover, setClickPopover] = useState<{
-    y: number;
-    price: number;
+  const [hoverOhlc, setHoverOhlc] = useState<{
+    open: number;
+    high: number;
+    low: number;
+    close: number;
   } | null>(null);
+  const [pinnedTooltip, setPinnedTooltip] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [resetFlash, setResetFlash] = useState(false);
   const [latestFlash, setLatestFlash] = useState(false);
   const [cachedClosed, setCachedClosed] = useState<OhlcCandle[]>([]);
   const [dataReady, setDataReady] = useState(false);
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(() => new Set());
 
+  const structureLayers = useChartPrefsStore((s) => s.layers);
+  const followLive = useChartPrefsStore((s) => s.followLive);
+  const drawingSnap = useChartPrefsStore((s) => s.drawingSnap);
+  const toggleLayer = useChartPrefsStore((s) => s.toggleLayer);
+  const setFollowLive = useChartPrefsStore((s) => s.setFollowLive);
+  const setDrawingSnap = useChartPrefsStore((s) => s.setDrawingSnap);
+
   pairRef.current = pair;
   intervalRef.current = interval;
+  drawingSnapRef.current = drawingSnap;
+  followLiveRef.current = followLive;
+  structureLayersRef.current = structureLayers;
+  pinnedTooltipRef.current = pinnedTooltip;
 
   const isMobile = useIsMobile();
   const { resolvedTheme } = useTheme();
@@ -189,10 +231,20 @@ export function InteractiveTradingChart({
       alerts.active.filter(
         (alert) =>
           normalizePairKey(alert.pair) === pairKey &&
-          alert.alert_type === "price" &&
-          alert.target_price !== null,
+          ((alert.alert_type === "price" && alert.target_price !== null) ||
+            alert.alert_type === "market_structure"),
       ),
     [alerts.active, pairKey],
+  );
+
+  const priceAlerts = useMemo(
+    () => pairAlerts.filter((alert) => alert.alert_type === "price"),
+    [pairAlerts],
+  );
+
+  const structureAlerts = useMemo(
+    () => pairAlerts.filter((alert) => alert.alert_type === "market_structure"),
+    [pairAlerts],
   );
 
   const ohlcParams = useMemo(() => ({ pair, interval, limit }), [pair, interval, limit]);
@@ -238,19 +290,31 @@ export function InteractiveTradingChart({
     [cachedClosed, closedFromHttp, fallbackClosed],
   );
 
-  const closedForChart = useMemo(
+  const closedForChartRaw = useMemo(
     () => resolveClosedCandles(ohlcData, closedBase),
     [ohlcData, closedBase],
   );
 
+  const closedForChart = useMemo(() => {
+    if (closedCandlesContentEqual(closedForChartStableRef.current, closedForChartRaw)) {
+      return closedForChartStableRef.current;
+    }
+    closedForChartStableRef.current = closedForChartRaw;
+    return closedForChartRaw;
+  }, [closedForChartRaw]);
+
   const displayLivePrice = streamLivePrice ?? livePrice;
+  const structureAlertAnchorPrice = useMemo(
+    () => closedForChart.at(-1)?.close,
+    [closedForChart],
+  );
 
   const formingCandle = useMemo(() => {
     const base =
       formingCandleWs ??
       extractFormingCandle(formingOhlcData) ??
       synthesizeFormingFromLive(displayLivePrice, closedForChart, interval);
-    return applyLivePriceToForming(base, displayLivePrice, closedForChart);
+    return applyLivePriceToForming(base, displayLivePrice);
   }, [
     formingCandleWs,
     formingOhlcData,
@@ -266,6 +330,7 @@ export function InteractiveTradingChart({
       activeIndicatorsRef.current,
     );
     chartInstance.resetData();
+    chartInstance.setOffsetRightDistance(80);
   }, []);
 
   const persistLayout = useCallback(() => {
@@ -318,6 +383,7 @@ export function InteractiveTradingChart({
     if (!chart) {
       return;
     }
+    setFollowLive(true);
     userHasPannedRef.current = false;
     chart.scrollToRealTime(200);
     flashButton("reset");
@@ -329,21 +395,48 @@ export function InteractiveTradingChart({
     if (!chart) {
       return;
     }
+    setFollowLive(true);
+    userHasPannedRef.current = false;
     chart.scrollToRealTime(200);
     flashButton("latest");
     toast.message("Showing latest candles");
   }, [flashButton]);
 
+  const fitView = useCallback(() => {
+    const chart = chartRef.current;
+    const container = containerRef.current;
+    if (!chart || !container) {
+      return;
+    }
+    const count = Math.max(chart.getDataList().length, 1);
+    const width = Math.max(container.clientWidth - 72, 80);
+    chart.setBarSpace(Math.max(1, Math.min(24, width / count)));
+    chart.scrollToDataIndex(0);
+    setFollowLive(false);
+    userHasPannedRef.current = true;
+    toast.message("Fit all bars");
+  }, []);
+
   const openAlertDraft = useCallback(
-    (alertType: "price" | "candle_close", price: number, candleTime?: string) => {
+    (
+      alertType: "price" | "candle_close" | "market_structure",
+      price: number,
+      extra?: {
+        candleTime?: string;
+        structureEvent?: ChartAlertDraft["structureEvent"];
+        structureDirection?: ChartAlertDraft["structureDirection"];
+      },
+    ) => {
       onCreateAlert?.({
         pair,
         alertType,
         price,
         interval,
-        candleTime,
+        candleTime: extra?.candleTime,
+        structureEvent: extra?.structureEvent,
+        structureDirection: extra?.structureDirection,
       });
-      setPopoverOpen(false);
+      setPlusMenuOpen(false);
     },
     [interval, onCreateAlert, pair],
   );
@@ -352,15 +445,25 @@ export function InteractiveTradingChart({
     const crosshair = data as Crosshair;
     const chart = chartRef.current;
     if (!chart || crosshair.x === undefined || crosshair.y === undefined) {
-      setHoverY(null);
-      setHoverPrice(null);
-      setHoverTimeLabel(null);
+      if (!pinnedTooltipRef.current) {
+        setHoverY(null);
+        setHoverPrice(null);
+        setHoverTimeLabel(null);
+        setHoverOhlc(null);
+      }
       return;
     }
 
     setHoverY(crosshair.y);
     const price = priceFromChartCoordinate(chart, crosshair.x, crosshair.y);
     setHoverPrice(price);
+
+    const k = crosshair.kLineData;
+    if (k && typeof k.open === "number") {
+      setHoverOhlc({ open: k.open, high: k.high, low: k.low, close: k.close });
+    } else {
+      setHoverOhlc(null);
+    }
 
     if (crosshair.timestamp) {
       setHoverTimeLabel(new Date(crosshair.timestamp).toLocaleString());
@@ -373,24 +476,20 @@ export function InteractiveTradingChart({
 
   const handleChartClick = useCallback(
     (event: MouseEvent) => {
-      if (!onCreateAlert) {
-        return;
-      }
       const chart = chartRef.current;
       const container = containerRef.current;
       if (!chart || !container) {
         return;
       }
 
-      const rect = container.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const price = priceFromChartCoordinate(chart, x, y);
-      if (price === null) {
-        return;
-      }
-
-      if (isMobileRef.current) {
+      if (isMobileRef.current && onCreateAlert) {
+        const rect = container.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const price = priceFromChartCoordinate(chart, x, y);
+        if (price === null) {
+          return;
+        }
         const dataList = chart.getDataList();
         const last = dataList.at(-1);
         if (last && crosshairMatchesLastBar(event, chart, last)) {
@@ -399,8 +498,7 @@ export function InteractiveTradingChart({
         return;
       }
 
-      setClickPopover({ y, price });
-      setPopoverOpen(true);
+      setPinnedTooltip((prev) => !prev);
     },
     [onCreateAlert],
   );
@@ -468,13 +566,34 @@ export function InteractiveTradingChart({
       volumePrecision: 0,
     });
     chart.setPeriod(chartIntervalToPeriod(intervalRef.current));
+    chart.setOffsetRightDistance(80);
 
-    const onVisibleRangeChange = () => {
+    let pointerDown = false;
+    const markUserPan = () => {
+      if (followLiveRef.current) {
+        setFollowLive(false);
+      }
       userHasPannedRef.current = true;
+    };
+    const onPointerDown = () => {
+      pointerDown = true;
+    };
+    const onPointerUp = () => {
+      pointerDown = false;
+    };
+    const onPointerMove = () => {
+      if (pointerDown) {
+        markUserPan();
+      }
     };
 
     chart.subscribeAction("onCrosshairChange", handleCrosshairChange);
-    chart.subscribeAction("onVisibleRangeChange", onVisibleRangeChange);
+    container.addEventListener("pointerdown", onPointerDown);
+    container.addEventListener("pointerup", onPointerUp);
+    container.addEventListener("pointercancel", onPointerUp);
+    container.addEventListener("pointerleave", onPointerUp);
+    container.addEventListener("pointermove", onPointerMove);
+    container.addEventListener("wheel", markUserPan, { passive: true });
     container.addEventListener("click", handleChartClick);
 
     chart.setDataLoader({
@@ -490,7 +609,12 @@ export function InteractiveTradingChart({
         callback(bars, { backward: false, forward: false });
         setDataReady(bars.length > 0);
         applyPendingLayout(chart);
+        chart.setOffsetRightDistance(80);
+        rehydrateOverlaysRef.current();
         pushFormingBar(subscribeBarRef.current, formingCandleRef.current);
+        if (followLiveRef.current) {
+          chart.scrollToRealTime(0);
+        }
       },
       subscribeBar: ({ callback }) => {
         subscribeBarRef.current = callback;
@@ -512,8 +636,13 @@ export function InteractiveTradingChart({
       persistLayoutRef.current();
       resizeObserver.disconnect();
       container.removeEventListener("click", handleChartClick);
+      container.removeEventListener("pointerdown", onPointerDown);
+      container.removeEventListener("pointerup", onPointerUp);
+      container.removeEventListener("pointercancel", onPointerUp);
+      container.removeEventListener("pointerleave", onPointerUp);
+      container.removeEventListener("pointermove", onPointerMove);
+      container.removeEventListener("wheel", markUserPan);
       chart.unsubscribeAction("onCrosshairChange", handleCrosshairChange);
-      chart.unsubscribeAction("onVisibleRangeChange", onVisibleRangeChange);
       dispose(chart);
       chartRef.current = null;
       subscribeBarRef.current = null;
@@ -546,6 +675,7 @@ export function InteractiveTradingChart({
       if (chart) {
         chart.setSymbol({ ticker: pair, pricePrecision: 5, volumePrecision: 0 });
         chart.setPeriod(chartIntervalToPeriod(interval));
+        chart.setOffsetRightDistance(80);
       }
     }
 
@@ -586,20 +716,26 @@ export function InteractiveTradingChart({
 
     if (prevCount === 0 && newCount > 0) {
       pushFormingBar(subscribeBarRef.current, formingCandleRef.current);
+      if (followLiveRef.current) {
+        chart.scrollToRealTime(0);
+      }
     }
   }, [closedForChart, resetChartWithLayout]);
 
   useEffect(() => {
     pushFormingBar(subscribeBarRef.current, formingCandle);
-  }, [formingCandle]);
+    if (followLive && chartRef.current) {
+      chartRef.current.scrollToRealTime(0);
+    }
+  }, [formingCandle, followLive]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) {
       return;
     }
-    syncAlertOverlays(chart, pairAlerts);
-  }, [pairAlerts]);
+    syncAlertOverlays(chart, structureLayers.alertLines ? priceAlerts : []);
+  }, [priceAlerts, structureLayers.alertLines]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -619,7 +755,7 @@ export function InteractiveTradingChart({
     if (!chart) {
       return;
     }
-    if (!showDrawOnLiquidity || !drawLive) {
+    if (!showDrawOnLiquidity || !structureLayers.pdhPdl || !drawLive) {
       syncPrevDayLevels(chart, null);
       return;
     }
@@ -628,8 +764,7 @@ export function InteractiveTradingChart({
       pdl: drawLive.pdl,
       draw: drawLive.draw,
     });
-    // Re-apply after bar-close resets (closedForChart change clears overlays).
-  }, [showDrawOnLiquidity, drawLive, closedForChart]);
+  }, [showDrawOnLiquidity, structureLayers.pdhPdl, drawLive, closedForChart]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -642,6 +777,118 @@ export function InteractiveTradingChart({
       syncDrawHistory(chart, []);
     }
   }, [showDrawOnLiquidity, showDrawHistory, drawBiasSeries, closedForChart]);
+
+  const structure = useMemo(
+    () => computeMarketStructure(closedForChart),
+    [closedForChart],
+  );
+
+  const onStructureEventClick = useCallback(
+    (event: StructureEvent) => {
+      openAlertDraft("market_structure", event.level, {
+        candleTime: event.timestamp,
+        structureEvent: structureEventKey(event.kind),
+        structureDirection: event.dir,
+      });
+    },
+    [openAlertDraft],
+  );
+
+  useEffect(() => {
+    structureOnEventClickRef.current = onStructureEventClick;
+  }, [onStructureEventClick]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    syncMarketStructureOverlays(
+      chart,
+      structure,
+      closedForChart,
+      structureLayers,
+      (ev) => structureOnEventClickRef.current(ev),
+    );
+  }, [structure, closedForChart, structureLayers]);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    syncPendingStructureAlertOverlays(
+      chart,
+      structureAlerts,
+      structureAlertAnchorPrice,
+      structureLayers.pendingStructureAlerts,
+    );
+  }, [
+    structureAlerts,
+    structureAlertAnchorPrice,
+    structureLayers.pendingStructureAlerts,
+    closedForChart,
+  ]);
+
+  // Keep a stable rehydrate callback for getBars after resetData clears system overlays.
+  useEffect(() => {
+    rehydrateOverlaysRef.current = () => {
+      const chart = chartRef.current;
+      if (!chart) {
+        return;
+      }
+      const layers = structureLayersRef.current;
+      syncLivePriceOverlay(chart, displayLivePrice);
+      syncAlertOverlays(chart, layers.alertLines ? priceAlerts : []);
+      if (showDrawOnLiquidity && layers.pdhPdl && drawLive) {
+        syncPrevDayLevels(chart, {
+          pdh: drawLive.pdh,
+          pdl: drawLive.pdl,
+          draw: drawLive.draw,
+        });
+      } else {
+        syncPrevDayLevels(chart, null);
+      }
+      if (showDrawOnLiquidity && showDrawHistory) {
+        syncDrawHistory(chart, drawBiasSeries);
+      } else {
+        syncDrawHistory(chart, []);
+      }
+      syncMarketStructureOverlays(
+        chart,
+        structure,
+        closedForChart,
+        layers,
+        (ev) => structureOnEventClickRef.current(ev),
+      );
+      syncPendingStructureAlertOverlays(
+        chart,
+        structureAlerts,
+        structureAlertAnchorPrice,
+        layers.pendingStructureAlerts,
+      );
+    };
+  }, [
+    displayLivePrice,
+    priceAlerts,
+    showDrawOnLiquidity,
+    showDrawHistory,
+    drawLive,
+    drawBiasSeries,
+    structure,
+    closedForChart,
+    structureAlerts,
+    structureAlertAnchorPrice,
+  ]);
+
+  const scrollToBarIndex = useCallback((index: number) => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    setFollowLive(false);
+    chart.scrollToDataIndex(index);
+  }, []);
 
   const toggleIndicator = useCallback((name: string) => {
     const chart = chartRef.current;
@@ -669,12 +916,60 @@ export function InteractiveTradingChart({
     if (!chart) {
       return;
     }
-    chart.createOverlay(overlayName);
+    chart.createOverlay({
+      name: overlayName,
+      mode: drawingSnapRef.current ? "weak_magnet" : "normal",
+    });
     window.setTimeout(() => {
       const layout = captureChartLayout(chart, activeIndicatorsRef.current);
       saveChartLayout(pairRef.current, intervalRef.current, layout);
     }, 500);
   }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      const chart = chartRef.current;
+      if (!chart) {
+        return;
+      }
+      if (event.key === "v" || event.key === "V") {
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "l" || event.key === "L") {
+        event.preventDefault();
+        startDrawing("segment");
+      }
+      if (event.key === "h" || event.key === "H") {
+        event.preventDefault();
+        startDrawing("rayLine");
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        const overlays = chart.getOverlays();
+        const drawing = overlays.find(
+          (o) => o.id && !isSystemOverlayId(o.id) && (o.currentStep ?? 0) < (o.totalStep ?? 1),
+        );
+        if (drawing?.id) {
+          chart.removeOverlay({ id: drawing.id });
+        }
+      }
+      if (event.key === "Delete" || event.key === "Backspace") {
+        const overlays = chart.getOverlays().filter((o) => o.id && !isSystemOverlayId(o.id));
+        const last = overlays.at(-1);
+        if (last?.id) {
+          event.preventDefault();
+          chart.removeOverlay({ id: last.id });
+          persistLayoutRef.current();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [startDrawing]);
 
   const isInitialLoading = ohlcLoading && !ohlcData;
   const error = ohlcError;
@@ -745,6 +1040,28 @@ export function InteractiveTradingChart({
             onClick={scrollToLatest}
           >
             Latest
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className={toolbarButtonClass}
+            onClick={fitView}
+          >
+            Fit
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={followLive ? "default" : "outline"}
+            className={toolbarButtonClass}
+            onClick={() => {
+              setFollowLive(true);
+              userHasPannedRef.current = false;
+              chartRef.current?.scrollToRealTime(200);
+            }}
+          >
+            Follow
           </Button>
           <Select value={interval} onValueChange={(value) => setInterval(value as ChartInterval)}>
             <SelectTrigger
@@ -838,6 +1155,11 @@ export function InteractiveTradingChart({
               <div className="mb-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/50 px-3 py-1.5 text-xs font-mono">
                 <span>Price: {hoverPrice.toFixed(5)}</span>
                 {hoverTimeLabel ? <span className="text-muted-foreground">{hoverTimeLabel}</span> : null}
+                {hoverOhlc ? (
+                  <span className="text-muted-foreground">
+                    O {hoverOhlc.open} H {hoverOhlc.high} L {hoverOhlc.low} C {hoverOhlc.close}
+                  </span>
+                ) : null}
               </div>
             ) : null}
             <div
@@ -855,109 +1177,169 @@ export function InteractiveTradingChart({
                 style={{ height: chartHeight }}
               />
             ) : null}
-            {onCreateAlert ? (
-              <>
-                {hoverY !== null && hoverPrice !== null && !clickPopover ? (
-                  <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="absolute left-1 z-20 flex h-9 w-9 items-center justify-center rounded-full border bg-card text-primary shadow-md transition active:scale-[0.97] sm:h-7 sm:w-7"
-                        style={{ top: hoverY - 18 }}
-                        onClick={() => setPopoverOpen(true)}
-                        aria-label="Create alert at hovered price"
-                      >
-                        <PlusIcon className="h-4 w-4" />
-                      </button>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-48 p-2">
-                      <div className="grid gap-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="justify-start"
-                          onClick={() => {
-                            setClickPopover(null);
-                            openAlertDraft("price", hoverPrice);
-                          }}
-                        >
-                          Price alert
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="justify-start"
-                          onClick={() => {
-                            setClickPopover(null);
-                            openAlertDraft("candle_close", hoverPrice);
-                          }}
-                        >
-                          Candle close alert
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                ) : null}
-                {clickPopover ? (
-                  <Popover
-                    open={popoverOpen}
-                    onOpenChange={(open) => {
-                      setPopoverOpen(open);
-                      if (!open) {
-                        setClickPopover(null);
-                      }
+            {onCreateAlert && hoverY !== null && hoverPrice !== null ? (
+              <Popover open={plusMenuOpen} onOpenChange={setPlusMenuOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="absolute left-1 z-20 flex h-9 w-9 items-center justify-center rounded-full border bg-card text-primary shadow-md transition active:scale-[0.97] sm:h-7 sm:w-7"
+                    style={{ top: hoverY - 18 }}
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label="Create alert at hovered price"
+                  >
+                    <PlusIcon className="h-4 w-4" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-56 p-2">
+                  <ChartAlertMenu
+                    price={hoverPrice}
+                    onPrice={() => openAlertDraft("price", hoverPrice)}
+                    onCandle={() => openAlertDraft("candle_close", hoverPrice)}
+                    onBos={() =>
+                      openAlertDraft("market_structure", hoverPrice, {
+                        structureEvent: "bos",
+                        structureDirection: "any",
+                      })
+                    }
+                    onChoch={() =>
+                      openAlertDraft("market_structure", hoverPrice, {
+                        structureEvent: "choch",
+                        structureDirection: "any",
+                      })
+                    }
+                    onSweep={() =>
+                      openAlertDraft("market_structure", hoverPrice, {
+                        structureEvent: "sweep",
+                        structureDirection: "any",
+                      })
+                    }
+                  />
+                </PopoverContent>
+              </Popover>
+            ) : null}
+          </div>
+        </div>
+        {!isMobile && (hoverOhlc || pinnedTooltip) ? (
+          <div
+            className={cn(
+              "mt-2 rounded-md border bg-card/90 px-3 py-2 font-mono text-xs",
+              pinnedTooltip && "border-primary",
+            )}
+          >
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {hoverTimeLabel ? <span>{hoverTimeLabel}</span> : null}
+              {hoverOhlc ? (
+                <>
+                  <span>O {hoverOhlc.open}</span>
+                  <span>H {hoverOhlc.high}</span>
+                  <span>L {hoverOhlc.low}</span>
+                  <span>C {hoverOhlc.close}</span>
+                </>
+              ) : null}
+              {structure.lastAtr != null ? <span>ATR {structure.lastAtr.toFixed(5)}</span> : null}
+              {pinnedTooltip ? <span className="text-primary">pinned</span> : null}
+            </div>
+          </div>
+        ) : null}
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          {(
+            [
+              ["levels", "Levels"],
+              ["breaks", "Breaks"],
+              ["sweeps", "Sweeps"],
+              ["atrZone", "ATR zone"],
+              ["pdhPdl", "PDH/PDL"],
+              ["alertLines", "Alert lines"],
+              ["pendingStructureAlerts", "Structure alerts"],
+            ] as Array<[keyof StructureLayerFlags, string]>
+          ).map(([key, label]) => (
+            <label key={key} className="flex cursor-pointer items-center gap-1.5">
+              <Checkbox
+                checked={structureLayers[key]}
+                onCheckedChange={() => toggleLayer(key)}
+              />
+              {label}
+            </label>
+          ))}
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <Checkbox
+              checked={drawingSnap}
+              onCheckedChange={(checked) => setDrawingSnap(checked === true)}
+            />
+            Snap OHLC
+          </label>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <StructureChip
+            k="Structure"
+            v={structure.trend === "up" ? "Uptrend" : structure.trend === "down" ? "Downtrend" : "—"}
+          />
+          <StructureChip
+            k="Last high"
+            v={structure.lastHigh ? String(structure.lastHigh.price) : "—"}
+          />
+          <StructureChip
+            k="Last low"
+            v={structure.lastLow ? String(structure.lastLow.price) : "—"}
+          />
+          <StructureChip
+            k="Sweeps"
+            v={String(structure.events.filter((e) => e.kind === "SWEEP").length)}
+          />
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="rounded-lg border">
+            <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Swing log ({structure.pivots.length})
+            </div>
+            <div className="max-h-40 overflow-y-auto">
+              {structure.pivots.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-muted-foreground">No confirmed pivots yet.</p>
+              ) : (
+                [...structure.pivots].reverse().map((p) => (
+                  <button
+                    key={`${p.type}-${p.index}`}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 border-b px-3 py-1.5 text-left text-xs last:border-0 hover:bg-muted/50"
+                    onClick={() => scrollToBarIndex(p.index)}
+                  >
+                    <span className="font-mono">{p.label ?? p.type}</span>
+                    <span className="font-mono">{p.price}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+          <div className="rounded-lg border">
+            <div className="border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Break / sweep log ({structure.events.length})
+            </div>
+            <div className="max-h-40 overflow-y-auto">
+              {structure.events.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-muted-foreground">No BOS / CHoCH / sweep yet.</p>
+              ) : (
+                [...structure.events].reverse().map((ev, i) => (
+                  <button
+                    key={`${ev.kind}-${ev.index}-${i}`}
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 border-b px-3 py-1.5 text-left text-xs last:border-0 hover:bg-muted/50"
+                    onClick={() => {
+                      scrollToBarIndex(ev.index);
+                      onStructureEventClick(ev);
                     }}
                   >
-                    <PopoverTrigger asChild>
-                      <button
-                        type="button"
-                        className="absolute left-1 z-20 h-1 w-1 opacity-0"
-                        style={{ top: clickPopover.y - 1 }}
-                        aria-hidden
-                      />
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-48 p-2">
-                      <div className="grid gap-1">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="justify-start"
-                          onClick={() => {
-                            setClickPopover(null);
-                            setPopoverOpen(false);
-                            openAlertDraft("price", clickPopover.price);
-                          }}
-                        >
-                          Price alert
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="justify-start"
-                          onClick={() => {
-                            setClickPopover(null);
-                            setPopoverOpen(false);
-                            openAlertDraft("candle_close", clickPopover.price);
-                          }}
-                        >
-                          Candle close alert
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                ) : null}
-              </>
-            ) : null}
+                    <span className="font-medium">{ev.kind}</span>
+                    <span className="font-mono">{ev.dir} · {ev.level}</span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {isMobile
-            ? "Red line is live price. Tap the forming candle or use + to create an alert."
-            : "Red line is live price. Click the chart or use + to create a price or candle alert."}
+            ? "Red line is live price. Tap + to create an alert, or tap the forming candle for a close alert."
+            : "Red line is live price. Click + to create an alert. V pan · L line · H ray · Esc cancel · Del undo."}
         </p>
       </CardContent>
     </Card>
@@ -981,4 +1363,48 @@ function crosshairMatchesLastBar(
     return false;
   }
   return Math.abs(point.x - x) < 24;
+}
+
+function StructureChip({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/30 px-3 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{k}</div>
+      <div className="font-mono text-sm">{v}</div>
+    </div>
+  );
+}
+
+function ChartAlertMenu({
+  onPrice,
+  onCandle,
+  onBos,
+  onChoch,
+  onSweep,
+}: {
+  price: number;
+  onPrice: () => void;
+  onCandle: () => void;
+  onBos: () => void;
+  onChoch: () => void;
+  onSweep: () => void;
+}) {
+  return (
+    <div className="grid gap-1">
+      <Button type="button" size="sm" variant="ghost" className="justify-start" onClick={onPrice}>
+        Price alert
+      </Button>
+      <Button type="button" size="sm" variant="ghost" className="justify-start" onClick={onCandle}>
+        Candle close alert
+      </Button>
+      <Button type="button" size="sm" variant="ghost" className="justify-start" onClick={onBos}>
+        Next BOS (this TF)
+      </Button>
+      <Button type="button" size="sm" variant="ghost" className="justify-start" onClick={onChoch}>
+        Next CHoCH (this TF)
+      </Button>
+      <Button type="button" size="sm" variant="ghost" className="justify-start" onClick={onSweep}>
+        Next sweep (this TF)
+      </Button>
+    </div>
+  );
 }

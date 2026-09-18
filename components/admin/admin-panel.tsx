@@ -103,6 +103,9 @@ function formatAlertTarget(alert: AdminAlertRow): string {
   if (alert.alert_type === "candle_close") {
     return alert.threshold !== null ? String(alert.threshold) : "—";
   }
+  if (alert.alert_type === "market_structure") {
+    return "structure";
+  }
   return alert.target_price !== null ? String(alert.target_price) : "—";
 }
 

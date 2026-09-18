@@ -1,7 +1,9 @@
 export type AlertCondition = "above" | "below" | "equal";
 export type AlertStatus = "active" | "triggered" | "disabled" | "expired";
 export type AlertChannel = "email" | "sms" | "call" | "sound";
-export type AlertType = "price" | "candle_close" | "prev_day_level";
+export type AlertType = "price" | "candle_close" | "prev_day_level" | "market_structure";
+export type StructureEventFilter = "bos" | "choch" | "sweep" | "any";
+export type StructureDirectionFilter = "bull" | "bear" | "any";
 export type CandleDirection = "above" | "below";
 export type DrawLevelRef = "high" | "low" | "both";
 export type DrawTrigger = "sweep" | "displacement" | "reversal" | "draw_met";
@@ -28,6 +30,10 @@ export interface Alert {
   level_ref?: DrawLevelRef | null;
   dol_trigger?: DrawTrigger | null;
   batch_id?: string | null;
+  structure_event?: StructureEventFilter | null;
+  structure_direction?: StructureDirectionFilter | null;
+  min_swing_atr?: number | null;
+  break_k?: number | null;
 }
 
 export interface AlertsResponse {
@@ -55,6 +61,10 @@ export interface AlertUpsertInput {
   level_ref?: DrawLevelRef;
   dol_trigger?: DrawTrigger;
   pairs?: string[];
+  structure_event?: StructureEventFilter;
+  structure_direction?: StructureDirectionFilter;
+  min_swing_atr?: number;
+  break_k?: number;
 }
 
 export interface AlertUpsertResponse {

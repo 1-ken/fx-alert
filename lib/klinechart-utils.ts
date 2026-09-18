@@ -14,6 +14,10 @@ import type { OhlcCandle } from "@/types/historical";
 import type { Alert } from "@/types/alerts";
 import type { DayBias, DrawTarget } from "@/lib/draw-on-liquidity";
 import { TRADE_POSITION_OVERLAY_ID } from "@/lib/position-math";
+import {
+  isStructureOverlayId,
+  type StructureLayerFlags,
+} from "@/lib/structure-overlay";
 
 export const LIVE_OVERLAY_ID = "fx-live-price";
 export const ALERT_OVERLAY_PREFIX = "fx-alert-";
@@ -48,6 +52,8 @@ export type UserOverlaySnapshot = {
 export type ChartLayoutSnapshot = {
   indicators: string[];
   overlays: UserOverlaySnapshot[];
+  structureLayers?: StructureLayerFlags;
+  followLive?: boolean;
 };
 
 export function chartLayoutStorageKey(pair: string, interval: string): string {
@@ -106,7 +112,8 @@ export function isSystemOverlayId(id?: string): boolean {
     id === SETUP_SWEEP_1H_MARK_ID ||
     id === TRADE_POSITION_OVERLAY_ID ||
     id.startsWith(ALERT_OVERLAY_PREFIX) ||
-    id.startsWith(DOL_SEGMENT_PREFIX)
+    id.startsWith(DOL_SEGMENT_PREFIX) ||
+    isStructureOverlayId(id)
   );
 }
 
@@ -168,6 +175,7 @@ export function syncChartIndicators(chart: Chart, desiredNames: Iterable<string>
 export function captureChartLayout(
   chart: Chart,
   activeIndicators: Iterable<string>,
+  extras?: Pick<ChartLayoutSnapshot, "structureLayers" | "followLive">,
 ): ChartLayoutSnapshot {
   const indicators = [
     ...new Set([...getActiveIndicatorNames(chart), ...activeIndicators]),
@@ -175,6 +183,8 @@ export function captureChartLayout(
   return {
     indicators,
     overlays: snapshotUserOverlays(chart),
+    ...(extras?.structureLayers ? { structureLayers: extras.structureLayers } : {}),
+    ...(extras?.followLive !== undefined ? { followLive: extras.followLive } : {}),
   };
 }
 
@@ -291,8 +301,11 @@ export function getKLineChartStyles(isDark: boolean): DeepPartial<Styles> {
       priceMark: {
         last: {
           show: true,
-          line: { show: true, style: "dashed", dashedValue: [4, 4], size: 1 },
-          text: { show: true, color: bg, size: 11 },
+          upColor: up,
+          downColor: down,
+          noChangeColor: up,
+          line: { show: true, style: "solid", size: 1.5 },
+          text: { show: true, color: bg, size: 12 },
         },
       },
       tooltip: { showRule: "follow_cross" },

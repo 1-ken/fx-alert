@@ -95,6 +95,7 @@ describe("isSystemOverlayId", () => {
     expect(isSystemOverlayId(`${ALERT_OVERLAY_PREFIX}xyz`)).toBe(true);
     expect(isSystemOverlayId(SETUP_ENTRY_OVERLAY_ID)).toBe(true);
     expect(isSystemOverlayId(SETUP_SWEEP_1H_MARK_ID)).toBe(true);
+    expect(isSystemOverlayId("fx-structure-break-0")).toBe(true);
     expect(isSystemOverlayId("user-trend-line")).toBe(false);
     expect(isSystemOverlayId(undefined)).toBe(false);
   });

@@ -72,10 +72,14 @@ export default function AlertDetailPage() {
               target_price: Number(targetPrice || alert.target_price),
               custom_message: trimmedMessage,
             }
-          : {
-              threshold: Number(targetPrice || alert.threshold),
-              custom_message: trimmedMessage,
-            };
+          : alert.alert_type === "candle_close"
+            ? {
+                threshold: Number(targetPrice || alert.threshold),
+                custom_message: trimmedMessage,
+              }
+            : {
+                custom_message: trimmedMessage,
+              };
       await updateAlert(alert.id, body);
       router.push("/alerts/list");
     } catch {
@@ -101,14 +105,24 @@ export default function AlertDetailPage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="level">
-              {alert.alert_type === "price" ? "Target price" : "Threshold"}
+              {alert.alert_type === "price"
+                ? "Target price"
+                : alert.alert_type === "candle_close"
+                  ? "Threshold"
+                  : "Type"}
             </Label>
+            {alert.alert_type === "market_structure" ? (
+              <p className="text-sm">
+                {alert.interval} · {alert.structure_event} · {alert.structure_direction}
+              </p>
+            ) : (
             <Input
               id="level"
               type="number"
               defaultValue={String(alert.target_price ?? alert.threshold ?? "")}
               onChange={(e) => setTargetPrice(e.target.value)}
             />
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="message">Custom message</Label>

@@ -164,28 +164,19 @@ export function synthesizeFormingFromLive(
 export function applyLivePriceToForming(
   forming: OhlcCandle | null,
   livePrice: number | undefined,
-  closedForScale?: OhlcCandle[],
+  _closedForScale?: OhlcCandle[],
 ): OhlcCandle | null {
   if (!forming || typeof livePrice !== "number" || !Number.isFinite(livePrice)) {
     return forming;
   }
-  const updated: OhlcCandle = {
+  // Expand wicks to include live close so Y-scale and last-price mark stay valid.
+  // Do not clamp to closed history — that hid the real forming candle extremes.
+  void _closedForScale;
+  return {
     ...forming,
     close: livePrice,
-    high: Math.max(forming.high, livePrice),
-    low: Math.min(forming.low, livePrice),
-  };
-  const range = closedForScale?.length
-    ? priceRangeFromCandles(closedForScale)
-    : null;
-  if (!range) {
-    return updated;
-  }
-  const pad = Math.max((range.max - range.min) * 0.05, 0.00005);
-  return {
-    ...updated,
-    high: Math.min(updated.high, range.max + pad),
-    low: Math.max(updated.low, range.min - pad),
+    high: Math.max(forming.open, forming.high, livePrice),
+    low: Math.min(forming.open, forming.low, livePrice),
   };
 }
 
@@ -285,6 +276,34 @@ export function defaultVisibleRange(
 /** Prefer primary closed history; use fallback when forming endpoint returned none. */
 export function pickClosedBase(primary: OhlcCandle[], fallback: OhlcCandle[]): OhlcCandle[] {
   return primary.length > 0 ? primary : fallback;
+}
+
+/** True when closed candle series content is unchanged (ignore array identity). */
+export function closedCandlesContentEqual(
+  a: OhlcCandle[],
+  b: OhlcCandle[],
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.length !== b.length) {
+    return false;
+  }
+  if (a.length === 0) {
+    return true;
+  }
+  const aFirst = a[0];
+  const bFirst = b[0];
+  const aLast = a[a.length - 1];
+  const bLast = b[b.length - 1];
+  return (
+    aFirst.timestamp === bFirst.timestamp &&
+    aLast.timestamp === bLast.timestamp &&
+    aLast.open === bLast.open &&
+    aLast.high === bLast.high &&
+    aLast.low === bLast.low &&
+    aLast.close === bLast.close
+  );
 }
 
 /** Closed history plus optional forming bar for chart rendering. */

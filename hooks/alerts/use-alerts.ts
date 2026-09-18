@@ -45,7 +45,9 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
       ? "candle_close"
       : record.alert_type === "prev_day_level"
         ? "prev_day_level"
-        : "price";
+        : record.alert_type === "market_structure"
+          ? "market_structure"
+          : "price";
   const levelRef =
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref
@@ -56,6 +58,19 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     record.dol_trigger === "reversal" ||
     record.dol_trigger === "draw_met"
       ? record.dol_trigger
+      : null;
+  const structureEvent =
+    record.structure_event === "bos" ||
+    record.structure_event === "choch" ||
+    record.structure_event === "sweep" ||
+    record.structure_event === "any"
+      ? record.structure_event
+      : null;
+  const structureDirection =
+    record.structure_direction === "bull" ||
+    record.structure_direction === "bear" ||
+    record.structure_direction === "any"
+      ? record.structure_direction
       : null;
   const condition: AlertCondition | null =
     record.condition === "above" || record.condition === "below" || record.condition === "equal"
@@ -122,6 +137,10 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     level_ref: levelRef,
     dol_trigger: dolTrigger,
     batch_id: typeof record.batch_id === "string" ? record.batch_id : null,
+    structure_event: structureEvent,
+    structure_direction: structureDirection,
+    min_swing_atr: toNullableNumber(record.min_swing_atr),
+    break_k: toNullableNumber(record.break_k),
   };
 }
 
@@ -190,6 +209,12 @@ function applyAlertPatch(alert: Alert, input: Partial<AlertUpsertInput>): Alert 
     ...(input.email !== undefined ? { email: input.email } : {}),
     ...(input.phone !== undefined ? { phone: input.phone } : {}),
     ...(input.custom_message !== undefined ? { custom_message: input.custom_message } : {}),
+    ...(input.structure_event !== undefined ? { structure_event: input.structure_event } : {}),
+    ...(input.structure_direction !== undefined
+      ? { structure_direction: input.structure_direction }
+      : {}),
+    ...(input.min_swing_atr !== undefined ? { min_swing_atr: input.min_swing_atr } : {}),
+    ...(input.break_k !== undefined ? { break_k: input.break_k } : {}),
   };
 }
 
@@ -267,6 +292,10 @@ function buildOptimisticAlert(input: AlertUpsertInput): Alert {
     level_ref: input.level_ref ?? null,
     dol_trigger: input.dol_trigger ?? null,
     batch_id: null,
+    structure_event: input.structure_event ?? null,
+    structure_direction: input.structure_direction ?? null,
+    min_swing_atr: input.min_swing_atr ?? null,
+    break_k: input.break_k ?? null,
   };
 }
 
