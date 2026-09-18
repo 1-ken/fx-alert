@@ -199,7 +199,7 @@ export function saveLastBacktestRuns(
     slimRuns.find((run) => run.result)?.result;
   const slim: LastBacktestCache = {
     params,
-    result: active,
+    result: active ?? undefined,
     runs: slimRuns,
   };
   try {
@@ -213,7 +213,7 @@ export function saveLastBacktestRuns(
     const lighterActive =
       lighter.find((run) => run.pair === params.pair && run.result)?.result ??
       lighter.find((run) => run.result)?.result;
-    writeLastBacktest({ params, result: lighterActive, runs: lighter });
+    writeLastBacktest({ params, result: lighterActive ?? undefined, runs: lighter });
   } catch {
     writeLastBacktestOrDrop({ params });
   }

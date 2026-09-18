@@ -11,10 +11,34 @@ import {
 export const STRUCTURE_OVERLAY_PREFIX = "fx-structure-";
 export const STRUCTURE_ALERT_OVERLAY_PREFIX = "fx-structure-alert-";
 
-export const STRUCTURE_BREAK_COLOR = { BOS: "#3b82f6", CHoCH: "#f59e0b", SWEEP: "#a855f7" };
+/** @deprecated Prefer directionColor — kept for any external imports. */
+export const STRUCTURE_BREAK_COLOR = { BOS: "#16a34a", CHoCH: "#dc2626", SWEEP: "#16a34a" };
 const LEVEL_HIGH = "#ff8a8a";
 const LEVEL_LOW = "#5fd4a0";
 const ATR_COLOR = "#64748b";
+const BULL_COLOR = "#16a34a";
+const BEAR_COLOR = "#dc2626";
+const LABEL_TEXT = "#ffffff";
+const WAITING_MUTED = "#94a3b8";
+
+function directionColor(dir: string | undefined): string {
+  return dir === "bear" ? BEAR_COLOR : BULL_COLOR;
+}
+
+function labelTextStyles(accent: string, size = 11) {
+  return {
+    text: {
+      color: LABEL_TEXT,
+      size,
+      backgroundColor: accent,
+      paddingLeft: 6,
+      paddingRight: 6,
+      paddingTop: 2,
+      paddingBottom: 2,
+      borderRadius: 4,
+    },
+  };
+}
 
 export type StructureLayerFlags = {
   levels: boolean;
@@ -133,7 +157,7 @@ export function syncMarketStructureOverlays(
       if (ev.kind === "SWEEP") {
         continue;
       }
-      const color = STRUCTURE_BREAK_COLOR[ev.kind];
+      const color = directionColor(ev.dir);
       const id = `${STRUCTURE_OVERLAY_PREFIX}break-${i}`;
       const labelId = `${STRUCTURE_OVERLAY_PREFIX}break-label-${i}`;
       desired.add(id);
@@ -160,7 +184,7 @@ export function syncMarketStructureOverlays(
         lock: true,
         points: [{ timestamp: tsMs(ev.timestamp), value: ev.level }],
         extendData: ev.kind,
-        styles: { text: { color, size: 11 } },
+        styles: labelTextStyles(color, 11),
         onClick: () => {
           onEventClick?.(ev);
           return true;
@@ -175,7 +199,7 @@ export function syncMarketStructureOverlays(
       if (ev.kind !== "SWEEP") {
         continue;
       }
-      const color = STRUCTURE_BREAK_COLOR.SWEEP;
+      const color = directionColor(ev.dir);
       const label = `SWEEP ${ev.level.toFixed(ev.level >= 100 ? 2 : 5)}`;
       const id = `${STRUCTURE_OVERLAY_PREFIX}sweep-${i}`;
       const lineId = `${STRUCTURE_OVERLAY_PREFIX}sweep-line-${i}`;
@@ -187,7 +211,7 @@ export function syncMarketStructureOverlays(
         lock: true,
         points: [{ timestamp: tsMs(ev.timestamp), value: ev.wick ?? ev.level }],
         extendData: label,
-        styles: { text: { color, size: 10 } },
+        styles: labelTextStyles(color, 10),
         onClick: () => {
           onEventClick?.(ev);
           return true;
@@ -244,7 +268,12 @@ function structureAlertLabel(alert: Alert): string {
   const ev = (alert.structure_event ?? "any").toUpperCase();
   const dir = alert.structure_direction ?? "any";
   const tf = alert.interval ?? "";
-  return `Waiting ${tf} ${dir} ${ev}`;
+  const step =
+    typeof alert.sequence_index === "number" ? ` · #${alert.sequence_index + 1}` : "";
+  if (alert.status === "waiting") {
+    return `Queued ${tf} ${dir} ${ev}${step}`;
+  }
+  return `Waiting ${tf} ${dir} ${ev}${step}`;
 }
 
 export function syncPendingStructureAlertOverlays(
@@ -259,7 +288,9 @@ export function syncPendingStructureAlertOverlays(
     return;
   }
   const pending = alerts.filter(
-    (a) => a.alert_type === "market_structure" && a.status === "active",
+    (a) =>
+      a.alert_type === "market_structure" &&
+      (a.status === "active" || a.status === "waiting"),
   );
   for (const alert of pending) {
     const value = alert.threshold ?? lastPrice;
@@ -268,13 +299,19 @@ export function syncPendingStructureAlertOverlays(
     }
     const id = `${STRUCTURE_ALERT_OVERLAY_PREFIX}${alert.id}`;
     desired.add(id);
+    const muted = alert.status === "waiting";
+    const accent = muted
+      ? WAITING_MUTED
+      : directionColor(alert.structure_direction ?? undefined);
     upsertOverlay(chart, {
       name: "simpleAnnotation",
       id,
       lock: true,
       points: [{ value }],
       extendData: structureAlertLabel(alert),
-      styles: { text: { color: "#3b82f6", size: 10 } },
+      styles: muted
+        ? { text: { color: WAITING_MUTED, size: 10 } }
+        : labelTextStyles(accent, 10),
     });
   }
   removeOrphanPrefixed(chart, STRUCTURE_ALERT_OVERLAY_PREFIX, desired);

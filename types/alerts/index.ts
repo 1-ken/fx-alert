@@ -1,5 +1,5 @@
 export type AlertCondition = "above" | "below" | "equal";
-export type AlertStatus = "active" | "triggered" | "disabled" | "expired";
+export type AlertStatus = "active" | "waiting" | "triggered" | "disabled" | "expired";
 export type AlertChannel = "email" | "sms" | "call" | "sound";
 export type AlertType = "price" | "candle_close" | "prev_day_level" | "market_structure";
 export type StructureEventFilter = "bos" | "choch" | "sweep" | "any";
@@ -35,11 +35,15 @@ export interface Alert {
   structure_direction?: StructureDirectionFilter | null;
   min_swing_atr?: number | null;
   break_k?: number | null;
+  depends_on_alert_id?: string | null;
+  chain_id?: string | null;
+  sequence_index?: number | null;
 }
 
 export interface AlertsResponse {
   total: number;
   active: Alert[];
+  waiting: Alert[];
   triggered: Alert[];
   expired: Alert[];
   all: Alert[];
@@ -67,6 +71,7 @@ export interface AlertUpsertInput {
   structure_direction?: StructureDirectionFilter;
   min_swing_atr?: number;
   break_k?: number;
+  depends_on_alert_id?: string;
 }
 
 export interface AlertUpsertResponse {

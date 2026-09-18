@@ -141,17 +141,17 @@ export function DashboardPageContent() {
 
   const isMarketOpen = snapshot?.market_status === "open";
   const marketText = isMarketOpen ? "MARKET OPEN" : "MARKET CLOSED";
-  const activeAlertsCount = alerts.active.length;
+  const activeAlertsCount = alerts.active.length + alerts.waiting.length;
   const triggeredAlertsCount = alerts.triggered.length;
 
   const activeAlertsByPair = useMemo(() => {
     const map = new Map<string, number>();
-    for (const alert of alerts.active) {
+    for (const alert of [...alerts.active, ...alerts.waiting]) {
       const key = normalizePairSearchValue(alert.pair);
       map.set(key, (map.get(key) ?? 0) + 1);
     }
     return map;
-  }, [alerts.active]);
+  }, [alerts.active, alerts.waiting]);
 
   const bannerItems = useMemo(() => unseenSinceVisit.slice(0, 3), [unseenSinceVisit]);
 
@@ -264,14 +264,18 @@ export function DashboardPageContent() {
               </div>
               <ul className="space-y-2 text-sm">
                 {bannerItems.map((item) => (
-                  <li
-                    key={item.triggerKey}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 px-3 py-2"
-                  >
-                    <span className="font-medium">{formatPairLabel(item.pair)}</span>
-                    <span className="text-muted-foreground">
-                      {item.channel} · {formatKenyaRelative(item.triggeredAt)}
-                    </span>
+                  <li key={item.triggerKey}>
+                    <Link
+                      href={`/alerts/list?status=triggered&highlight=${encodeURIComponent(item.alertId)}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 px-3 py-2 transition hover:border-primary/40 hover:bg-background"
+                    >
+                      <span className="font-medium text-primary underline-offset-4 hover:underline">
+                        {formatPairLabel(item.pair)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {item.channel} · {formatKenyaRelative(item.triggeredAt)}
+                      </span>
+                    </Link>
                   </li>
                 ))}
               </ul>

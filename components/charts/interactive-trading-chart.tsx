@@ -228,13 +228,13 @@ export function InteractiveTradingChart({
   const pairKey = normalizePairKey(pair);
   const pairAlerts = useMemo(
     () =>
-      alerts.active.filter(
+      [...alerts.active, ...alerts.waiting].filter(
         (alert) =>
           normalizePairKey(alert.pair) === pairKey &&
           ((alert.alert_type === "price" && alert.target_price !== null) ||
             alert.alert_type === "market_structure"),
       ),
-    [alerts.active, pairKey],
+    [alerts.active, alerts.waiting, pairKey],
   );
 
   const priceAlerts = useMemo(

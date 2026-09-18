@@ -226,6 +226,7 @@ const alertFormSchema = z
     threshold: z.string().optional(),
     structure_event: z.enum(["bos", "choch", "sweep", "any"]).optional(),
     structure_direction: z.enum(["bull", "bear", "any"]).optional(),
+    depends_on_alert_id: z.string().optional(),
     notifyVia: z.array(z.enum(["sms", "call", "sound", "email"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
@@ -515,6 +516,7 @@ export function CreateAlertForm({
       threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
       structure_event: initialStructureEvent ?? "any",
       structure_direction: initialStructureDirection ?? "any",
+      depends_on_alert_id: "",
       notifyVia: initialNotifyVia ?? [],
       email: "",
       phone: "",
@@ -638,6 +640,45 @@ export function CreateAlertForm({
   const [isPairInputFocused, setIsPairInputFocused] = useState(false);
   const [dolPairSearch, setDolPairSearch] = useState("");
 
+  const [expiryPreset, setExpiryPreset] = useState<"1h" | "4h" | "24h" | "7d" | "utc_day" | "custom">(
+    initialAlertType === "prev_day_level" ? "utc_day" : "24h",
+  );
+
+  const queueParents = useMemo(() => {
+    const pairRaw =
+      selectedAlertType === "prev_day_level"
+        ? selectedDolPairs[0]
+        : selectedPair;
+    if (!pairRaw) {
+      return [];
+    }
+    const pairKey = normalizePair(pairRaw).replace("/", "").toUpperCase();
+    return [...alerts.active, ...alerts.waiting].filter(
+      (alert) => alert.pair.replace("/", "").toUpperCase() === pairKey,
+    );
+  }, [alerts.active, alerts.waiting, selectedAlertType, selectedPair, selectedDolPairs]);
+
+  function formatQueueParentLabel(alert: (typeof queueParents)[number]): string {
+    const step =
+      typeof alert.sequence_index === "number" ? ` · step ${alert.sequence_index + 1}` : "";
+    let base: string;
+    if (alert.alert_type === "price") {
+      base = `Price ${alert.condition} ${alert.target_price ?? ""}${step} (${alert.status})`;
+    } else if (alert.alert_type === "candle_close") {
+      base = `Candle ${alert.interval} ${alert.direction} ${alert.threshold ?? ""}${step} (${alert.status})`;
+    } else if (alert.alert_type === "prev_day_level") {
+      base = `Prev-day ${alert.dol_trigger} ${alert.level_ref}${step} (${alert.status})`;
+    } else {
+      base = `Structure ${alert.interval} ${alert.structure_direction} ${alert.structure_event}${step} (${alert.status})`;
+    }
+    const message = (alert.custom_message ?? "").replace(/\s+/g, " ").trim();
+    if (!message) {
+      return base;
+    }
+    const truncated = message.length > 50 ? `${message.slice(0, 50)}…` : message;
+    return `${base} — “${truncated}”`;
+  }
+
   const dolPairSearchText = useMemo(
     () => dolPairSearch.replace(/[^a-z0-9]/gi, "").toUpperCase(),
     [dolPairSearch],
@@ -698,7 +739,8 @@ export function CreateAlertForm({
 
   const notifyVia = form.watch("notifyVia");
   const selectedChannelSet = useMemo(() => new Set(notifyVia), [notifyVia]);
-  const activeAlertCount = alerts?.active?.length ?? 0;
+  const activeAlertCount =
+    (alerts?.active?.length ?? 0) + (alerts?.waiting?.length ?? 0);
   const createLimit = canCreateMoreAlerts(bootstrap, activeAlertCount);
   const showPhoneInput = selectedChannelSet.has("sms") || selectedChannelSet.has("call");
   const showEmailInput = selectedChannelSet.has("email");
@@ -775,6 +817,9 @@ export function CreateAlertForm({
         phone: needsPhone ? values.phone : "",
         custom_message: values.custom_message || undefined,
         expires_at: values.expires_at,
+        ...(values.depends_on_alert_id
+          ? { depends_on_alert_id: values.depends_on_alert_id }
+          : {}),
       };
 
       if (alertType === "prev_day_level") {
@@ -872,6 +917,11 @@ export function CreateAlertForm({
                               : expiresAtFromHours(24),
                             { shouldDirty: false, shouldValidate: true },
                           );
+                          setExpiryPreset(value === "prev_day_level" ? "utc_day" : "24h");
+                          form.setValue("depends_on_alert_id", "", {
+                            shouldDirty: false,
+                            shouldValidate: false,
+                          });
                           form.clearErrors([
                             "target_price",
                             "condition",
@@ -1470,6 +1520,38 @@ export function CreateAlertForm({
                 </>
               ) : null}
 
+              <FormField
+                control={form.control}
+                name="depends_on_alert_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      After this alert triggers{" "}
+                      <span className="font-normal text-muted-foreground">(optional)</span>
+                    </FormLabel>
+                    <FormControl>
+                      <select
+                        className="h-12 w-full rounded-md border border-border bg-background px-3 text-sm"
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      >
+                        <option value="">None — start watching immediately</option>
+                        {queueParents.map((alert) => (
+                          <option key={alert.id} value={alert.id}>
+                            {formatQueueParentLabel(alert)}
+                          </option>
+                        ))}
+                      </select>
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Queued alerts stay waiting until the selected same-pair alert fires, then arm
+                      for their own condition.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               {!createLimit.allowed ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                   {createLimit.reason}
@@ -1618,10 +1700,11 @@ export function CreateAlertForm({
                           key={preset.label}
                           type="button"
                           size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            field.onChange(expiresAtFromHours(preset.hours))
-                          }
+                          variant={expiryPreset === preset.label ? "default" : "outline"}
+                          onClick={() => {
+                            setExpiryPreset(preset.label);
+                            field.onChange(expiresAtFromHours(preset.hours));
+                          }}
                         >
                           {preset.label}
                         </Button>
@@ -1630,8 +1713,11 @@ export function CreateAlertForm({
                         <Button
                           type="button"
                           size="sm"
-                          variant="outline"
-                          onClick={() => field.onChange(endOfCurrentUtcDayIso())}
+                          variant={expiryPreset === "utc_day" ? "default" : "outline"}
+                          onClick={() => {
+                            setExpiryPreset("utc_day");
+                            field.onChange(endOfCurrentUtcDayIso());
+                          }}
                         >
                           End of UTC day
                         </Button>
@@ -1645,6 +1731,7 @@ export function CreateAlertForm({
                         onChange={(event) => {
                           const iso = datetimeLocalToIso(event.target.value);
                           if (iso) {
+                            setExpiryPreset("custom");
                             field.onChange(iso);
                           }
                         }}

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon, BellAlertIcon, PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -19,10 +20,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { formatKenyaDateTime } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
 
 type AlertStatusFilter =
   | "all"
   | "active"
+  | "waiting"
   | "triggered"
   | "triggered-today"
   | "triggered-5m"
@@ -33,11 +36,15 @@ type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level" | "ma
 interface AlertsListPageProps {
   initialStatus?: string;
   initialType?: string;
+  initialHighlight?: string;
 }
+
+const HIGHLIGHT_MS = 3_000;
 
 function normalizeStatus(value?: string): AlertStatusFilter {
   if (
     value === "active" ||
+    value === "waiting" ||
     value === "triggered" ||
     value === "triggered-today" ||
     value === "triggered-5m" ||
@@ -206,7 +213,12 @@ function formatTriggerDuration(createdAt: string, triggeredAt: string | null): s
   return parts.join(" ");
 }
 
-export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
+export function AlertsListPage({
+  initialStatus,
+  initialType,
+  initialHighlight,
+}: AlertsListPageProps) {
+  const router = useRouter();
   const status = normalizeStatus(initialStatus);
   const type = normalizeType(initialType);
   const { alerts, isInitialLoading, deleteAlert } = useObserverAlerts();
@@ -214,6 +226,8 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
   const [selectedAlertIds, setSelectedAlertIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(initialHighlight ?? null);
+  const highlightStartedRef = useRef(false);
   const isTriggeredView =
     status === "triggered" ||
     status === "triggered-today" ||
@@ -253,6 +267,10 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
       return alerts.active;
     }
 
+    if (status === "waiting") {
+      return alerts.waiting;
+    }
+
     if (status === "triggered") {
       return triggeredSorted;
     }
@@ -279,6 +297,30 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
 
     return listedAlerts.filter((alert) => alert.alert_type === type);
   }, [listedAlerts, type]);
+
+  useEffect(() => {
+    if (!initialHighlight || highlightStartedRef.current || isInitialLoading) {
+      return;
+    }
+    if (!typeFilteredAlerts.some((alert) => alert.id === initialHighlight)) {
+      return;
+    }
+    highlightStartedRef.current = true;
+    setHighlightId(initialHighlight);
+    window.setTimeout(() => {
+      document
+        .getElementById(`alert-row-${initialHighlight}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    const params = new URLSearchParams();
+    if (status !== "all") params.set("status", status);
+    if (type !== "all") params.set("type", type);
+    const query = params.toString();
+    router.replace(query ? `/alerts/list?${query}` : "/alerts/list", { scroll: false });
+    window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    // One-shot highlight; timers intentionally not cleared on list refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialHighlight, isInitialLoading, typeFilteredAlerts.length]);
 
   const typeCounts = useMemo(() => {
     const source = alerts?.all ?? [];
@@ -426,6 +468,9 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
               <Link href={hrefFor("active", type)}>Active ({alerts?.active.length ?? 0})</Link>
             </Button>
+            <Button asChild variant={status === "waiting" ? "default" : "outline"} size="sm">
+              <Link href={hrefFor("waiting", type)}>Waiting ({alerts?.waiting.length ?? 0})</Link>
+            </Button>
             <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
               <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
             </Button>
@@ -492,7 +537,15 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
       ) : (
         <div className="space-y-3">
           {typeFilteredAlerts.map((alert) => (
-            <Card key={alert.id}>
+            <Card
+              key={alert.id}
+              id={`alert-row-${alert.id}`}
+              className={cn(
+                "transition-[box-shadow,ring-color] duration-300",
+                highlightId === alert.id &&
+                  "animate-pulse ring-2 ring-primary ring-offset-2 ring-offset-background",
+              )}
+            >
               <CardHeader className="pb-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
@@ -586,6 +639,17 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                       Direction:{" "}
                       <span className="text-foreground">{alert.structure_direction ?? "any"}</span>
                     </p>
+                    {alert.chain_id || alert.depends_on_alert_id ? (
+                      <p>
+                        Queue:{" "}
+                        <span className="text-foreground">
+                          step {(alert.sequence_index ?? 0) + 1}
+                          {alert.status === "waiting" && alert.depends_on_alert_id
+                            ? ` · waiting for ${alert.depends_on_alert_id.slice(0, 8)}…`
+                            : ""}
+                        </span>
+                      </p>
+                    ) : null}
                   </>
                 ) : (
                   <>

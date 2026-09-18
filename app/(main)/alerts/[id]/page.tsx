@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@heroicons/react/24/outline";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,13 +16,29 @@ import {
   CALL_CUSTOM_MESSAGE_MAX_CHARS,
   CUSTOM_MESSAGE_MAX_CHARS,
 } from "@/lib/alert-preferences";
+import { buildInstrumentPairUrl } from "@/lib/instrument-navigation";
+import { cn } from "@/lib/utils";
+
+function formatPairLabel(pair: string): string {
+  const cleanPair = pair.replace("/", "").toUpperCase();
+  if (cleanPair.length === 6) {
+    return `${cleanPair.slice(0, 3)}/${cleanPair.slice(3)}`;
+  }
+  return cleanPair;
+}
+
+const HIGHLIGHT_MS = 3_000;
 
 export default function AlertDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const alertId = params.id;
   const { alert, isInitialLoading, error } = useObserverAlert(alertId);
   const { updateAlert } = useObserverAlerts();
+  const cardRef = useRef<HTMLDivElement>(null);
+  const highlightStartedRef = useRef(false);
+  const [highlight, setHighlight] = useState(false);
 
   const [targetPrice, setTargetPrice] = useState("");
   const [customMessage, setCustomMessage] = useState("");
@@ -37,6 +54,28 @@ export default function AlertDetailPage() {
       setCustomMessage(alert.custom_message ?? "");
     }
   }, [alert]);
+
+  useEffect(() => {
+    if (!alert || highlightStartedRef.current) {
+      return;
+    }
+    if (searchParams.get("highlight") !== "1") {
+      return;
+    }
+    highlightStartedRef.current = true;
+    setHighlight(true);
+    const scrollTimer = window.setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
+    router.replace(`/alerts/${alert.id}`, { scroll: false });
+    const clearHighlight = window.setTimeout(() => setHighlight(false), HIGHLIGHT_MS);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearHighlight);
+    };
+    // Only when alert identity is ready; do not re-run on searchParams after replace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot highlight from deep link
+  }, [alert?.id]);
 
   if (isInitialLoading && !alert) {
     return <p className="p-6 text-sm text-muted-foreground">Loading alert...</p>;
@@ -98,9 +137,35 @@ export default function AlertDetailPage() {
         </Link>
       </Button>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{alert.pair}</CardTitle>
+      <Card
+        ref={cardRef}
+        className={cn(
+          "transition-[box-shadow,ring-color] duration-300",
+          highlight && "animate-pulse ring-2 ring-primary ring-offset-2 ring-offset-background",
+        )}
+      >
+        <CardHeader className="gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>
+              <Link
+                href={buildInstrumentPairUrl(alert.pair)}
+                className="text-primary underline-offset-4 hover:underline"
+              >
+                {formatPairLabel(alert.pair)}
+              </Link>
+            </CardTitle>
+            {alert.status === "triggered" ? (
+              <Badge className="bg-primary text-primary-foreground">Triggered</Badge>
+            ) : (
+              <Badge variant="secondary" className="capitalize">
+                {alert.status}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground capitalize">
+            {alert.alert_type.replaceAll("_", " ")}
+            {alert.channel ? ` · ${alert.channel}` : ""}
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -114,14 +179,19 @@ export default function AlertDetailPage() {
             {alert.alert_type === "market_structure" ? (
               <p className="text-sm">
                 {alert.interval} · {alert.structure_event} · {alert.structure_direction}
+                {alert.chain_id || alert.depends_on_alert_id
+                  ? ` · queue step ${(alert.sequence_index ?? 0) + 1}${
+                      alert.status === "waiting" ? " (waiting)" : ""
+                    }`
+                  : ""}
               </p>
             ) : (
-            <Input
-              id="level"
-              type="number"
-              defaultValue={String(alert.target_price ?? alert.threshold ?? "")}
-              onChange={(e) => setTargetPrice(e.target.value)}
-            />
+              <Input
+                id="level"
+                type="number"
+                defaultValue={String(alert.target_price ?? alert.threshold ?? "")}
+                onChange={(e) => setTargetPrice(e.target.value)}
+              />
             )}
           </div>
           {alert.expires_at ? (

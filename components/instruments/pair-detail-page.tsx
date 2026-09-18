@@ -92,7 +92,7 @@ export function PairDetailPageContent() {
     refresh: refreshBias,
   } = useDrawOnLiquidity(showBias ? pair : "", displayPrice);
 
-  const pairAlerts = [...alerts.active, ...alerts.triggered]
+  const pairAlerts = [...alerts.active, ...alerts.waiting, ...alerts.triggered]
     .filter((alert) => normalizePairKey(alert.pair) === pairKey)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 

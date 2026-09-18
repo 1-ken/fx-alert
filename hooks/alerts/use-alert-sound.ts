@@ -4,7 +4,6 @@ import { useEffect, useSyncExternalStore } from "react";
 import {
   isSoundAlertsEnabled,
   playAlertSound,
-  showAlertOsNotification,
   stopAlertSound,
 } from "@/lib/alert-sound";
 import { notificationCenter } from "@/lib/notification-center";
@@ -23,16 +22,10 @@ function getServerSnapshot(): number {
   return 0;
 }
 
-function formatPairLabel(pair: string): string {
-  const cleanPair = pair.replace("/", "").toUpperCase();
-  if (cleanPair.length === 6) {
-    return `${cleanPair.slice(0, 3)}/${cleanPair.slice(3)}`;
-  }
-  return pair;
-}
-
 /**
- * Drains the notification center FIFO sound queue and plays one alert sound per item.
+ * Drains the notification center FIFO sound queue and plays one alert sound per item
+ * while the tab is visible. When the tab is hidden, OS notifications (system sound)
+ * are handled by TriggeredNotificationListener instead.
  */
 export function useAlertSound(hasFetched: boolean) {
   const storeVersion = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
@@ -51,13 +44,10 @@ export function useAlertSound(hasFetched: boolean) {
           break;
         }
 
-        const pairLabel = formatPairLabel(next.pair);
-        showAlertOsNotification({
-          title: "FX Alert triggered",
-          body: `${pairLabel} alert fired`,
-          tag: next.triggerKey,
-          href: `/alerts/${next.alertId}`,
-        });
+        // Background tab: OS banner + system sound come from the toast listener.
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          continue;
+        }
 
         try {
           await playAlertSound();
