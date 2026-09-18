@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useAlertSound } from "@/hooks/alerts/use-alert-sound";
@@ -32,6 +33,7 @@ function getServerSnapshot(): number {
  * Live triggered alerts: FIFO sound playback and LIFO sonner toasts (newest first).
  */
 export function TriggeredNotificationListener() {
+  const router = useRouter();
   const { alerts, hasFetched } = useObserverAlerts();
   const { popNextToast } = useNotificationCenter(alerts.triggered, hasFetched);
   const toastCount = useSyncExternalStore(subscribe, getToastSnapshot, getServerSnapshot);
@@ -48,14 +50,21 @@ export function TriggeredNotificationListener() {
     while (item) {
       if (!shownToastKeysRef.current.has(item.triggerKey)) {
         shownToastKeysRef.current.add(item.triggerKey);
+        const href = `/alerts/${item.alertId}`;
         toast(`Alert triggered: ${formatPairLabel(item.pair)}`, {
           description: `${item.channel} · ${formatKenyaRelative(item.triggeredAt)}`,
           duration: 8_000,
+          action: {
+            label: "View",
+            onClick: () => {
+              router.push(href);
+            },
+          },
         });
       }
       item = popNextToast();
     }
-  }, [hasFetched, popNextToast, toastCount]);
+  }, [hasFetched, popNextToast, router, toastCount]);
 
   return null;
 }

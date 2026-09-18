@@ -124,6 +124,14 @@ export default function AlertDetailPage() {
             />
             )}
           </div>
+          {alert.expires_at ? (
+            <div className="space-y-1">
+              <Label>Expires</Label>
+              <p className="text-sm text-muted-foreground">
+                {new Date(alert.expires_at).toLocaleString()}
+              </p>
+            </div>
+          ) : null}
           <div className="space-y-2">
             <Label htmlFor="message">Custom message</Label>
             <Textarea

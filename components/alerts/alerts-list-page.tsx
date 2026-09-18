@@ -635,6 +635,12 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                 <p>
                   Created: <span className="text-foreground">{formatDateTime(alert.created_at)}</span>
                 </p>
+                {alert.expires_at ? (
+                  <p>
+                    Expires:{" "}
+                    <span className="text-foreground">{formatDateTime(alert.expires_at)}</span>
+                  </p>
+                ) : null}
                 <p>
                   Triggered: <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
                 </p>

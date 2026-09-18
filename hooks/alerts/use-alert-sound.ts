@@ -56,6 +56,7 @@ export function useAlertSound(hasFetched: boolean) {
           title: "FX Alert triggered",
           body: `${pairLabel} alert fired`,
           tag: next.triggerKey,
+          href: `/alerts/${next.alertId}`,
         });
 
         try {

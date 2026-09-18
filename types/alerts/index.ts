@@ -26,6 +26,7 @@ export interface Alert {
   custom_message?: string;
   created_at: string;
   triggered_at: string | null;
+  expires_at?: string | null;
   last_checked_price: number | null;
   level_ref?: DrawLevelRef | null;
   dol_trigger?: DrawTrigger | null;
@@ -57,6 +58,7 @@ export interface AlertUpsertInput {
   email?: string;
   phone?: string;
   custom_message?: string;
+  expires_at: string;
   // prev_day_level (draw on liquidity)
   level_ref?: DrawLevelRef;
   dol_trigger?: DrawTrigger;

@@ -122,6 +122,8 @@ export function showAlertOsNotification(options: {
   title: string;
   body: string;
   tag: string;
+  /** When set, clicking the OS notification focuses the app and opens this path. */
+  href?: string;
 }): void {
   if (typeof window === "undefined" || typeof Notification === "undefined") {
     return;
@@ -140,11 +142,19 @@ export function showAlertOsNotification(options: {
   }
 
   try {
-    new Notification(options.title, {
+    const notification = new Notification(options.title, {
       body: options.body,
       tag: options.tag,
       silent: false,
     });
+    if (options.href) {
+      const href = options.href;
+      notification.onclick = () => {
+        window.focus();
+        window.location.assign(href);
+        notification.close();
+      };
+    }
   } catch {
     // Some browsers require a service worker for notifications
   }

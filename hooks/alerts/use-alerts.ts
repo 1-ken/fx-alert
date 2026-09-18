@@ -133,6 +133,7 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     custom_message: typeof record.custom_message === "string" ? record.custom_message : "",
     created_at: typeof record.created_at === "string" ? record.created_at : "",
     triggered_at: typeof record.triggered_at === "string" ? record.triggered_at : null,
+    expires_at: typeof record.expires_at === "string" ? record.expires_at : null,
     last_checked_price: toNullableNumber(record.last_checked_price),
     level_ref: levelRef,
     dol_trigger: dolTrigger,
@@ -209,6 +210,7 @@ function applyAlertPatch(alert: Alert, input: Partial<AlertUpsertInput>): Alert 
     ...(input.email !== undefined ? { email: input.email } : {}),
     ...(input.phone !== undefined ? { phone: input.phone } : {}),
     ...(input.custom_message !== undefined ? { custom_message: input.custom_message } : {}),
+    ...(input.expires_at !== undefined ? { expires_at: input.expires_at } : {}),
     ...(input.structure_event !== undefined ? { structure_event: input.structure_event } : {}),
     ...(input.structure_direction !== undefined
       ? { structure_direction: input.structure_direction }
@@ -288,6 +290,7 @@ function buildOptimisticAlert(input: AlertUpsertInput): Alert {
     custom_message: input.custom_message ?? "",
     created_at: new Date().toISOString(),
     triggered_at: null,
+    expires_at: input.expires_at ?? null,
     last_checked_price: null,
     level_ref: input.level_ref ?? null,
     dol_trigger: input.dol_trigger ?? null,

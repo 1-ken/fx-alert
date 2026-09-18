@@ -100,6 +100,46 @@ const candleDirectionOptions: Array<{
 
 const candleIntervalOptions = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
 
+const EXPIRY_PRESETS = [
+  { label: "1h", hours: 1 },
+  { label: "4h", hours: 4 },
+  { label: "24h", hours: 24 },
+  { label: "7d", hours: 24 * 7 },
+] as const;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Local datetime-local value from an ISO timestamp. */
+function isoToDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** ISO string from datetime-local value. */
+function datetimeLocalToIso(local: string): string {
+  const d = new Date(local);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return d.toISOString();
+}
+
+function expiresAtFromHours(hours: number): string {
+  return new Date(Date.now() + hours * 3_600_000).toISOString();
+}
+
+/** End of current UTC calendar day (23:59:59.999Z). */
+function endOfCurrentUtcDayIso(): string {
+  const d = new Date();
+  d.setUTCHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
 const fallbackPairs = [
   "EUR/USD",
   "USD/JPY",
@@ -190,11 +230,27 @@ const alertFormSchema = z
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
     custom_message: z.string().trim().optional(),
+    expires_at: z.string().min(1, "Expiry is required"),
   })
   .superRefine((value, ctx) => {
     // Sound is always included server-side; notifyVia may be empty (sound-only).
     const selectedChannels = value.notifyVia;
     const selectedSet = new Set(selectedChannels);
+
+    const expiresMs = Date.parse(value.expires_at);
+    if (!Number.isFinite(expiresMs)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expires_at"],
+        message: "Enter a valid expiry time",
+      });
+    } else if (expiresMs <= Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expires_at"],
+        message: "Expiry must be in the future",
+      });
+    }
 
     if (value.alert_type !== "prev_day_level" && !value.pair) {
       ctx.addIssue({
@@ -463,6 +519,10 @@ export function CreateAlertForm({
       email: "",
       phone: "",
       custom_message: "",
+      expires_at:
+        initialAlertType === "prev_day_level"
+          ? endOfCurrentUtcDayIso()
+          : expiresAtFromHours(24),
     },
   });
 
@@ -507,6 +567,10 @@ export function CreateAlertForm({
 
     if (initialAlertType === "prev_day_level") {
       form.setValue("alert_type", "prev_day_level", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+      form.setValue("expires_at", endOfCurrentUtcDayIso(), {
         shouldDirty: false,
         shouldValidate: true,
       });
@@ -710,6 +774,7 @@ export function CreateAlertForm({
         email: needsEmail ? values.email : undefined,
         phone: needsPhone ? values.phone : "",
         custom_message: values.custom_message || undefined,
+        expires_at: values.expires_at,
       };
 
       if (alertType === "prev_day_level") {
@@ -800,6 +865,13 @@ export function CreateAlertForm({
                         value={field.value}
                         onValueChange={(value) => {
                           field.onChange(value);
+                          form.setValue(
+                            "expires_at",
+                            value === "prev_day_level"
+                              ? endOfCurrentUtcDayIso()
+                              : expiresAtFromHours(24),
+                            { shouldDirty: false, shouldValidate: true },
+                          );
                           form.clearErrors([
                             "target_price",
                             "condition",
@@ -810,6 +882,7 @@ export function CreateAlertForm({
                             "pairs",
                             "level_ref",
                             "dol_trigger",
+                            "expires_at",
                           ]);
                         }}
                       >
@@ -1030,8 +1103,8 @@ export function CreateAlertForm({
                   />
 
                   <p className="text-xs text-muted-foreground">
-                    Valid for the current UTC day only. If it does not fire, it expires at the next
-                    UTC midnight.
+                    Defaults to end of the current UTC day. You can shorten or extend expiry below —
+                    the alert will not fire after that time.
                   </p>
 
                   {firstDolPair && dolLive ? (
@@ -1527,6 +1600,58 @@ export function CreateAlertForm({
                       <span className="tabular-nums">
                         {(field.value?.length ?? 0)}/{customMessageMaxChars}
                       </span>
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="expires_at"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Expires</FormLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {EXPIRY_PRESETS.map((preset) => (
+                        <Button
+                          key={preset.label}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            field.onChange(expiresAtFromHours(preset.hours))
+                          }
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                      {selectedAlertType === "prev_day_level" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => field.onChange(endOfCurrentUtcDayIso())}
+                        >
+                          End of UTC day
+                        </Button>
+                      ) : null}
+                    </div>
+                    <FormControl>
+                      <Input
+                        type="datetime-local"
+                        className="h-12 border-border bg-background"
+                        value={isoToDatetimeLocal(field.value)}
+                        onChange={(event) => {
+                          const iso = datetimeLocalToIso(event.target.value);
+                          if (iso) {
+                            field.onChange(iso);
+                          }
+                        }}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Alert will not trigger after this time.
                     </p>
                     <FormMessage />
                   </FormItem>
