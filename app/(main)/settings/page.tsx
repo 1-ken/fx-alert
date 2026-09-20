@@ -285,9 +285,9 @@ export default function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Play a looping sound in the browser for 30 seconds when an alert triggers. The browser
-            may ask for notification permission so you can still be notified when the tab is in the
-            background.
+            Play a looping sound in the browser for 30 seconds when an alert triggers. Allow
+            notification permission so desktop banners (with system sound) appear while this tab
+            is open but in the background — closed tabs need push later.
           </p>
 
           <div className="flex items-center justify-between rounded-lg border px-3 py-3">

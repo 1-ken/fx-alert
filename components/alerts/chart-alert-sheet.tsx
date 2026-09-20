@@ -35,7 +35,7 @@ export function ChartAlertSheet({ open, onOpenChange, draft }: ChartAlertSheetPr
         </SheetHeader>
         <div className="mt-4 pb-6">
           <CreateAlertForm
-            key={`${draft.pair}-${draft.alertType}-${draft.price}-${draft.interval}`}
+            key={`${draft.pair}-${draft.alertType}-${draft.price}-${draft.interval}-${draft.structureEvent ?? ""}`}
             initialPair={draft.pair}
             initialAlertType={draft.alertType}
             initialInterval={draft.interval}
@@ -45,6 +45,8 @@ export function ChartAlertSheet({ open, onOpenChange, draft }: ChartAlertSheetPr
             initialThreshold={
               draft.alertType === "candle_close" ? draft.price.toString() : undefined
             }
+            initialStructureEvent={draft.structureEvent}
+            initialStructureDirection={draft.structureDirection}
           />
         </div>
       </SheetContent>

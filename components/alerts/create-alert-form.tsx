@@ -100,6 +100,46 @@ const candleDirectionOptions: Array<{
 
 const candleIntervalOptions = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
 
+const EXPIRY_PRESETS = [
+  { label: "1h", hours: 1 },
+  { label: "4h", hours: 4 },
+  { label: "24h", hours: 24 },
+  { label: "7d", hours: 24 * 7 },
+] as const;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Local datetime-local value from an ISO timestamp. */
+function isoToDatetimeLocal(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** ISO string from datetime-local value. */
+function datetimeLocalToIso(local: string): string {
+  const d = new Date(local);
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
+  return d.toISOString();
+}
+
+function expiresAtFromHours(hours: number): string {
+  return new Date(Date.now() + hours * 3_600_000).toISOString();
+}
+
+/** End of current UTC calendar day (23:59:59.999Z). */
+function endOfCurrentUtcDayIso(): string {
+  const d = new Date();
+  d.setUTCHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
 const fallbackPairs = [
   "EUR/USD",
   "USD/JPY",
@@ -174,7 +214,7 @@ const drawLevelOptions: Array<{
 
 const alertFormSchema = z
   .object({
-    alert_type: z.enum(["price", "candle_close", "prev_day_level"]),
+    alert_type: z.enum(["price", "candle_close", "prev_day_level", "market_structure"]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
     level_ref: z.enum(["high", "low", "both"]).optional(),
@@ -184,15 +224,34 @@ const alertFormSchema = z
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
+    structure_event: z.enum(["bos", "choch", "sweep", "any"]).optional(),
+    structure_direction: z.enum(["bull", "bear", "any"]).optional(),
+    depends_on_alert_id: z.string().optional(),
     notifyVia: z.array(z.enum(["sms", "call", "sound", "email"])),
     email: z.string().trim().optional(),
     phone: z.string().trim().optional(),
     custom_message: z.string().trim().optional(),
+    expires_at: z.string().min(1, "Expiry is required"),
   })
   .superRefine((value, ctx) => {
     // Sound is always included server-side; notifyVia may be empty (sound-only).
     const selectedChannels = value.notifyVia;
     const selectedSet = new Set(selectedChannels);
+
+    const expiresMs = Date.parse(value.expires_at);
+    if (!Number.isFinite(expiresMs)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expires_at"],
+        message: "Enter a valid expiry time",
+      });
+    } else if (expiresMs <= Date.now()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expires_at"],
+        message: "Expiry must be in the future",
+      });
+    }
 
     if (value.alert_type !== "prev_day_level" && !value.pair) {
       ctx.addIssue({
@@ -240,6 +299,30 @@ const alertFormSchema = z
           code: z.ZodIssueCode.custom,
           path: ["condition"],
           message: "Select a condition",
+        });
+      }
+    }
+
+    if (value.alert_type === "market_structure") {
+      if (!value.interval) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["interval"],
+          message: "Select a candle interval",
+        });
+      }
+      if (!value.structure_event) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_event"],
+          message: "Select a structure event",
+        });
+      }
+      if (!value.structure_direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Select a direction",
         });
       }
     }
@@ -330,6 +413,8 @@ type CreateAlertFormProps = {
   initialThreshold?: string;
   initialInterval?: string;
   initialNotifyVia?: NotifyChannel[];
+  initialStructureEvent?: "bos" | "choch" | "sweep" | "any";
+  initialStructureDirection?: "bull" | "bear" | "any";
 };
 
 function normalizeRecentPairs(value: unknown): string[] {
@@ -369,6 +454,8 @@ export function CreateAlertForm({
   initialThreshold,
   initialInterval,
   initialNotifyVia,
+  initialStructureEvent,
+  initialStructureDirection,
 }: CreateAlertFormProps) {
   const router = useRouter();
   const { data: session } = useSession();
@@ -413,7 +500,9 @@ export function CreateAlertForm({
           ? "candle_close"
           : initialAlertType === "prev_day_level"
             ? "prev_day_level"
-            : "price",
+            : initialAlertType === "market_structure"
+              ? "market_structure"
+              : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -425,10 +514,17 @@ export function CreateAlertForm({
         : "1m",
       direction: "above",
       threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
+      structure_event: initialStructureEvent ?? "any",
+      structure_direction: initialStructureDirection ?? "any",
+      depends_on_alert_id: "",
       notifyVia: initialNotifyVia ?? [],
       email: "",
       phone: "",
       custom_message: "",
+      expires_at:
+        initialAlertType === "prev_day_level"
+          ? endOfCurrentUtcDayIso()
+          : expiresAtFromHours(24),
     },
   });
 
@@ -476,6 +572,14 @@ export function CreateAlertForm({
         shouldDirty: false,
         shouldValidate: true,
       });
+      form.setValue("expires_at", endOfCurrentUtcDayIso(), {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+
+    if (initialAlertType === "market_structure") {
+      form.setValue("alert_type", "market_structure", { shouldDirty: false, shouldValidate: true });
     }
   }, [form, initialAlertType]);
 
@@ -535,6 +639,45 @@ export function CreateAlertForm({
   const [pairSearch, setPairSearch] = useState(() => selectedPair || "");
   const [isPairInputFocused, setIsPairInputFocused] = useState(false);
   const [dolPairSearch, setDolPairSearch] = useState("");
+
+  const [expiryPreset, setExpiryPreset] = useState<"1h" | "4h" | "24h" | "7d" | "utc_day" | "custom">(
+    initialAlertType === "prev_day_level" ? "utc_day" : "24h",
+  );
+
+  const queueParents = useMemo(() => {
+    const pairRaw =
+      selectedAlertType === "prev_day_level"
+        ? selectedDolPairs[0]
+        : selectedPair;
+    if (!pairRaw) {
+      return [];
+    }
+    const pairKey = normalizePair(pairRaw).replace("/", "").toUpperCase();
+    return [...alerts.active, ...alerts.waiting].filter(
+      (alert) => alert.pair.replace("/", "").toUpperCase() === pairKey,
+    );
+  }, [alerts.active, alerts.waiting, selectedAlertType, selectedPair, selectedDolPairs]);
+
+  function formatQueueParentLabel(alert: (typeof queueParents)[number]): string {
+    const step =
+      typeof alert.sequence_index === "number" ? ` · step ${alert.sequence_index + 1}` : "";
+    let base: string;
+    if (alert.alert_type === "price") {
+      base = `Price ${alert.condition} ${alert.target_price ?? ""}${step} (${alert.status})`;
+    } else if (alert.alert_type === "candle_close") {
+      base = `Candle ${alert.interval} ${alert.direction} ${alert.threshold ?? ""}${step} (${alert.status})`;
+    } else if (alert.alert_type === "prev_day_level") {
+      base = `Prev-day ${alert.dol_trigger} ${alert.level_ref}${step} (${alert.status})`;
+    } else {
+      base = `Structure ${alert.interval} ${alert.structure_direction} ${alert.structure_event}${step} (${alert.status})`;
+    }
+    const message = (alert.custom_message ?? "").replace(/\s+/g, " ").trim();
+    if (!message) {
+      return base;
+    }
+    const truncated = message.length > 50 ? `${message.slice(0, 50)}…` : message;
+    return `${base} — “${truncated}”`;
+  }
 
   const dolPairSearchText = useMemo(
     () => dolPairSearch.replace(/[^a-z0-9]/gi, "").toUpperCase(),
@@ -596,7 +739,8 @@ export function CreateAlertForm({
 
   const notifyVia = form.watch("notifyVia");
   const selectedChannelSet = useMemo(() => new Set(notifyVia), [notifyVia]);
-  const activeAlertCount = alerts?.active?.length ?? 0;
+  const activeAlertCount =
+    (alerts?.active?.length ?? 0) + (alerts?.waiting?.length ?? 0);
   const createLimit = canCreateMoreAlerts(bootstrap, activeAlertCount);
   const showPhoneInput = selectedChannelSet.has("sms") || selectedChannelSet.has("call");
   const showEmailInput = selectedChannelSet.has("email");
@@ -672,6 +816,10 @@ export function CreateAlertForm({
         email: needsEmail ? values.email : undefined,
         phone: needsPhone ? values.phone : "",
         custom_message: values.custom_message || undefined,
+        expires_at: values.expires_at,
+        ...(values.depends_on_alert_id
+          ? { depends_on_alert_id: values.depends_on_alert_id }
+          : {}),
       };
 
       if (alertType === "prev_day_level") {
@@ -690,6 +838,13 @@ export function CreateAlertForm({
           ...basePayload,
           target_price: parseNumericString(values.target_price ?? ""),
           condition: values.condition,
+        });
+      } else if (alertType === "market_structure") {
+        await createAlert({
+          ...basePayload,
+          interval: values.interval,
+          structure_event: values.structure_event,
+          structure_direction: values.structure_direction,
         });
       } else {
         await createAlert({
@@ -755,6 +910,18 @@ export function CreateAlertForm({
                         value={field.value}
                         onValueChange={(value) => {
                           field.onChange(value);
+                          form.setValue(
+                            "expires_at",
+                            value === "prev_day_level"
+                              ? endOfCurrentUtcDayIso()
+                              : expiresAtFromHours(24),
+                            { shouldDirty: false, shouldValidate: true },
+                          );
+                          setExpiryPreset(value === "prev_day_level" ? "utc_day" : "24h");
+                          form.setValue("depends_on_alert_id", "", {
+                            shouldDirty: false,
+                            shouldValidate: false,
+                          });
                           form.clearErrors([
                             "target_price",
                             "condition",
@@ -765,13 +932,15 @@ export function CreateAlertForm({
                             "pairs",
                             "level_ref",
                             "dol_trigger",
+                            "expires_at",
                           ]);
                         }}
                       >
-                        <TabsList className="grid w-full grid-cols-3 h-12">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
                           <TabsTrigger value="price">Price</TabsTrigger>
                           <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
                           <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
+                          <TabsTrigger value="market_structure">BOS / CHoCH</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -984,8 +1153,8 @@ export function CreateAlertForm({
                   />
 
                   <p className="text-xs text-muted-foreground">
-                    Valid for the current UTC day only. If it does not fire, it expires at the next
-                    UTC midnight.
+                    Defaults to end of the current UTC day. You can shorten or extend expiry below —
+                    the alert will not fire after that time.
                   </p>
 
                   {firstDolPair && dolLive ? (
@@ -1262,7 +1431,126 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
+              ) : selectedAlertType === "market_structure" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="interval"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Timeframe</FormLabel>
+                        <div className="grid grid-cols-4 gap-2">
+                          {candleIntervalOptions.map((interval) => {
+                            const active = field.value === interval;
+                            return (
+                              <button
+                                key={interval}
+                                type="button"
+                                onClick={() => field.onChange(interval)}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                {interval}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_event"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Event</FormLabel>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["bos", "choch", "sweep", "any"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm uppercase transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["bull", "bear", "any"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm capitalize transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
               ) : null}
+
+              <FormField
+                control={form.control}
+                name="depends_on_alert_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      After this alert triggers{" "}
+                      <span className="font-normal text-muted-foreground">(optional)</span>
+                    </FormLabel>
+                    <FormControl>
+                      <select
+                        className="h-12 w-full rounded-md border border-border bg-background px-3 text-sm"
+                        value={field.value ?? ""}
+                        onChange={(event) => field.onChange(event.target.value)}
+                      >
+                        <option value="">None — start watching immediately</option>
+                        {queueParents.map((alert) => (
+                          <option key={alert.id} value={alert.id}>
+                            {formatQueueParentLabel(alert)}
+                          </option>
+                        ))}
+                      </select>
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Queued alerts stay waiting until the selected same-pair alert fires, then arm
+                      for their own condition.
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               {!createLimit.allowed ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -1394,6 +1682,63 @@ export function CreateAlertForm({
                       <span className="tabular-nums">
                         {(field.value?.length ?? 0)}/{customMessageMaxChars}
                       </span>
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="expires_at"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Expires</FormLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {EXPIRY_PRESETS.map((preset) => (
+                        <Button
+                          key={preset.label}
+                          type="button"
+                          size="sm"
+                          variant={expiryPreset === preset.label ? "default" : "outline"}
+                          onClick={() => {
+                            setExpiryPreset(preset.label);
+                            field.onChange(expiresAtFromHours(preset.hours));
+                          }}
+                        >
+                          {preset.label}
+                        </Button>
+                      ))}
+                      {selectedAlertType === "prev_day_level" ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={expiryPreset === "utc_day" ? "default" : "outline"}
+                          onClick={() => {
+                            setExpiryPreset("utc_day");
+                            field.onChange(endOfCurrentUtcDayIso());
+                          }}
+                        >
+                          End of UTC day
+                        </Button>
+                      ) : null}
+                    </div>
+                    <FormControl>
+                      <Input
+                        type="datetime-local"
+                        className="h-12 border-border bg-background"
+                        value={isoToDatetimeLocal(field.value)}
+                        onChange={(event) => {
+                          const iso = datetimeLocalToIso(event.target.value);
+                          if (iso) {
+                            setExpiryPreset("custom");
+                            field.onChange(iso);
+                          }
+                        }}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Alert will not trigger after this time.
                     </p>
                     <FormMessage />
                   </FormItem>

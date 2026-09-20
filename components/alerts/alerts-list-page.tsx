@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon, BellAlertIcon, PencilIcon, TrashIcon } from "@heroicons/react/24/outline";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -18,26 +19,39 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import {
+  chainLengthMap,
+  formatQueueStepLine,
+  groupAlertsIntoChainBlocks,
+  sortAlertsByChain,
+} from "@/lib/alert-chain";
 import { formatKenyaDateTime } from "@/lib/datetime";
+import { cn } from "@/lib/utils";
+import type { Alert } from "@/types/alerts";
 
 type AlertStatusFilter =
   | "all"
   | "active"
+  | "waiting"
   | "triggered"
   | "triggered-today"
   | "triggered-5m"
   | "expired";
 
-type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level";
+type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level" | "market_structure";
 
 interface AlertsListPageProps {
   initialStatus?: string;
   initialType?: string;
+  initialHighlight?: string;
 }
+
+const HIGHLIGHT_MS = 3_000;
 
 function normalizeStatus(value?: string): AlertStatusFilter {
   if (
     value === "active" ||
+    value === "waiting" ||
     value === "triggered" ||
     value === "triggered-today" ||
     value === "triggered-5m" ||
@@ -50,7 +64,12 @@ function normalizeStatus(value?: string): AlertStatusFilter {
 }
 
 function normalizeType(value?: string): AlertTypeFilter {
-  if (value === "price" || value === "candle_close" || value === "prev_day_level") {
+  if (
+    value === "price" ||
+    value === "candle_close" ||
+    value === "prev_day_level" ||
+    value === "market_structure"
+  ) {
     return value;
   }
 
@@ -146,6 +165,9 @@ function formatAlertTypeBadge(
   if (alertType === "prev_day_level") {
     return dolTrigger === "sweep" ? "PDH/PDL sweep" : "prev day H/L";
   }
+  if (alertType === "market_structure") {
+    return "BOS / CHoCH";
+  }
   return "price";
 }
 
@@ -198,7 +220,12 @@ function formatTriggerDuration(createdAt: string, triggeredAt: string | null): s
   return parts.join(" ");
 }
 
-export function AlertsListPage({ initialStatus, initialType }: AlertsListPageProps) {
+export function AlertsListPage({
+  initialStatus,
+  initialType,
+  initialHighlight,
+}: AlertsListPageProps) {
+  const router = useRouter();
   const status = normalizeStatus(initialStatus);
   const type = normalizeType(initialType);
   const { alerts, isInitialLoading, deleteAlert } = useObserverAlerts();
@@ -206,6 +233,8 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
   const [selectedAlertIds, setSelectedAlertIds] = useState<Set<string>>(new Set());
   const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [highlightId, setHighlightId] = useState<string | null>(initialHighlight ?? null);
+  const highlightStartedRef = useRef(false);
   const isTriggeredView =
     status === "triggered" ||
     status === "triggered-today" ||
@@ -242,7 +271,12 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
     }
 
     if (status === "active") {
-      return alerts.active;
+      // Match dashboard "Active" count: watching + queued (waiting) so chains stay visible.
+      return [...alerts.active, ...alerts.waiting];
+    }
+
+    if (status === "waiting") {
+      return alerts.waiting;
     }
 
     if (status === "triggered") {
@@ -272,6 +306,45 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
     return listedAlerts.filter((alert) => alert.alert_type === type);
   }, [listedAlerts, type]);
 
+  const displayBlocks = useMemo(
+    () => groupAlertsIntoChainBlocks(sortAlertsByChain(typeFilteredAlerts)),
+    [typeFilteredAlerts],
+  );
+
+  const allById = useMemo(() => {
+    const map = new Map<string, Alert>();
+    for (const alert of alerts?.all ?? []) {
+      map.set(alert.id, alert);
+    }
+    return map;
+  }, [alerts?.all]);
+
+  const chainTotals = useMemo(() => chainLengthMap(alerts?.all ?? []), [alerts?.all]);
+
+  useEffect(() => {
+    if (!initialHighlight || highlightStartedRef.current || isInitialLoading) {
+      return;
+    }
+    if (!typeFilteredAlerts.some((alert) => alert.id === initialHighlight)) {
+      return;
+    }
+    highlightStartedRef.current = true;
+    setHighlightId(initialHighlight);
+    window.setTimeout(() => {
+      document
+        .getElementById(`alert-row-${initialHighlight}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    const params = new URLSearchParams();
+    if (status !== "all") params.set("status", status);
+    if (type !== "all") params.set("type", type);
+    const query = params.toString();
+    router.replace(query ? `/alerts/list?${query}` : "/alerts/list", { scroll: false });
+    window.setTimeout(() => setHighlightId(null), HIGHLIGHT_MS);
+    // One-shot highlight; timers intentionally not cleared on list refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialHighlight, isInitialLoading, typeFilteredAlerts.length]);
+
   const typeCounts = useMemo(() => {
     const source = alerts?.all ?? [];
 
@@ -280,6 +353,7 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
       price: source.filter((alert) => alert.alert_type === "price").length,
       candle_close: source.filter((alert) => alert.alert_type === "candle_close").length,
       prev_day_level: source.filter((alert) => alert.alert_type === "prev_day_level").length,
+      market_structure: source.filter((alert) => alert.alert_type === "market_structure").length,
     };
   }, [alerts?.all]);
 
@@ -404,13 +478,25 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
                   Prev day H/L ({typeCounts.prev_day_level})
                 </Link>
               </Button>
+              <Button asChild variant={type === "market_structure" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "market_structure")}>
+                  BOS / CHoCH ({typeCounts.market_structure})
+                </Link>
+              </Button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
             <Button asChild variant={status === "all" ? "default" : "outline"} size="sm">
               <Link href={hrefFor("all", type)}>All ({alerts?.all.length ?? 0})</Link>
             </Button>
             <Button asChild variant={status === "active" ? "default" : "outline"} size="sm">
-              <Link href={hrefFor("active", type)}>Active ({alerts?.active.length ?? 0})</Link>
+              <Link href={hrefFor("active", type)}>
+                Active ({(alerts?.active.length ?? 0) + (alerts?.waiting.length ?? 0)})
+              </Link>
+            </Button>
+            <Button asChild variant={status === "waiting" ? "default" : "outline"} size="sm">
+              <Link href={hrefFor("waiting", type)}>
+                Waiting ({alerts?.waiting.length ?? 0})
+              </Link>
             </Button>
             <Button asChild variant={isTriggeredView ? "default" : "outline"} size="sm">
               <Link href={hrefFor("triggered", type)}>Triggered ({triggeredSorted.length})</Link>
@@ -476,144 +562,238 @@ export function AlertsListPage({ initialStatus, initialType }: AlertsListPagePro
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {typeFilteredAlerts.map((alert) => (
-            <Card key={alert.id}>
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      checked={selectedAlertIds.has(alert.id)}
-                      onCheckedChange={(checked) => toggleAlertSelection(alert.id, Boolean(checked))}
-                      aria-label={`Select alert for ${alert.pair}`}
-                    />
-                    <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">
-                      {formatAlertTypeBadge(alert.alert_type, alert.dol_trigger)}
-                    </Badge>
-                    <Badge variant={alert.status === "active" ? "default" : "secondary"}>
-                      {alert.status}
-                    </Badge>
-                    {alert.status !== "triggered" && alert.status !== "expired" ? (
+        <div className="space-y-4">
+          {displayBlocks.map((block) => {
+            const fullChainLen = block.chainId
+              ? (chainTotals.get(block.chainId) ?? block.alerts.length)
+              : 1;
+            const isQueue =
+              Boolean(block.chainId) &&
+              (fullChainLen > 1 ||
+                block.alerts.some(
+                  (a) => Boolean(a.depends_on_alert_id) || (a.sequence_index ?? 0) > 0,
+                ));
+
+            const cards = block.alerts.map((alert) => (
+              <Card
+                key={alert.id}
+                id={`alert-row-${alert.id}`}
+                className={cn(
+                  "transition-[box-shadow,ring-color] duration-300",
+                  isQueue && alert.status === "waiting" && "ml-3 border-dashed",
+                  highlightId === alert.id &&
+                    "animate-pulse ring-2 ring-primary ring-offset-2 ring-offset-background",
+                )}
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <Checkbox
+                        checked={selectedAlertIds.has(alert.id)}
+                        onCheckedChange={(checked) =>
+                          toggleAlertSelection(alert.id, Boolean(checked))
+                        }
+                        aria-label={`Select alert for ${alert.pair}`}
+                      />
+                      <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">
+                        {formatAlertTypeBadge(alert.alert_type, alert.dol_trigger)}
+                      </Badge>
+                      <Badge variant={alert.status === "active" ? "default" : "secondary"}>
+                        {alert.status}
+                      </Badge>
+                      {alert.status !== "triggered" && alert.status !== "expired" ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground"
+                          asChild
+                        >
+                          <Link
+                            href={`/alerts/${alert.id}`}
+                            aria-label={`Edit alert for ${alert.pair}`}
+                          >
+                            <PencilIcon className="h-4 w-4" />
+                          </Link>
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-muted-foreground"
-                        asChild
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                        onClick={() => setDeleteTarget(alert)}
+                        aria-label={`Delete alert for ${alert.pair}`}
                       >
-                        <Link href={`/alerts/${alert.id}`} aria-label={`Edit alert for ${alert.pair}`}>
-                          <PencilIcon className="h-4 w-4" />
-                        </Link>
+                        <TrashIcon className="h-4 w-4" />
                       </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => setDeleteTarget(alert)}
-                      aria-label={`Delete alert for ${alert.pair}`}
-                    >
-                      <TrashIcon className="h-4 w-4" />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-1 text-sm text-muted-foreground">
-                {alert.alert_type === "price" ? (
-                  <p>
-                    Condition:{" "}
-                    <span className="text-foreground">
-                      {formatCondition(alert.condition ?? "equal")} {alert.target_price ?? "-"}
-                    </span>
-                  </p>
-                ) : alert.alert_type === "prev_day_level" ? (
-                  <>
+                </CardHeader>
+                <CardContent className="space-y-1 text-sm text-muted-foreground">
+                  {alert.chain_id || alert.depends_on_alert_id ? (
                     <p>
-                      Trigger:{" "}
+                      Queue:{" "}
                       <span className="text-foreground">
-                        {formatDrawTrigger(alert.dol_trigger)}
+                        {formatQueueStepLine(
+                          alert,
+                          allById,
+                          block.chainId
+                            ? (chainTotals.get(block.chainId) ?? fullChainLen)
+                            : fullChainLen,
+                        )}
                       </span>
                     </p>
+                  ) : null}
+                  {alert.alert_type === "price" ? (
                     <p>
-                      Level:{" "}
-                      <span className="text-foreground">{formatDrawLevel(alert.level_ref)}</span>
+                      Condition:{" "}
+                      <span className="text-foreground">
+                        {formatCondition(alert.condition ?? "equal")} {alert.target_price ?? "-"}
+                      </span>
                     </p>
-                    {alert.batch_id ? (
+                  ) : alert.alert_type === "prev_day_level" ? (
+                    <>
                       <p>
-                        Multi-pair group:{" "}
+                        Trigger:{" "}
                         <span className="text-foreground">
-                          {alert.batch_id.slice(0, 8)}
+                          {formatDrawTrigger(alert.dol_trigger)}
                         </span>
                       </p>
-                    ) : null}
+                      <p>
+                        Level:{" "}
+                        <span className="text-foreground">{formatDrawLevel(alert.level_ref)}</span>
+                      </p>
+                      {alert.batch_id ? (
+                        <p>
+                          Multi-pair group:{" "}
+                          <span className="text-foreground">{alert.batch_id.slice(0, 8)}</span>
+                        </p>
+                      ) : null}
+                      <p>
+                        Last evaluated candle:{" "}
+                        <span className="text-foreground">
+                          {formatDateTime(alert.last_evaluated_candle_time)}
+                        </span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "market_structure" ? (
+                    <>
+                      <p>
+                        Interval:{" "}
+                        <span className="text-foreground">{alert.interval ?? "-"}</span>
+                      </p>
+                      <p>
+                        Event:{" "}
+                        <span className="text-foreground uppercase">
+                          {alert.structure_event ?? "any"}
+                        </span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">
+                          {alert.structure_direction ?? "any"}
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        Interval:{" "}
+                        <span className="text-foreground">{alert.interval ?? "-"}</span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">
+                          {formatDirection(alert.direction)}
+                        </span>
+                      </p>
+                      <p>
+                        Threshold:{" "}
+                        <span className="text-foreground">{alert.threshold ?? "-"}</span>
+                      </p>
+                      <p>
+                        Last evaluated candle:{" "}
+                        <span className="text-foreground">
+                          {formatDateTime(alert.last_evaluated_candle_time)}
+                        </span>
+                      </p>
+                    </>
+                  )}
+                  {alert.last_checked_price !== null ? (
                     <p>
-                      Last evaluated candle:{" "}
-                      <span className="text-foreground">
-                        {formatDateTime(alert.last_evaluated_candle_time)}
-                      </span>
+                      Last checked price:{" "}
+                      <span className="text-foreground">{alert.last_checked_price}</span>
                     </p>
-                  </>
-                ) : (
-                  <>
-                    <p>
-                      Interval: <span className="text-foreground">{alert.interval ?? "-"}</span>
-                    </p>
-                    <p>
-                      Direction: <span className="text-foreground">{formatDirection(alert.direction)}</span>
-                    </p>
-                    <p>
-                      Threshold: <span className="text-foreground">{alert.threshold ?? "-"}</span>
-                    </p>
-                    <p>
-                      Last evaluated candle: <span className="text-foreground">{formatDateTime(alert.last_evaluated_candle_time)}</span>
-                    </p>
-                  </>
-                )}
-                {alert.last_checked_price !== null ? (
+                  ) : null}
                   <p>
-                    Last checked price: <span className="text-foreground">{alert.last_checked_price}</span>
+                    Channel:{" "}
+                    <span className="text-foreground uppercase">
+                      {(alert.channels && alert.channels.length > 0
+                        ? alert.channels
+                        : [alert.channel]
+                      ).join(", ")}
+                    </span>
                   </p>
-                ) : null}
-                <p>
-                  Channel:{" "}
-                  <span className="text-foreground uppercase">
-                    {(alert.channels && alert.channels.length > 0
-                      ? alert.channels
-                      : [alert.channel]
-                    ).join(", ")}
-                  </span>
-                </p>
-                {alert.email ? (
+                  {alert.email ? (
+                    <p>
+                      Email: <span className="text-foreground">{alert.email}</span>
+                    </p>
+                  ) : null}
+                  {alert.phone ? (
+                    <p>
+                      Phone: <span className="text-foreground">{alert.phone}</span>
+                    </p>
+                  ) : null}
+                  {alert.custom_message ? (
+                    <p>
+                      Message: <span className="text-foreground">{alert.custom_message}</span>
+                    </p>
+                  ) : null}
                   <p>
-                    Email: <span className="text-foreground">{alert.email}</span>
+                    Created:{" "}
+                    <span className="text-foreground">{formatDateTime(alert.created_at)}</span>
                   </p>
-                ) : null}
-                {alert.phone ? (
+                  {alert.expires_at ? (
+                    <p>
+                      Expires:{" "}
+                      <span className="text-foreground">{formatDateTime(alert.expires_at)}</span>
+                    </p>
+                  ) : null}
                   <p>
-                    Phone: <span className="text-foreground">{alert.phone}</span>
+                    Triggered:{" "}
+                    <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
                   </p>
-                ) : null}
-                {alert.custom_message ? (
                   <p>
-                    Message: <span className="text-foreground">{alert.custom_message}</span>
+                    Time to trigger:{" "}
+                    <span className="text-foreground">
+                      {formatTriggerDuration(alert.created_at, alert.triggered_at)}
+                    </span>
                   </p>
-                ) : null}
-                <p>
-                  Created: <span className="text-foreground">{formatDateTime(alert.created_at)}</span>
+                </CardContent>
+              </Card>
+            ));
+
+            if (!isQueue) {
+              return <div key={block.key}>{cards}</div>;
+            }
+
+            return (
+              <div
+                key={block.key}
+                className="space-y-2 rounded-xl border border-border bg-muted/30 p-3 border-l-4 border-l-primary"
+              >
+                <p className="text-sm font-medium text-foreground">
+                  Queue · {formatPairLabel(block.pair)} · {fullChainLen} step
+                  {fullChainLen === 1 ? "" : "s"}
                 </p>
-                <p>
-                  Triggered: <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
-                </p>
-                <p>
-                  Time to trigger: <span className="text-foreground">{formatTriggerDuration(alert.created_at, alert.triggered_at)}</span>
-                </p>
-              </CardContent>
-            </Card>
-          ))}
+                <div className="space-y-2">{cards}</div>
+              </div>
+            );
+          })}
         </div>
       )}
 
