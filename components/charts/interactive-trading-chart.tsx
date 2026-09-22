@@ -99,7 +99,7 @@ export type ChartAlertDraft = {
   price: number;
   interval: ChartInterval;
   candleTime?: string;
-  structureEvent?: "bos" | "choch" | "sweep" | "any";
+  structureEvent?: "bos" | "choch" | "sweep";
   structureDirection?: "bull" | "bear" | "any";
 };
 

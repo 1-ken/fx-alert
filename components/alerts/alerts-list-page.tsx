@@ -28,6 +28,7 @@ import {
 import { formatKenyaDateTime } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 import type { Alert } from "@/types/alerts";
+import { toast } from "sonner";
 
 type AlertStatusFilter =
   | "all"
@@ -140,30 +141,36 @@ function formatDirection(direction: string | null): string {
   return "-";
 }
 
-function formatDrawTrigger(trigger: string | null | undefined): string {
-  switch (trigger) {
-    case "sweep":
-      return "PDH/PDL sweep";
-    case "displacement":
-      return "Displacement (daily close)";
-    case "reversal":
-      return "Reversal (daily close)";
-    case "draw_met":
-      return "Draw reached";
-    default:
-      return "-";
-  }
+function formatDrawTrigger(triggers: string[] | null | undefined): string {
+  if (!triggers || triggers.length === 0) return "-";
+  const labels = triggers.map((trigger) => {
+    switch (trigger) {
+      case "sweep":
+        return "PDH/PDL sweep";
+      case "displacement":
+        return "Displacement (daily close)";
+      case "reversal":
+        return "Reversal (daily close)";
+      case "draw_met":
+        return "Draw reached";
+      default:
+        return trigger;
+    }
+  });
+  return labels.join(", ");
 }
 
 function formatAlertTypeBadge(
   alertType: string,
-  dolTrigger?: string | null,
+  dolTrigger?: string[] | null,
 ): string {
   if (alertType === "candle_close") {
     return "candle close";
   }
   if (alertType === "prev_day_level") {
-    return dolTrigger === "sweep" ? "PDH/PDL sweep" : "prev day H/L";
+    return dolTrigger?.length === 1 && dolTrigger[0] === "sweep"
+      ? "PDH/PDL sweep"
+      : "prev day H/L";
   }
   if (alertType === "market_structure") {
     return "BOS / CHoCH";
@@ -429,15 +436,17 @@ export function AlertsListPage({
       return;
     }
 
+    const count = selectedVisibleIds.length;
     setIsBulkDeleting(true);
 
     try {
       for (const alertId of selectedVisibleIds) {
-        await deleteAlert(alertId);
+        await deleteAlert(alertId, { silent: true });
       }
 
       setSelectedAlertIds(new Set());
       setIsBulkDeleteDialogOpen(false);
+      toast.success(count === 1 ? "Alert deleted" : `Deleted ${count} alerts`);
     } finally {
       setIsBulkDeleting(false);
     }
@@ -689,7 +698,7 @@ export function AlertsListPage({
                       <p>
                         Event:{" "}
                         <span className="text-foreground uppercase">
-                          {alert.structure_event ?? "any"}
+                          {alert.structure_event?.join(", ") ?? "any"}
                         </span>
                       </p>
                       <p>

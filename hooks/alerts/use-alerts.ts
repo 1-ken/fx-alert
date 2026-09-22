@@ -13,6 +13,7 @@ import type {
   AlertsResponse,
   CandleDirection,
 } from "@/types/alerts";
+import { normalizeDrawTriggers, normalizeStructureEvents } from "@/types/alerts";
 
 function toNullableNumber(value: unknown): number | null {
   if (typeof value === "number") {
@@ -52,20 +53,8 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref
       : null;
-  const dolTrigger =
-    record.dol_trigger === "sweep" ||
-    record.dol_trigger === "displacement" ||
-    record.dol_trigger === "reversal" ||
-    record.dol_trigger === "draw_met"
-      ? record.dol_trigger
-      : null;
-  const structureEvent =
-    record.structure_event === "bos" ||
-    record.structure_event === "choch" ||
-    record.structure_event === "sweep" ||
-    record.structure_event === "any"
-      ? record.structure_event
-      : null;
+  const dolTrigger = normalizeDrawTriggers(record.dol_trigger);
+  const structureEvent = normalizeStructureEvents(record.structure_event);
   const structureDirection =
     record.structure_direction === "bull" ||
     record.structure_direction === "bear" ||
@@ -401,7 +390,7 @@ export function useObserverAlerts() {
   );
 
   const deleteAlert = useCallback(
-    async (alertId: string): Promise<void> => {
+    async (alertId: string, options?: { silent?: boolean }): Promise<void> => {
       const optimistic = hasFetched ? removeAlertFromCache(data, alertId) : undefined;
 
       await mutate(optimistic, { revalidate: false });
@@ -417,7 +406,9 @@ export function useObserverAlerts() {
         }
 
         await mutate();
-        toast.success("Alert deleted");
+        if (!options?.silent) {
+          toast.success("Alert deleted");
+        }
       } catch (deleteError) {
         await mutate();
         throw deleteError;

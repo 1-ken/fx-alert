@@ -265,7 +265,7 @@ export function syncMarketStructureOverlays(
 }
 
 function structureAlertLabel(alert: Alert): string {
-  const ev = (alert.structure_event ?? "any").toUpperCase();
+  const ev = (alert.structure_event?.join("/") ?? "any").toUpperCase();
   const dir = alert.structure_direction ?? "any";
   const tf = alert.interval ?? "";
   const step =
