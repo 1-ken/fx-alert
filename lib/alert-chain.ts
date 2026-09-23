@@ -1,4 +1,5 @@
 import type { Alert } from "@/types/alerts";
+import { formatEventList } from "@/types/alerts";
 
 export type AlertChainBlock = {
   key: string;
@@ -25,9 +26,9 @@ export function summarizeAlertCondition(alert: Alert): string {
     return `Candle ${alert.interval ?? "?"} ${alert.direction ?? "?"} ${alert.threshold ?? ""}`.trim();
   }
   if (alert.alert_type === "prev_day_level") {
-    return `Prev-day ${alert.dol_trigger ?? "?"} ${alert.level_ref ?? ""}`.trim();
+    return `Prev-day ${formatEventList(alert.dol_trigger, "?")} ${alert.level_ref ?? ""}`.trim();
   }
-  return `Structure ${alert.interval ?? "?"} ${alert.structure_direction ?? "?"} ${alert.structure_event ?? "?"}`.trim();
+  return `Structure ${alert.interval ?? "?"} ${alert.structure_direction ?? "?"} ${formatEventList(alert.structure_event, "?")}`.trim();
 }
 
 /** Human-readable label for a parent (or any) alert in a queue. */

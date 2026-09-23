@@ -178,7 +178,8 @@ export default function AlertDetailPage() {
             </Label>
             {alert.alert_type === "market_structure" ? (
               <p className="text-sm">
-                {alert.interval} · {alert.structure_event} · {alert.structure_direction}
+                {alert.interval} · {(alert.structure_event ?? []).join(", ")} ·{" "}
+                {alert.structure_direction}
                 {alert.chain_id || alert.depends_on_alert_id
                   ? ` · queue step ${(alert.sequence_index ?? 0) + 1}${
                       alert.status === "waiting" ? " (waiting)" : ""

@@ -218,13 +218,15 @@ const alertFormSchema = z
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
     level_ref: z.enum(["high", "low", "both"]).optional(),
-    dol_trigger: z.enum(["sweep", "displacement", "reversal", "draw_met"]).optional(),
+    dol_trigger: z
+      .array(z.enum(["sweep", "displacement", "reversal", "draw_met"]))
+      .optional(),
     target_price: z.string().optional(),
     condition: z.enum(["above", "below", "equal"]).optional(),
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
-    structure_event: z.enum(["bos", "choch", "sweep", "any"]).optional(),
+    structure_event: z.array(z.enum(["bos", "choch", "sweep"])).optional(),
     structure_direction: z.enum(["bull", "bear", "any"]).optional(),
     depends_on_alert_id: z.string().optional(),
     notifyVia: z.array(z.enum(["sms", "call", "sound", "email"])),
@@ -269,11 +271,11 @@ const alertFormSchema = z
           message: "Select at least one pair",
         });
       }
-      if (!value.dol_trigger) {
+      if (!value.dol_trigger || value.dol_trigger.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["dol_trigger"],
-          message: "Select a trigger",
+          message: "Select at least one trigger",
         });
       }
       if (!value.level_ref) {
@@ -311,11 +313,11 @@ const alertFormSchema = z
           message: "Select a candle interval",
         });
       }
-      if (!value.structure_event) {
+      if (!value.structure_event || value.structure_event.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["structure_event"],
-          message: "Select a structure event",
+          message: "Select at least one structure event",
         });
       }
       if (!value.structure_direction) {
@@ -413,7 +415,7 @@ type CreateAlertFormProps = {
   initialThreshold?: string;
   initialInterval?: string;
   initialNotifyVia?: NotifyChannel[];
-  initialStructureEvent?: "bos" | "choch" | "sweep" | "any";
+  initialStructureEvent?: "bos" | "choch" | "sweep";
   initialStructureDirection?: "bull" | "bear" | "any";
 };
 
@@ -506,7 +508,7 @@ export function CreateAlertForm({
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
-      dol_trigger: "sweep",
+      dol_trigger: ["sweep"],
       target_price: initialAlertType === "price" ? normalizedInitialTargetPrice : "",
       condition: "above",
       interval: initialInterval && candleIntervalOptions.includes(initialInterval as (typeof candleIntervalOptions)[number])
@@ -514,7 +516,9 @@ export function CreateAlertForm({
         : "1m",
       direction: "above",
       threshold: initialAlertType === "candle_close" ? (initialThreshold || normalizedInitialTargetPrice) : "",
-      structure_event: initialStructureEvent ?? "any",
+      structure_event: initialStructureEvent
+        ? [initialStructureEvent]
+        : (["bos", "choch", "sweep"] as const),
       structure_direction: initialStructureDirection ?? "any",
       depends_on_alert_id: "",
       notifyVia: initialNotifyVia ?? [],
@@ -667,9 +671,9 @@ export function CreateAlertForm({
     } else if (alert.alert_type === "candle_close") {
       base = `Candle ${alert.interval} ${alert.direction} ${alert.threshold ?? ""}${step} (${alert.status})`;
     } else if (alert.alert_type === "prev_day_level") {
-      base = `Prev-day ${alert.dol_trigger} ${alert.level_ref}${step} (${alert.status})`;
+      base = `Prev-day ${(alert.dol_trigger ?? []).join("/")} ${alert.level_ref}${step} (${alert.status})`;
     } else {
-      base = `Structure ${alert.interval} ${alert.structure_direction} ${alert.structure_event}${step} (${alert.status})`;
+      base = `Structure ${alert.interval} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
     }
     const message = (alert.custom_message ?? "").replace(/\s+/g, " ").trim();
     if (!message) {
@@ -1173,34 +1177,43 @@ export function CreateAlertForm({
                     name="dol_trigger"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Trigger</FormLabel>
+                        <FormLabel>Triggers</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Select one or more. Alert fires when any selected trigger matches.
+                        </p>
                         <div className="space-y-3">
                           {drawTriggerOptions.map((option) => {
-                            const active = field.value === option.value;
+                            const selected = field.value?.includes(option.value) ?? false;
                             return (
                               <button
                                 key={option.value}
                                 type="button"
-                                onClick={() => field.onChange(option.value)}
+                                onClick={() => {
+                                  const current = field.value ?? [];
+                                  field.onChange(
+                                    selected
+                                      ? current.filter((v) => v !== option.value)
+                                      : [...current, option.value],
+                                  );
+                                }}
                                 className={cn(
                                   "flex w-full items-center gap-3 rounded-xl border px-4 py-4 text-left transition",
-                                  active
+                                  selected
                                     ? "border-primary/40 bg-primary/10 text-foreground"
                                     : "border-border bg-card/60 text-foreground hover:border-primary/30 hover:bg-accent/40",
                                 )}
                               >
                                 <span
                                   className={cn(
-                                    "flex h-5 w-5 items-center justify-center rounded-full border",
-                                    active ? "border-primary" : "border-muted-foreground/40",
+                                    "flex h-5 w-5 items-center justify-center rounded border",
+                                    selected
+                                      ? "border-primary bg-primary"
+                                      : "border-muted-foreground/40",
                                   )}
                                 >
-                                  <span
-                                    className={cn(
-                                      "h-2.5 w-2.5 rounded-full",
-                                      active ? "bg-primary" : "bg-transparent",
-                                    )}
-                                  />
+                                  {selected ? (
+                                    <span className="h-2 w-2 rounded-sm bg-primary-foreground" />
+                                  ) : null}
                                 </span>
                                 <span className="space-y-1">
                                   <span className="block text-sm font-medium">{option.label}</span>
@@ -1468,23 +1481,36 @@ export function CreateAlertForm({
                     name="structure_event"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Event</FormLabel>
-                        <div className="grid grid-cols-2 gap-2">
-                          {(["bos", "choch", "sweep", "any"] as const).map((value) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => field.onChange(value)}
-                              className={cn(
-                                "rounded-lg border px-3 py-2 text-sm uppercase transition",
-                                field.value === value
-                                  ? "border-primary/40 bg-primary/10"
-                                  : "border-border",
-                              )}
-                            >
-                              {value}
-                            </button>
-                          ))}
+                        <FormLabel>Events</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Select one or more. Alert fires when any selected event matches.
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["bos", "choch", "sweep"] as const).map((value) => {
+                            const selected = field.value?.includes(value) ?? false;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() => {
+                                  const current = field.value ?? [];
+                                  field.onChange(
+                                    selected
+                                      ? current.filter((v) => v !== value)
+                                      : [...current, value],
+                                  );
+                                }}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm uppercase transition",
+                                  selected
+                                    ? "border-primary/40 bg-primary/10"
+                                    : "border-border",
+                                )}
+                              >
+                                {value}
+                              </button>
+                            );
+                          })}
                         </div>
                         <FormMessage />
                       </FormItem>
