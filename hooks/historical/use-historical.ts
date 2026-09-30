@@ -37,6 +37,18 @@ function withLoadState<T extends { data: unknown; error: unknown; isLoading: boo
   };
 }
 
+export function chartFormingOhlcKey(params: {
+  pair: string;
+  interval?: string;
+  start?: string;
+  end?: string;
+  limit?: number;
+}): string | null {
+  return params.pair
+    ? buildQueryUrl(API_ENDPOINTS.OBSERVER_PROXY.HISTORICAL_OHLC_WITH_FORMING, params)
+    : null;
+}
+
 export function chartClosedOhlcKey(params: {
   pair: string;
   interval?: string;
@@ -97,9 +109,7 @@ export function useHistoricalOhlcWithForming(
   },
   options?: { mobileRefresh?: boolean },
 ) {
-  const key = params.pair
-    ? buildQueryUrl(API_ENDPOINTS.OBSERVER_PROXY.HISTORICAL_OHLC_WITH_FORMING, params)
-    : null;
+  const key = chartFormingOhlcKey(params);
   const swrOptions = options?.mobileRefresh
     ? SWR_HISTORICAL_FORMING_MOBILE_OPTIONS
     : SWR_HISTORICAL_FORMING_OPTIONS;

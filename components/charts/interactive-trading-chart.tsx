@@ -36,8 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useChartFormingStream } from "@/hooks/chart/use-chart-forming-stream";
 import {
-  chartClosedOhlcKey,
-  useHistoricalOhlc,
+  chartFormingOhlcKey,
   useHistoricalOhlcWithForming,
 } from "@/hooks/historical/use-historical";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
@@ -47,7 +46,6 @@ import {
   CHART_INTERVAL_OPTIONS,
   closedCandlesContentEqual,
   extractFormingCandle,
-  pickClosedBase,
   resolveClosedCandles,
   synthesizeFormingFromLive,
   type ChartInterval,
@@ -68,7 +66,6 @@ import {
   saveChartLayout,
   syncAlertOverlays,
   syncDrawHistory,
-  syncLivePriceOverlay,
   syncPrevDayLevels,
   type ChartLayoutSnapshot,
   type KLineChartType,
@@ -185,6 +182,9 @@ export function InteractiveTradingChart({
   const pinnedTooltipRef = useRef(false);
   const closedForChartStableRef = useRef<OhlcCandle[]>([]);
   const rehydrateOverlaysRef = useRef<() => void>(() => undefined);
+  const onCreateAlertRef = useRef(onCreateAlert);
+  const lastFormingTsRef = useRef<string | null>(null);
+  const drawHistorySigRef = useRef<string | null>(null);
 
   const [interval, setInterval] = useState<ChartInterval>(intervalProp);
   const [chartType, setChartType] = useState<KLineChartType>("candle_solid");
@@ -248,51 +248,33 @@ export function InteractiveTradingChart({
   );
 
   const ohlcParams = useMemo(() => ({ pair, interval, limit }), [pair, interval, limit]);
-  const closedOhlcKey = useMemo(() => chartClosedOhlcKey(ohlcParams), [ohlcParams]);
+  const historyKey = useMemo(() => chartFormingOhlcKey(ohlcParams), [ohlcParams]);
 
   const {
-    data: ohlcData,
+    data: formingOhlcData,
     isInitialLoading: ohlcLoading,
     error: ohlcError,
-  } = useHistoricalOhlc(ohlcParams, { chartClosed: true });
-
-  const { data: formingOhlcData } = useHistoricalOhlcWithForming(ohlcParams);
+  } = useHistoricalOhlcWithForming(ohlcParams);
 
   const {
     formingCandle: formingCandleWs,
     livePrice: streamLivePrice,
     status: formingStreamStatus,
-  } = useChartFormingStream(pair, interval, { closedOhlcKey });
+  } = useChartFormingStream(pair, interval, { closedOhlcKey: historyKey });
 
   const closedFromHttp = useMemo(
-    () => ohlcData?.candles?.filter((c) => !c.is_forming) ?? [],
-    [ohlcData],
+    () => formingOhlcData?.candles?.filter((c) => !c.is_forming) ?? [],
+    [formingOhlcData],
   );
-
-  const needsClosedFallback = closedFromHttp.length === 0;
-
-  const fallbackOhlcParams = useMemo(
-    () => (needsClosedFallback ? ohlcParams : { pair: "", interval }),
-    [needsClosedFallback, ohlcParams],
-  );
-
-  const { data: fallbackOhlcData } = useHistoricalOhlc(fallbackOhlcParams);
-
-  const fallbackClosed = useMemo(() => {
-    if (!needsClosedFallback || !fallbackOhlcData?.candles?.length) {
-      return [];
-    }
-    return fallbackOhlcData.candles.filter((c) => !c.is_forming);
-  }, [fallbackOhlcData, needsClosedFallback]);
 
   const closedBase = useMemo(
-    () => pickClosedBase(cachedClosed.length > 0 ? cachedClosed : closedFromHttp, fallbackClosed),
-    [cachedClosed, closedFromHttp, fallbackClosed],
+    () => (cachedClosed.length > 0 ? cachedClosed : closedFromHttp),
+    [cachedClosed, closedFromHttp],
   );
 
   const closedForChartRaw = useMemo(
-    () => resolveClosedCandles(ohlcData, closedBase),
-    [ohlcData, closedBase],
+    () => resolveClosedCandles(formingOhlcData, closedBase),
+    [formingOhlcData, closedBase],
   );
 
   const closedForChart = useMemo(() => {
@@ -427,7 +409,7 @@ export function InteractiveTradingChart({
         structureDirection?: ChartAlertDraft["structureDirection"];
       },
     ) => {
-      onCreateAlert?.({
+      onCreateAlertRef.current?.({
         pair,
         alertType,
         price,
@@ -438,7 +420,7 @@ export function InteractiveTradingChart({
       });
       setPlusMenuOpen(false);
     },
-    [interval, onCreateAlert, pair],
+    [interval, pair],
   );
 
   const handleCrosshairChange = useCallback<ActionCallback>((data) => {
@@ -482,7 +464,7 @@ export function InteractiveTradingChart({
         return;
       }
 
-      if (isMobileRef.current && onCreateAlert) {
+      if (isMobileRef.current && onCreateAlertRef.current) {
         const rect = container.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
@@ -500,7 +482,7 @@ export function InteractiveTradingChart({
 
       setPinnedTooltip((prev) => !prev);
     },
-    [onCreateAlert],
+    [],
   );
 
   const syncActiveIndicatorsState = useCallback((names: Iterable<string>) => {
@@ -534,6 +516,10 @@ export function InteractiveTradingChart({
   }, [openAlertDraft]);
 
   useEffect(() => {
+    onCreateAlertRef.current = onCreateAlert;
+  }, [onCreateAlert]);
+
+  useEffect(() => {
     setInterval(intervalProp);
   }, [intervalProp]);
 
@@ -544,6 +530,8 @@ export function InteractiveTradingChart({
     subscribeBarRef.current = null;
     prevClosedCountRef.current = 0;
     prevLastClosedTsRef.current = null;
+    lastFormingTsRef.current = null;
+    drawHistorySigRef.current = null;
   }, [pair, interval]);
 
   useEffect(() => {
@@ -701,31 +689,41 @@ export function InteractiveTradingChart({
     const prevCount = prevClosedCountRef.current;
     const prevLastTs = prevLastClosedTsRef.current;
     const newCount = closedForChart.length;
-    const newLastTs = closedForChart.at(-1)?.timestamp ?? null;
-
-    const barClosed =
-      prevCount > 0 && newCount > prevCount && newLastTs !== prevLastTs;
+    const newLast = closedForChart.at(-1) ?? null;
+    const newLastTs = newLast?.timestamp ?? null;
+    const lastTsChanged = prevLastTs !== null && newLastTs !== prevLastTs;
+    const oneBarAdvanced = closedForChart.at(-2)?.timestamp === prevLastTs;
 
     prevClosedCountRef.current = newCount;
     prevLastClosedTsRef.current = newLastTs;
 
-    if (barClosed) {
+    if (prevCount === 0 && newCount > 0) {
       resetChartWithLayout(chart);
       return;
     }
 
-    if (prevCount === 0 && newCount > 0) {
+    if (lastTsChanged && oneBarAdvanced && subscribeBarRef.current && newLast) {
+      subscribeBarRef.current(ohlcToKLineData(newLast));
       pushFormingBar(subscribeBarRef.current, formingCandleRef.current);
       if (followLiveRef.current) {
         chart.scrollToRealTime(0);
       }
+      return;
+    }
+
+    if (lastTsChanged) {
+      resetChartWithLayout(chart);
     }
   }, [closedForChart, resetChartWithLayout]);
 
   useEffect(() => {
     pushFormingBar(subscribeBarRef.current, formingCandle);
-    if (followLive && chartRef.current) {
-      chartRef.current.scrollToRealTime(0);
+    const ts = formingCandle?.timestamp ?? null;
+    if (ts !== lastFormingTsRef.current) {
+      lastFormingTsRef.current = ts;
+      if (followLive) {
+        chartRef.current?.scrollToRealTime(0);
+      }
     }
   }, [formingCandle, followLive]);
 
@@ -736,14 +734,6 @@ export function InteractiveTradingChart({
     }
     syncAlertOverlays(chart, structureLayers.alertLines ? priceAlerts : []);
   }, [priceAlerts, structureLayers.alertLines]);
-
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) {
-      return;
-    }
-    syncLivePriceOverlay(chart, displayLivePrice);
-  }, [displayLivePrice]);
 
   const { live: drawLive, biasSeries: drawBiasSeries } = useDrawOnLiquidity(
     showDrawOnLiquidity ? pair : "",
@@ -764,19 +754,28 @@ export function InteractiveTradingChart({
       pdl: drawLive.pdl,
       draw: drawLive.draw,
     });
-  }, [showDrawOnLiquidity, structureLayers.pdhPdl, drawLive, closedForChart]);
+  }, [showDrawOnLiquidity, structureLayers.pdhPdl, drawLive?.pdh, drawLive?.pdl, drawLive?.draw]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) {
       return;
     }
-    if (showDrawOnLiquidity && showDrawHistory) {
-      syncDrawHistory(chart, drawBiasSeries);
-    } else {
-      syncDrawHistory(chart, []);
+    const enabled = showDrawOnLiquidity && showDrawHistory;
+    const sig = enabled
+      ? drawBiasSeries
+          .map(
+            (day) =>
+              `${day.date}|${day.pdh}|${day.pdl}|${day.outcome}|${day.sweptHigh}|${day.sweptLow}`,
+          )
+          .join(";")
+      : "";
+    if (sig === drawHistorySigRef.current) {
+      return;
     }
-  }, [showDrawOnLiquidity, showDrawHistory, drawBiasSeries, closedForChart]);
+    drawHistorySigRef.current = sig;
+    syncDrawHistory(chart, enabled ? drawBiasSeries : []);
+  }, [showDrawOnLiquidity, showDrawHistory, drawBiasSeries]);
 
   const structure = useMemo(
     () => computeMarketStructure(closedForChart),
@@ -838,7 +837,6 @@ export function InteractiveTradingChart({
         return;
       }
       const layers = structureLayersRef.current;
-      syncLivePriceOverlay(chart, displayLivePrice);
       syncAlertOverlays(chart, layers.alertLines ? priceAlerts : []);
       if (showDrawOnLiquidity && layers.pdhPdl && drawLive) {
         syncPrevDayLevels(chart, {
@@ -869,7 +867,6 @@ export function InteractiveTradingChart({
       );
     };
   }, [
-    displayLivePrice,
     priceAlerts,
     showDrawOnLiquidity,
     showDrawHistory,
@@ -971,7 +968,7 @@ export function InteractiveTradingChart({
     return () => window.removeEventListener("keydown", onKey);
   }, [startDrawing]);
 
-  const isInitialLoading = ohlcLoading && !ohlcData;
+  const isInitialLoading = ohlcLoading && !formingOhlcData;
   const error = ohlcError;
   const showOverlaySkeleton = isInitialLoading && !dataReady;
   const showEmpty = !isInitialLoading && !error && closedForChart.length === 0 && !formingCandle;
