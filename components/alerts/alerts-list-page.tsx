@@ -45,7 +45,8 @@ type AlertTypeFilter =
   | "candle_close"
   | "prev_day_level"
   | "market_structure"
-  | "structure_session";
+  | "structure_session"
+  | "sweep_confirm";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -76,7 +77,8 @@ function normalizeType(value?: string): AlertTypeFilter {
     value === "candle_close" ||
     value === "prev_day_level" ||
     value === "market_structure" ||
-    value === "structure_session"
+    value === "structure_session" ||
+    value === "sweep_confirm"
   ) {
     return value;
   }
@@ -184,6 +186,9 @@ function formatAlertTypeBadge(
   }
   if (alertType === "structure_session") {
     return "Session";
+  }
+  if (alertType === "sweep_confirm") {
+    return "Sweep confirm";
   }
   return "price";
 }
@@ -372,6 +377,7 @@ export function AlertsListPage({
       prev_day_level: source.filter((alert) => alert.alert_type === "prev_day_level").length,
       market_structure: source.filter((alert) => alert.alert_type === "market_structure").length,
       structure_session: source.filter((alert) => alert.alert_type === "structure_session").length,
+      sweep_confirm: source.filter((alert) => alert.alert_type === "sweep_confirm").length,
     };
   }, [alerts?.all]);
 
@@ -506,6 +512,11 @@ export function AlertsListPage({
               <Button asChild variant={type === "structure_session" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "structure_session")}>
                   Session ({typeCounts.structure_session})
+                </Link>
+              </Button>
+              <Button asChild variant={type === "sweep_confirm" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "sweep_confirm")}>
+                  Sweep confirm ({typeCounts.sweep_confirm})
                 </Link>
               </Button>
             </div>
@@ -707,6 +718,12 @@ export function AlertsListPage({
                     </>
                   ) : alert.alert_type === "structure_session" ? (
                     <>
+                      {alert.batch_id ? (
+                        <p>
+                          Multi-pair group:{" "}
+                          <span className="text-foreground">{alert.batch_id.slice(0, 8)}</span>
+                        </p>
+                      ) : null}
                       <p>
                         Timeframes:{" "}
                         <span className="text-foreground">
@@ -735,6 +752,40 @@ export function AlertsListPage({
                               ? `Waiting on ${alert.intervals[alert.session_step_index ?? 0]} (${(alert.session_step_index ?? 0) + 1} of ${alert.intervals.length})`
                               : "Waiting"}
                         </span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "sweep_confirm" ? (
+                    <>
+                      {alert.batch_id ? (
+                        <p>
+                          Multi-pair group:{" "}
+                          <span className="text-foreground">{alert.batch_id.slice(0, 8)}</span>
+                        </p>
+                      ) : null}
+                      <p>
+                        Timeframe: <span className="text-foreground">1h swing, 5m confirm</span>
+                      </p>
+                      <p>
+                        Confirmation:{" "}
+                        <span className="text-foreground uppercase">
+                          {alert.structure_event?.join(", ") ?? "-"}
+                        </span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">{alert.structure_direction ?? "-"}</span>
+                      </p>
+                      <p>
+                        Setup:{" "}
+                        <span className="text-foreground">
+                          {alert.pending_dir
+                            ? `Pending ${alert.pending_dir} sweep (${alert.pending_bars ?? 1} of 12)`
+                            : "No pending sweep"}
+                        </span>
+                      </p>
+                      <p>
+                        Last fire:{" "}
+                        <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
                       </p>
                     </>
                   ) : alert.alert_type === "market_structure" ? (

@@ -188,6 +188,16 @@ export default function AlertDetailPage() {
                     ? ` · waiting on ${alert.intervals[alert.session_step_index ?? 0]}`
                     : ""}
               </p>
+            ) : alert.alert_type === "sweep_confirm" ? (
+              <p className="text-sm">
+                1h swing → 5m · {(alert.structure_event ?? []).join(", ")} · {alert.structure_direction}
+                {alert.pending_dir
+                  ? ` · pending ${alert.pending_dir} sweep (${alert.pending_bars ?? 1} of 12)`
+                  : " · no pending sweep"}
+                {alert.triggered_at
+                  ? ` · last fire ${new Date(alert.triggered_at).toLocaleString()}`
+                  : ""}
+              </p>
             ) : alert.alert_type === "market_structure" ? (
               <p className="text-sm">
                 {alert.interval} · {(alert.structure_event ?? []).join(", ")} ·{" "}

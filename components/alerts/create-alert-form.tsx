@@ -221,6 +221,7 @@ const alertFormSchema = z
       "prev_day_level",
       "market_structure",
       "structure_session",
+      "sweep_confirm",
     ]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
@@ -233,7 +234,7 @@ const alertFormSchema = z
     interval: z.string().optional(),
     direction: z.enum(["above", "below"]).optional(),
     threshold: z.string().optional(),
-    structure_event: z.array(z.enum(["bos", "choch", "sweep"])).optional(),
+    structure_event: z.array(z.enum(["bos", "choch", "sweep", "cisd"])).optional(),
     structure_direction: z.enum(["bull", "bear", "any"]).optional(),
     intervals: z.array(z.enum(["1m", "5m", "15m", "30m", "1h", "4h"])).optional(),
     depends_on_alert_id: z.string().optional(),
@@ -263,7 +264,12 @@ const alertFormSchema = z
       });
     }
 
-    if (value.alert_type !== "prev_day_level" && !value.pair) {
+    if (
+      value.alert_type !== "prev_day_level" &&
+      value.alert_type !== "structure_session" &&
+      value.alert_type !== "sweep_confirm" &&
+      !value.pair
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["pair"],
@@ -314,6 +320,19 @@ const alertFormSchema = z
     }
 
     if (value.alert_type === "structure_session") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      } else if (value.pairs.length > 20) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at most 20 pairs",
+        });
+      }
       if (!value.intervals || value.intervals.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -339,6 +358,39 @@ const alertFormSchema = z
           code: z.ZodIssueCode.custom,
           path: ["structure_direction"],
           message: "Pick bull or bear when more than one timeframe is selected",
+        });
+      }
+    }
+
+    if (value.alert_type === "sweep_confirm") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      } else if (value.pairs.length > 20) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at most 20 pairs",
+        });
+      }
+      const confirmations = (value.structure_event ?? []).filter(
+        (event) => event === "bos" || event === "choch" || event === "cisd",
+      );
+      if (confirmations.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_event"],
+          message: "Select at least one confirmation",
+        });
+      }
+      if (!value.structure_direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Select a direction",
         });
       }
     }
@@ -544,7 +596,9 @@ export function CreateAlertForm({
               ? "market_structure"
               : initialAlertType === "structure_session"
                 ? "structure_session"
-                : "price",
+                : initialAlertType === "sweep_confirm"
+                  ? "sweep_confirm"
+                  : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -629,6 +683,17 @@ export function CreateAlertForm({
 
     if (initialAlertType === "structure_session") {
       form.setValue("alert_type", "structure_session", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+
+    if (initialAlertType === "sweep_confirm") {
+      form.setValue("alert_type", "sweep_confirm", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+      form.setValue("structure_event", ["bos", "cisd"], {
         shouldDirty: false,
         shouldValidate: true,
       });
@@ -895,13 +960,38 @@ export function CreateAlertForm({
           condition: values.condition,
         });
       } else if (alertType === "structure_session") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
         const ordered = sessionIntervalOptions.filter((interval) =>
           (values.intervals ?? []).includes(interval),
         );
+        const sessionPayload = { ...basePayload };
+        delete sessionPayload.depends_on_alert_id;
         await createAlert({
-          ...basePayload,
+          ...sessionPayload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
           intervals: [...ordered],
           structure_event: values.structure_event,
+          structure_direction: values.structure_direction,
+        });
+      } else if (alertType === "sweep_confirm") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
+        const confirmations = (values.structure_event ?? []).filter(
+          (event): event is "bos" | "choch" | "cisd" =>
+            event === "bos" || event === "choch" || event === "cisd",
+        );
+        const sweepPayload = { ...basePayload };
+        delete sweepPayload.depends_on_alert_id;
+        await createAlert({
+          ...sweepPayload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
+          interval: "5m",
+          structure_event: confirmations,
           structure_direction: values.structure_direction,
         });
       } else if (alertType === "market_structure") {
@@ -987,6 +1077,27 @@ export function CreateAlertForm({
                             shouldDirty: false,
                             shouldValidate: false,
                           });
+                          if (value === "sweep_confirm") {
+                            const current = form.getValues("structure_event") ?? [];
+                            const kept = current.filter(
+                              (event) => event === "bos" || event === "choch" || event === "cisd",
+                            );
+                            form.setValue(
+                              "structure_event",
+                              kept.length > 0 ? kept : ["bos", "cisd"],
+                              { shouldDirty: false, shouldValidate: true },
+                            );
+                          } else {
+                            const current = form.getValues("structure_event") ?? [];
+                            const kept = current.filter((event) => event !== "cisd");
+                            if (kept.length !== current.length) {
+                              form.setValue(
+                                "structure_event",
+                                kept.length > 0 ? kept : ["bos", "choch", "sweep"],
+                                { shouldDirty: false, shouldValidate: false },
+                              );
+                            }
+                          }
                           form.clearErrors([
                             "target_price",
                             "condition",
@@ -1001,12 +1112,13 @@ export function CreateAlertForm({
                           ]);
                         }}
                       >
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
                           <TabsTrigger value="price">Price</TabsTrigger>
                           <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
                           <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
                           <TabsTrigger value="market_structure">BOS / CHoCH</TabsTrigger>
                           <TabsTrigger value="structure_session">Session</TabsTrigger>
+                          <TabsTrigger value="sweep_confirm">Sweep confirm</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -1015,7 +1127,9 @@ export function CreateAlertForm({
                 )}
               />
 
-              {selectedAlertType !== "prev_day_level" ? (
+              {selectedAlertType !== "prev_day_level" &&
+              selectedAlertType !== "structure_session" &&
+              selectedAlertType !== "sweep_confirm" ? (
               <FormField
                 control={form.control}
                 name="pair"
@@ -1106,7 +1220,9 @@ export function CreateAlertForm({
               />
               ) : null}
 
-              {selectedAlertType === "prev_day_level" ? (
+              {selectedAlertType === "prev_day_level" ||
+              selectedAlertType === "structure_session" ||
+              selectedAlertType === "sweep_confirm" ? (
                 <>
                   <FormField
                     control={form.control}
@@ -1208,7 +1324,12 @@ export function CreateAlertForm({
                               </div>
                               <p className="text-xs text-muted-foreground">
                                 {selected.length} selected / {pairs.length} available.
-                                One alert is created per pair.
+                                One alert is created per pair
+                                {selectedAlertType === "structure_session" ||
+                                selectedAlertType === "sweep_confirm"
+                                  ? " (up to 20)"
+                                  : ""}
+                                .
                               </p>
                             </div>
                           </FormControl>
@@ -1217,7 +1338,11 @@ export function CreateAlertForm({
                       );
                     }}
                   />
+                </>
+              ) : null}
 
+              {selectedAlertType === "prev_day_level" ? (
+                <>
                   <p className="text-xs text-muted-foreground">
                     Defaults to end of the current UTC day. You can shorten or extend expiry below —
                     the alert will not fire after that time.
@@ -1633,6 +1758,85 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
+              ) : selectedAlertType === "sweep_confirm" ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Sweeps the latest unbroken 1-hour swing. A bearish sweep takes the 1-hour high,
+                    then a 5-minute candle must break the latest 5-minute swing low. A bullish sweep
+                    takes the 1-hour low, then a 5-minute candle must break the latest 5-minute swing
+                    high. Confirmation can be a BOS, CHoCH, or CISD within 12 five-minute candles,
+                    including the sweep candle. The alert stays active and can fire again until it
+                    expires.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="structure_event"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Confirmation</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(
+                            [
+                              ["bos", "BOS"],
+                              ["choch", "CHoCH"],
+                              ["cisd", "CISD"],
+                            ] as const
+                          ).map(([value, label]) => {
+                            const selected = field.value?.includes(value) ?? false;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() => {
+                                  const current = field.value ?? [];
+                                  field.onChange(
+                                    selected
+                                      ? current.filter((item) => item !== value)
+                                      : [...current, value],
+                                  );
+                                }}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  selected ? "border-primary/40 bg-primary/10" : "border-border",
+                                )}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["bull", "bear", "any"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm capitalize transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
               ) : selectedAlertType === "market_structure" ? (
                 <>
                   <FormField
@@ -1735,7 +1939,7 @@ export function CreateAlertForm({
                 </>
               ) : null}
 
-              {selectedAlertType === "structure_session" ? null : (
+              {selectedAlertType === "structure_session" || selectedAlertType === "sweep_confirm" ? null : (
               <FormField
                 control={form.control}
                 name="depends_on_alert_id"
