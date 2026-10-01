@@ -304,7 +304,7 @@ export function getKLineChartStyles(isDark: boolean): DeepPartial<Styles> {
           upColor: up,
           downColor: down,
           noChangeColor: up,
-          line: { show: true, style: "solid", size: 1.5 },
+          line: { show: true, style: "dashed", dashedValue: [2, 2], size: 1 },
           text: { show: true, color: bg, size: 12 },
         },
       },

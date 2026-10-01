@@ -148,8 +148,8 @@ export function synthesizeFormingFromLive(
   return {
     timestamp: bucketIso,
     open,
-    high: Math.max(open, livePrice, last.high),
-    low: Math.min(open, livePrice, last.low),
+    high: Math.max(open, livePrice),
+    low: Math.min(open, livePrice),
     close: livePrice,
     volume: 1,
     is_forming: true,

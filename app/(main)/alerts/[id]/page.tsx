@@ -176,7 +176,19 @@ export default function AlertDetailPage() {
                   ? "Threshold"
                   : "Type"}
             </Label>
-            {alert.alert_type === "market_structure" ? (
+            {alert.alert_type === "structure_session" ? (
+              <p className="text-sm">
+                {(alert.intervals ?? []).join(" → ")} · {(alert.structure_event ?? []).join(", ")} ·{" "}
+                {alert.structure_direction}
+                {alert.last_fired_session &&
+                alert.session_start &&
+                alert.last_fired_session === alert.session_start
+                  ? " · fired this session"
+                  : alert.intervals && (alert.session_step_index ?? 0) < alert.intervals.length
+                    ? ` · waiting on ${alert.intervals[alert.session_step_index ?? 0]}`
+                    : ""}
+              </p>
+            ) : alert.alert_type === "market_structure" ? (
               <p className="text-sm">
                 {alert.interval} · {(alert.structure_event ?? []).join(", ")} ·{" "}
                 {alert.structure_direction}

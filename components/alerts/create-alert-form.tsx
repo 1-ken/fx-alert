@@ -99,6 +99,7 @@ const candleDirectionOptions: Array<{
 ];
 
 const candleIntervalOptions = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
+const sessionIntervalOptions = ["1m", "5m", "15m", "30m", "1h", "4h"] as const;
 
 const EXPIRY_PRESETS = [
   { label: "1h", hours: 1 },
@@ -214,7 +215,13 @@ const drawLevelOptions: Array<{
 
 const alertFormSchema = z
   .object({
-    alert_type: z.enum(["price", "candle_close", "prev_day_level", "market_structure"]),
+    alert_type: z.enum([
+      "price",
+      "candle_close",
+      "prev_day_level",
+      "market_structure",
+      "structure_session",
+    ]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
     level_ref: z.enum(["high", "low", "both"]).optional(),
@@ -228,6 +235,7 @@ const alertFormSchema = z
     threshold: z.string().optional(),
     structure_event: z.array(z.enum(["bos", "choch", "sweep"])).optional(),
     structure_direction: z.enum(["bull", "bear", "any"]).optional(),
+    intervals: z.array(z.enum(["1m", "5m", "15m", "30m", "1h", "4h"])).optional(),
     depends_on_alert_id: z.string().optional(),
     notifyVia: z.array(z.enum(["sms", "call", "sound", "email"])),
     email: z.string().trim().optional(),
@@ -301,6 +309,36 @@ const alertFormSchema = z
           code: z.ZodIssueCode.custom,
           path: ["condition"],
           message: "Select a condition",
+        });
+      }
+    }
+
+    if (value.alert_type === "structure_session") {
+      if (!value.intervals || value.intervals.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["intervals"],
+          message: "Select at least one timeframe",
+        });
+      }
+      if (!value.structure_event || value.structure_event.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_event"],
+          message: "Select at least one structure event",
+        });
+      }
+      if (!value.structure_direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Select a direction",
+        });
+      } else if ((value.intervals?.length ?? 0) > 1 && value.structure_direction === "any") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Pick bull or bear when more than one timeframe is selected",
         });
       }
     }
@@ -504,7 +542,9 @@ export function CreateAlertForm({
             ? "prev_day_level"
             : initialAlertType === "market_structure"
               ? "market_structure"
-              : "price",
+              : initialAlertType === "structure_session"
+                ? "structure_session"
+                : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -520,6 +560,7 @@ export function CreateAlertForm({
         ? [initialStructureEvent]
         : (["bos", "choch", "sweep"] as const),
       structure_direction: initialStructureDirection ?? "any",
+      intervals: ["5m"],
       depends_on_alert_id: "",
       notifyVia: initialNotifyVia ?? [],
       email: "",
@@ -585,6 +626,13 @@ export function CreateAlertForm({
     if (initialAlertType === "market_structure") {
       form.setValue("alert_type", "market_structure", { shouldDirty: false, shouldValidate: true });
     }
+
+    if (initialAlertType === "structure_session") {
+      form.setValue("alert_type", "structure_session", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
   }, [form, initialAlertType]);
 
   useEffect(() => {
@@ -639,6 +687,7 @@ export function CreateAlertForm({
 
   const selectedPair = form.watch("pair");
   const selectedAlertType = form.watch("alert_type");
+  const selectedSessionIntervals = form.watch("intervals") ?? [];
   const selectedDolPairs = form.watch("pairs") ?? [];
   const [pairSearch, setPairSearch] = useState(() => selectedPair || "");
   const [isPairInputFocused, setIsPairInputFocused] = useState(false);
@@ -672,6 +721,8 @@ export function CreateAlertForm({
       base = `Candle ${alert.interval} ${alert.direction} ${alert.threshold ?? ""}${step} (${alert.status})`;
     } else if (alert.alert_type === "prev_day_level") {
       base = `Prev-day ${(alert.dol_trigger ?? []).join("/")} ${alert.level_ref}${step} (${alert.status})`;
+    } else if (alert.alert_type === "structure_session") {
+      base = `Session ${(alert.intervals ?? []).join("→")} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
     } else {
       base = `Structure ${alert.interval} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
     }
@@ -843,6 +894,16 @@ export function CreateAlertForm({
           target_price: parseNumericString(values.target_price ?? ""),
           condition: values.condition,
         });
+      } else if (alertType === "structure_session") {
+        const ordered = sessionIntervalOptions.filter((interval) =>
+          (values.intervals ?? []).includes(interval),
+        );
+        await createAlert({
+          ...basePayload,
+          intervals: [...ordered],
+          structure_event: values.structure_event,
+          structure_direction: values.structure_direction,
+        });
       } else if (alertType === "market_structure") {
         await createAlert({
           ...basePayload,
@@ -940,11 +1001,12 @@ export function CreateAlertForm({
                           ]);
                         }}
                       >
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-5">
                           <TabsTrigger value="price">Price</TabsTrigger>
                           <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
                           <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
                           <TabsTrigger value="market_structure">BOS / CHoCH</TabsTrigger>
+                          <TabsTrigger value="structure_session">Session</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -1444,6 +1506,133 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
+              ) : selectedAlertType === "structure_session" ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="intervals"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Timeframes</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Lowest to highest. With more than one, each higher timeframe must confirm
+                          after the one below it. The alert fires once per forex day (22:00 UTC
+                          rollover) and arms again the next day.
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+                          {sessionIntervalOptions.map((interval) => {
+                            const selected = field.value?.includes(interval) ?? false;
+                            return (
+                              <button
+                                key={interval}
+                                type="button"
+                                onClick={() => {
+                                  const current = field.value ?? [];
+                                  const next = selected
+                                    ? current.filter((value) => value !== interval)
+                                    : sessionIntervalOptions.filter(
+                                        (value) => value === interval || current.includes(value),
+                                      );
+                                  field.onChange(next);
+                                  if (next.length > 1 && form.getValues("structure_direction") === "any") {
+                                    form.setValue("structure_direction", "bull", {
+                                      shouldValidate: true,
+                                    });
+                                  }
+                                }}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  selected
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                {interval}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {field.value && field.value.length > 1 ? (
+                          <p className="text-xs text-muted-foreground">
+                            Order: {field.value.join(" → ")}
+                          </p>
+                        ) : null}
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_event"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Events</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Fires on the first event of the day that matches a selected kind and direction.
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["bos", "choch", "sweep"] as const).map((value) => {
+                            const selected = field.value?.includes(value) ?? false;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() => {
+                                  const current = field.value ?? [];
+                                  field.onChange(
+                                    selected ? current.filter((v) => v !== value) : [...current, value],
+                                  );
+                                }}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm uppercase transition",
+                                  selected ? "border-primary/40 bg-primary/10" : "border-border",
+                                )}
+                              >
+                                {value}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div
+                          className={cn(
+                            "grid gap-2",
+                            selectedSessionIntervals.length > 1 ? "grid-cols-2" : "grid-cols-3",
+                          )}
+                        >
+                          {(selectedSessionIntervals.length > 1
+                            ? (["bull", "bear"] as const)
+                            : (["bull", "bear", "any"] as const)
+                          ).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm capitalize transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
               ) : selectedAlertType === "market_structure" ? (
                 <>
                   <FormField
@@ -1546,6 +1735,7 @@ export function CreateAlertForm({
                 </>
               ) : null}
 
+              {selectedAlertType === "structure_session" ? null : (
               <FormField
                 control={form.control}
                 name="depends_on_alert_id"
@@ -1577,6 +1767,7 @@ export function CreateAlertForm({
                   </FormItem>
                 )}
               />
+              )}
 
               {!createLimit.allowed ? (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

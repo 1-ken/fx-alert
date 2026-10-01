@@ -4,6 +4,24 @@ export function chartFormingSwrKey(pair: string, interval: string): string {
   return `chart-forming|${pair.replace(/[^a-z0-9]/gi, "").toUpperCase()}|${interval}`;
 }
 
+export type ChartTickCache = {
+  forming: OhlcCandle | null;
+  livePrice?: number;
+};
+
+export function chartTickEqual(
+  a: ChartTickCache | null | undefined,
+  b: ChartTickCache | null | undefined,
+): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (!a || !b) {
+    return !a && !b;
+  }
+  return formingCandleDataEqual(a.forming, b.forming) && a.livePrice === b.livePrice;
+}
+
 export function formingCandleDataEqual(
   a: OhlcCandle | null | undefined,
   b: OhlcCandle | null | undefined,

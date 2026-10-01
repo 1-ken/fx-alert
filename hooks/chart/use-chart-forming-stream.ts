@@ -11,7 +11,7 @@ import {
 } from "@/lib/constants";
 import { useObserverWsToken } from "@/hooks/observer/use-ws-token";
 import { acquireChartWs } from "@/hooks/chart/chart-ws-shared";
-import { chartFormingSwrKey, formingCandleDataEqual } from "@/lib/swr-ohlc";
+import { chartFormingSwrKey, chartTickEqual, type ChartTickCache } from "@/lib/swr-ohlc";
 import type { ChartInterval } from "@/lib/chart-utils";
 import type { OhlcCandle } from "@/types/historical";
 import type { ChartStreamPayload } from "@/types/snapshot";
@@ -159,7 +159,7 @@ export function useChartFormingStream(
   const prevTimestampRef = useRef<string | null>(null);
   const closedOhlcKey = options?.closedOhlcKey ?? null;
 
-  const { data: formingCandle } = useSWR<OhlcCandle | null>(
+  const { data: tick } = useSWR<ChartTickCache | null>(
     swrKey,
     null,
     {
@@ -168,7 +168,7 @@ export function useChartFormingStream(
       revalidateIfStale: false,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
-      compare: formingCandleDataEqual,
+      compare: chartTickEqual,
     },
   );
 
@@ -200,13 +200,40 @@ export function useChartFormingStream(
       wsUrl,
       (event) => {
         try {
-          const payload = JSON.parse(event.data as string) as ChartStreamPayload;
+          const payload = JSON.parse(event.data as string) as ChartStreamPayload & {
+            type?: string;
+          };
+          if (payload?.type === "alert_triggered") {
+            return;
+          }
           const forming = extractFormingFromPayload(payload);
           const livePrice = extractLivePrice(payload);
+          if (!forming && typeof livePrice !== "number") {
+            return;
+          }
 
           void globalMutate(
             swrKey,
-            forming,
+            (current: ChartTickCache | null | undefined) => {
+              const prev = current ?? { forming: null };
+              let nextForming = forming ?? prev.forming;
+              if (
+                forming &&
+                prev.forming &&
+                prev.forming.timestamp === forming.timestamp
+              ) {
+                nextForming = {
+                  ...forming,
+                  open: prev.forming.open,
+                  high: Math.max(prev.forming.high, forming.high),
+                  low: Math.min(prev.forming.low, forming.low),
+                };
+              }
+              return {
+                forming: nextForming,
+                livePrice: typeof livePrice === "number" ? livePrice : prev.livePrice,
+              };
+            },
             { revalidate: false, populateCache: true },
           );
 
@@ -216,13 +243,6 @@ export function useChartFormingStream(
             if (prev !== null && closedOhlcKey) {
               void globalMutate(closedOhlcKey);
             }
-          }
-
-          if (typeof livePrice === "number") {
-            void globalMutate(`${swrKey}:price`, livePrice, {
-              revalidate: false,
-              populateCache: true,
-            });
           }
         } catch (error) {
           console.error("[ChartFormingStream] Failed to parse message:", error);
@@ -239,19 +259,12 @@ export function useChartFormingStream(
       return;
     }
     prevTimestampRef.current = null;
-    void globalMutate(swrKey, null, { revalidate: false });
-    void globalMutate(`${swrKey}:price`, undefined, { revalidate: false });
+    void globalMutate(swrKey, { forming: null }, { revalidate: false });
   }, [interval, pair, swrKey]);
 
-  const { data: streamLivePrice } = useSWR<number | undefined>(
-    swrKey ? `${swrKey}:price` : null,
-    null,
-    { revalidateOnMount: false },
-  );
-
   return {
-    formingCandle: formingCandle ?? null,
-    livePrice: streamLivePrice,
+    formingCandle: tick?.forming ?? null,
+    livePrice: tick?.livePrice,
     status,
     isConnecting: status === "connecting",
   };

@@ -48,7 +48,9 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
         ? "prev_day_level"
         : record.alert_type === "market_structure"
           ? "market_structure"
-          : "price";
+          : record.alert_type === "structure_session"
+            ? "structure_session"
+            : "price";
   const levelRef =
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref
@@ -130,6 +132,17 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     batch_id: typeof record.batch_id === "string" ? record.batch_id : null,
     structure_event: structureEvent,
     structure_direction: structureDirection,
+    intervals: Array.isArray(record.intervals)
+      ? record.intervals.filter((value): value is string => typeof value === "string" && value.length > 0)
+      : null,
+    session_start: typeof record.session_start === "string" ? record.session_start : null,
+    session_step_index:
+      typeof record.session_step_index === "number" && Number.isFinite(record.session_step_index)
+        ? record.session_step_index
+        : null,
+    step_fired_at: typeof record.step_fired_at === "string" ? record.step_fired_at : null,
+    last_fired_session:
+      typeof record.last_fired_session === "string" ? record.last_fired_session : null,
     min_swing_atr: toNullableNumber(record.min_swing_atr),
     break_k: toNullableNumber(record.break_k),
     depends_on_alert_id:
@@ -309,6 +322,11 @@ function buildOptimisticAlert(input: AlertUpsertInput): Alert {
     batch_id: null,
     structure_event: input.structure_event ?? null,
     structure_direction: input.structure_direction ?? null,
+    intervals: input.intervals ?? null,
+    session_start: null,
+    session_step_index: input.alert_type === "structure_session" ? 0 : null,
+    step_fired_at: null,
+    last_fired_session: null,
     min_swing_atr: input.min_swing_atr ?? null,
     break_k: input.break_k ?? null,
     depends_on_alert_id: dependsOn,

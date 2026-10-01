@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
@@ -98,10 +98,10 @@ export function PairDetailPageContent() {
 
   const favorited = isFavorite(pair);
 
-  const handleCreateAlert = (draft: ChartAlertDraft) => {
+  const handleCreateAlert = useCallback((draft: ChartAlertDraft) => {
     setAlertDraft(draft);
     setSheetOpen(true);
-  };
+  }, []);
 
   return (
     <div className="relative min-h-screen bg-background pb-28">

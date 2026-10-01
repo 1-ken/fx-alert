@@ -39,7 +39,13 @@ type AlertStatusFilter =
   | "triggered-5m"
   | "expired";
 
-type AlertTypeFilter = "all" | "price" | "candle_close" | "prev_day_level" | "market_structure";
+type AlertTypeFilter =
+  | "all"
+  | "price"
+  | "candle_close"
+  | "prev_day_level"
+  | "market_structure"
+  | "structure_session";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -69,7 +75,8 @@ function normalizeType(value?: string): AlertTypeFilter {
     value === "price" ||
     value === "candle_close" ||
     value === "prev_day_level" ||
-    value === "market_structure"
+    value === "market_structure" ||
+    value === "structure_session"
   ) {
     return value;
   }
@@ -174,6 +181,9 @@ function formatAlertTypeBadge(
   }
   if (alertType === "market_structure") {
     return "BOS / CHoCH";
+  }
+  if (alertType === "structure_session") {
+    return "Session";
   }
   return "price";
 }
@@ -361,6 +371,7 @@ export function AlertsListPage({
       candle_close: source.filter((alert) => alert.alert_type === "candle_close").length,
       prev_day_level: source.filter((alert) => alert.alert_type === "prev_day_level").length,
       market_structure: source.filter((alert) => alert.alert_type === "market_structure").length,
+      structure_session: source.filter((alert) => alert.alert_type === "structure_session").length,
     };
   }, [alerts?.all]);
 
@@ -490,6 +501,11 @@ export function AlertsListPage({
               <Button asChild variant={type === "market_structure" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "market_structure")}>
                   BOS / CHoCH ({typeCounts.market_structure})
+                </Link>
+              </Button>
+              <Button asChild variant={type === "structure_session" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "structure_session")}>
+                  Session ({typeCounts.structure_session})
                 </Link>
               </Button>
             </div>
@@ -686,6 +702,38 @@ export function AlertsListPage({
                         Last evaluated candle:{" "}
                         <span className="text-foreground">
                           {formatDateTime(alert.last_evaluated_candle_time)}
+                        </span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "structure_session" ? (
+                    <>
+                      <p>
+                        Timeframes:{" "}
+                        <span className="text-foreground">
+                          {(alert.intervals ?? []).join(" → ") || "-"}
+                        </span>
+                      </p>
+                      <p>
+                        Event:{" "}
+                        <span className="text-foreground uppercase">
+                          {alert.structure_event?.join(", ") ?? "-"}
+                        </span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">{alert.structure_direction ?? "-"}</span>
+                      </p>
+                      <p>
+                        Today:{" "}
+                        <span className="text-foreground">
+                          {alert.last_fired_session &&
+                          alert.session_start &&
+                          alert.last_fired_session === alert.session_start
+                            ? "Fired this session"
+                            : alert.intervals &&
+                                (alert.session_step_index ?? 0) < alert.intervals.length
+                              ? `Waiting on ${alert.intervals[alert.session_step_index ?? 0]} (${(alert.session_step_index ?? 0) + 1} of ${alert.intervals.length})`
+                              : "Waiting"}
                         </span>
                       </p>
                     </>
