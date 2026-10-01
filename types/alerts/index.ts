@@ -1,7 +1,12 @@
 export type AlertCondition = "above" | "below" | "equal";
 export type AlertStatus = "active" | "waiting" | "triggered" | "disabled" | "expired";
 export type AlertChannel = "email" | "sms" | "call" | "sound";
-export type AlertType = "price" | "candle_close" | "prev_day_level" | "market_structure";
+export type AlertType =
+  | "price"
+  | "candle_close"
+  | "prev_day_level"
+  | "market_structure"
+  | "structure_session";
 export type StructureEventKind = "bos" | "choch" | "sweep";
 /** @deprecated Prefer StructureEventKind[]; "any" only appears on legacy data before normalize. */
 export type StructureEventFilter = StructureEventKind | "any";
@@ -35,6 +40,11 @@ export interface Alert {
   batch_id?: string | null;
   structure_event?: StructureEventKind[] | null;
   structure_direction?: StructureDirectionFilter | null;
+  intervals?: string[] | null;
+  session_start?: string | null;
+  session_step_index?: number | null;
+  step_fired_at?: string | null;
+  last_fired_session?: string | null;
   min_swing_atr?: number | null;
   break_k?: number | null;
   depends_on_alert_id?: string | null;
@@ -71,6 +81,7 @@ export interface AlertUpsertInput {
   pairs?: string[];
   structure_event?: StructureEventKind[];
   structure_direction?: StructureDirectionFilter;
+  intervals?: string[];
   min_swing_atr?: number;
   break_k?: number;
   depends_on_alert_id?: string;
