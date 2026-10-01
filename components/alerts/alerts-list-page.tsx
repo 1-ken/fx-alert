@@ -707,6 +707,12 @@ export function AlertsListPage({
                     </>
                   ) : alert.alert_type === "structure_session" ? (
                     <>
+                      {alert.batch_id ? (
+                        <p>
+                          Multi-pair group:{" "}
+                          <span className="text-foreground">{alert.batch_id.slice(0, 8)}</span>
+                        </p>
+                      ) : null}
                       <p>
                         Timeframes:{" "}
                         <span className="text-foreground">

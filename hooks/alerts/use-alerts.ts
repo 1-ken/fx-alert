@@ -358,17 +358,25 @@ export function useObserverAlerts() {
 
   const createAlert = useCallback(
     async (input: AlertUpsertInput): Promise<Alert | null> => {
-      const optimisticAlert = buildOptimisticAlert(input);
-      const optimisticCache = hasFetched
-        ? appendAlertToCache(data, optimisticAlert)
-        : toCachePayload({
-            total: 1,
-            active: optimisticAlert.status === "waiting" ? [] : [optimisticAlert],
-            waiting: optimisticAlert.status === "waiting" ? [optimisticAlert] : [],
+      const optimisticAlerts =
+        input.pairs && input.pairs.length > 1
+          ? input.pairs.map((pair) => buildOptimisticAlert({ ...input, pair }))
+          : [buildOptimisticAlert(input)];
+      let optimisticCache: unknown = hasFetched ? data : undefined;
+      if (hasFetched) {
+        for (const alert of optimisticAlerts) {
+          optimisticCache = appendAlertToCache(optimisticCache, alert);
+        }
+      } else {
+        optimisticCache = toCachePayload({
+            total: optimisticAlerts.length,
+            active: optimisticAlerts.filter((alert) => alert.status !== "waiting"),
+            waiting: optimisticAlerts.filter((alert) => alert.status === "waiting"),
             triggered: [],
             expired: [],
-            all: [optimisticAlert],
+            all: optimisticAlerts,
           });
+      }
 
       await mutate(optimisticCache, { revalidate: false });
 
@@ -390,11 +398,14 @@ export function useObserverAlerts() {
         await mutate();
 
         const created = payload.alert;
+        const createdCount = payload.alerts?.length ?? (created ? 1 : 0);
         const wantedQueue = Boolean(input.depends_on_alert_id?.trim());
         if (wantedQueue && created?.status !== "waiting") {
           toast.error("Queue not applied — alert is watching immediately instead of waiting.");
         } else if (created?.status === "waiting") {
           toast.success("Queued — arms after the selected alert triggers.");
+        } else if (createdCount > 1) {
+          toast.success(`Created ${createdCount} alerts`);
         } else {
           toast.success("Alert created successfully");
         }

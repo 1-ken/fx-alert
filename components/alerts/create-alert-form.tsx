@@ -263,7 +263,11 @@ const alertFormSchema = z
       });
     }
 
-    if (value.alert_type !== "prev_day_level" && !value.pair) {
+    if (
+      value.alert_type !== "prev_day_level" &&
+      value.alert_type !== "structure_session" &&
+      !value.pair
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["pair"],
@@ -314,6 +318,19 @@ const alertFormSchema = z
     }
 
     if (value.alert_type === "structure_session") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      } else if (value.pairs.length > 20) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at most 20 pairs",
+        });
+      }
       if (!value.intervals || value.intervals.length === 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -895,11 +912,18 @@ export function CreateAlertForm({
           condition: values.condition,
         });
       } else if (alertType === "structure_session") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
         const ordered = sessionIntervalOptions.filter((interval) =>
           (values.intervals ?? []).includes(interval),
         );
+        const sessionPayload = { ...basePayload };
+        delete sessionPayload.depends_on_alert_id;
         await createAlert({
-          ...basePayload,
+          ...sessionPayload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
           intervals: [...ordered],
           structure_event: values.structure_event,
           structure_direction: values.structure_direction,
@@ -1015,7 +1039,7 @@ export function CreateAlertForm({
                 )}
               />
 
-              {selectedAlertType !== "prev_day_level" ? (
+              {selectedAlertType !== "prev_day_level" && selectedAlertType !== "structure_session" ? (
               <FormField
                 control={form.control}
                 name="pair"
@@ -1106,7 +1130,7 @@ export function CreateAlertForm({
               />
               ) : null}
 
-              {selectedAlertType === "prev_day_level" ? (
+              {selectedAlertType === "prev_day_level" || selectedAlertType === "structure_session" ? (
                 <>
                   <FormField
                     control={form.control}
@@ -1208,7 +1232,8 @@ export function CreateAlertForm({
                               </div>
                               <p className="text-xs text-muted-foreground">
                                 {selected.length} selected / {pairs.length} available.
-                                One alert is created per pair.
+                                One alert is created per pair
+                                {selectedAlertType === "structure_session" ? " (up to 20)" : ""}.
                               </p>
                             </div>
                           </FormControl>
@@ -1217,7 +1242,11 @@ export function CreateAlertForm({
                       );
                     }}
                   />
+                </>
+              ) : null}
 
+              {selectedAlertType === "prev_day_level" ? (
+                <>
                   <p className="text-xs text-muted-foreground">
                     Defaults to end of the current UTC day. You can shorten or extend expiry below —
                     the alert will not fire after that time.
