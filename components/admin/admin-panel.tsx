@@ -109,6 +109,9 @@ function formatAlertTarget(alert: AdminAlertRow): string {
   if (alert.alert_type === "structure_session") {
     return "session";
   }
+  if (alert.alert_type === "sweep_confirm") {
+    return "sweep confirm";
+  }
   return alert.target_price !== null ? String(alert.target_price) : "—";
 }
 

@@ -13,7 +13,11 @@ import type {
   AlertsResponse,
   CandleDirection,
 } from "@/types/alerts";
-import { normalizeDrawTriggers, normalizeStructureEvents } from "@/types/alerts";
+import {
+  normalizeDrawTriggers,
+  normalizeStructureEvents,
+  normalizeSweepConfirmations,
+} from "@/types/alerts";
 
 function toNullableNumber(value: unknown): number | null {
   if (typeof value === "number") {
@@ -50,13 +54,18 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
           ? "market_structure"
           : record.alert_type === "structure_session"
             ? "structure_session"
-            : "price";
+            : record.alert_type === "sweep_confirm"
+              ? "sweep_confirm"
+              : "price";
   const levelRef =
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref
       : null;
   const dolTrigger = normalizeDrawTriggers(record.dol_trigger);
-  const structureEvent = normalizeStructureEvents(record.structure_event);
+  const structureEvent =
+    record.alert_type === "sweep_confirm"
+      ? normalizeSweepConfirmations(record.structure_event)
+      : normalizeStructureEvents(record.structure_event);
   const structureDirection =
     record.structure_direction === "bull" ||
     record.structure_direction === "bear" ||
@@ -143,6 +152,12 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
     step_fired_at: typeof record.step_fired_at === "string" ? record.step_fired_at : null,
     last_fired_session:
       typeof record.last_fired_session === "string" ? record.last_fired_session : null,
+    pending_dir:
+      record.pending_dir === "bull" || record.pending_dir === "bear" ? record.pending_dir : null,
+    pending_bars:
+      typeof record.pending_bars === "number" && Number.isFinite(record.pending_bars)
+        ? record.pending_bars
+        : null,
     min_swing_atr: toNullableNumber(record.min_swing_atr),
     break_k: toNullableNumber(record.break_k),
     depends_on_alert_id:
@@ -327,6 +342,8 @@ function buildOptimisticAlert(input: AlertUpsertInput): Alert {
     session_step_index: input.alert_type === "structure_session" ? 0 : null,
     step_fired_at: null,
     last_fired_session: null,
+    pending_dir: null,
+    pending_bars: null,
     min_swing_atr: input.min_swing_atr ?? null,
     break_k: input.break_k ?? null,
     depends_on_alert_id: dependsOn,

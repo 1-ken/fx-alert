@@ -6,8 +6,10 @@ export type AlertType =
   | "candle_close"
   | "prev_day_level"
   | "market_structure"
-  | "structure_session";
-export type StructureEventKind = "bos" | "choch" | "sweep";
+  | "structure_session"
+  | "sweep_confirm";
+export type StructureEventKind = "bos" | "choch" | "sweep" | "cisd";
+export type SweepConfirmKind = "bos" | "choch" | "cisd";
 /** @deprecated Prefer StructureEventKind[]; "any" only appears on legacy data before normalize. */
 export type StructureEventFilter = StructureEventKind | "any";
 export type StructureDirectionFilter = "bull" | "bear" | "any";
@@ -45,6 +47,8 @@ export interface Alert {
   session_step_index?: number | null;
   step_fired_at?: string | null;
   last_fired_session?: string | null;
+  pending_dir?: "bull" | "bear" | null;
+  pending_bars?: number | null;
   min_swing_atr?: number | null;
   break_k?: number | null;
   depends_on_alert_id?: string | null;
@@ -122,6 +126,19 @@ export function normalizeStructureEvents(value: unknown): StructureEventKind[] |
     if (typeof item !== "string") continue;
     const v = item.toLowerCase() as StructureEventKind;
     if (STRUCTURE_EVENTS.includes(v) && !out.includes(v)) out.push(v);
+  }
+  return out.length > 0 ? out : null;
+}
+
+const SWEEP_CONFIRM_KINDS: SweepConfirmKind[] = ["bos", "choch", "cisd"];
+
+export function normalizeSweepConfirmations(value: unknown): SweepConfirmKind[] | null {
+  const items = Array.isArray(value) ? value : value != null && value !== "" ? [value] : [];
+  const out: SweepConfirmKind[] = [];
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const v = item.toLowerCase() as SweepConfirmKind;
+    if (SWEEP_CONFIRM_KINDS.includes(v) && !out.includes(v)) out.push(v);
   }
   return out.length > 0 ? out : null;
 }
