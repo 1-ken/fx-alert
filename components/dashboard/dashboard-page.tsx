@@ -8,7 +8,6 @@ import {
   MagnifyingGlassIcon,
   SignalIcon,
   StarIcon,
-  XMarkIcon,
 } from "@heroicons/react/24/outline";
 import { StarIcon as StarSolidIcon } from "@heroicons/react/24/solid";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { NotificationBell } from "@/components/alerts/notification-bell";
+import { AlertEventDetailDialog, formatAlertTypeLabel, formatEventPair } from "@/components/alerts/alert-event-detail-dialog";
 import dynamic from "next/dynamic";
 const BottomNav = dynamic(() => import("@/components/mobile/bottom-nav").then((m) => m.BottomNav), { ssr: false });
 const TourFab = dynamic(() => import("@/components/product-tour/tour-fab").then((m) => m.TourFab), { ssr: false });
@@ -26,9 +27,10 @@ import { buildInstrumentPairUrl } from "@/lib/instrument-navigation";
 import { prefetchPairOhlc } from "@/lib/chart-prefetch";
 // import { StreamHealthBadge } from "@/components/dashboard/stream-health-badge";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
-import { useNotificationCenter } from "@/hooks/alerts/use-notification-center";
+import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import { useFavorites } from "@/hooks/favorites/use-favorites";
 import { useObserverStreamContext } from "@/components/stream-alerts-provider";
+import type { AlertEvent } from "@/types/alerts";
 
 type DashboardTab = "favorites" | "currency" | "commodity" | "index" | "all";
 
@@ -72,17 +74,14 @@ export function DashboardPageContent() {
     isSnapshotLoading,
     changeMap,
   } = useObserverStreamContext();
-  const { alerts, hasFetched, isInitialLoading: alertsLoading } = useObserverAlerts();
-  const { unseenSinceVisit, markVisitNow } = useNotificationCenter(
-    alerts.triggered,
-    hasFetched,
-  );
+  const { alerts } = useObserverAlerts();
+  const { events, unreadCount, markRead, markAllRead } = useAlertEvents();
   const { favorites, isFavorite, toggleFavorite } = useFavorites();
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [activeTab, setActiveTab] = useState<DashboardTab>("all");
-  const [dismissedAtUnseenCount, setDismissedAtUnseenCount] = useState(0);
+  const [selectedEvent, setSelectedEvent] = useState<AlertEvent | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -153,18 +152,7 @@ export function DashboardPageContent() {
     return map;
   }, [alerts.active, alerts.waiting]);
 
-  const bannerItems = useMemo(() => unseenSinceVisit.slice(0, 3), [unseenSinceVisit]);
-
-  const unseenCount = unseenSinceVisit.length;
-  const showTriggeredBanner =
-    !alertsLoading &&
-    unseenCount > 0 &&
-    dismissedAtUnseenCount !== unseenCount;
-
-  const dismissTriggeredBanner = () => {
-    setDismissedAtUnseenCount(unseenCount);
-    markVisitNow();
-  };
+  const bannerItems = events.filter((event) => !event.read_at);
 
   const connectionLabel =
     status === "live" ? "Live" : status === "reconnecting" ? "Reconnecting" : "Offline";
@@ -212,7 +200,10 @@ export function DashboardPageContent() {
                 {/* <StreamHealthBadge /> */}
               </div>
             </div>
-            <ThemeSwitcher />
+            <div className="flex items-center gap-2">
+              <NotificationBell />
+              <ThemeSwitcher />
+            </div>
           </div>
         </header>
 
@@ -235,53 +226,53 @@ export function DashboardPageContent() {
           </Link>
         </section>
 
-        {showTriggeredBanner ? (
+        {bannerItems.length > 0 ? (
           <Card className="border-amber-500/30 bg-amber-500/5">
             <CardContent className="space-y-3 px-4 py-4">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-medium">
-                    {unseenSinceVisit.length} alert
-                    {unseenSinceVisit.length === 1 ? "" : "s"} triggered since you were away
+                    {unreadCount} alert{unreadCount === 1 ? "" : "s"} triggered while you were away
                   </p>
-                  <Link
-                    href="/alerts/list?status=triggered-today"
-                    className="text-sm text-primary underline-offset-4 hover:underline"
-                  >
-                    View all triggered alerts
-                  </Link>
+                  <p className="text-sm text-muted-foreground">
+                    Each firing is listed until you open it.
+                  </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  aria-label="Dismiss triggered alerts banner"
-                  onClick={dismissTriggeredBanner}
-                >
-                  <XMarkIcon className="h-5 w-5" />
+                <Button type="button" variant="ghost" size="sm" onClick={() => void markAllRead()}>
+                  Mark all as read
                 </Button>
               </div>
-              <ul className="space-y-2 text-sm">
+              <ul className="max-h-80 space-y-2 overflow-y-auto text-sm">
                 {bannerItems.map((item) => (
-                  <li key={item.triggerKey}>
-                    <Link
-                      href={`/alerts/list?status=triggered&highlight=${encodeURIComponent(item.alertId)}`}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 px-3 py-2 transition hover:border-primary/40 hover:bg-background"
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedEvent(item);
+                        void markRead(item.id);
+                      }}
+                      className="flex w-full flex-wrap items-center justify-between gap-2 rounded-md border bg-background/60 px-3 py-2 text-left transition hover:border-primary/40 hover:bg-background"
                     >
-                      <span className="font-medium text-primary underline-offset-4 hover:underline">
-                        {formatPairLabel(item.pair)}
+                      <span className="font-medium text-primary">
+                        {formatEventPair(item.pair)} · {formatAlertTypeLabel(item.alert_type)}
                       </span>
                       <span className="text-muted-foreground">
-                        {item.channel} · {formatKenyaRelative(item.triggeredAt)}
+                        {[item.timeframe, formatKenyaRelative(item.triggered_at)].filter(Boolean).join(" · ")}
                       </span>
-                    </Link>
+                    </button>
                   </li>
                 ))}
               </ul>
             </CardContent>
           </Card>
         ) : null}
+        <AlertEventDetailDialog
+          event={selectedEvent}
+          open={selectedEvent != null}
+          onOpenChange={(open) => {
+            if (!open) setSelectedEvent(null);
+          }}
+        />
 
         <Tabs
           value={activeTab}
