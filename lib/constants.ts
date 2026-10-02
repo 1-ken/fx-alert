@@ -55,6 +55,7 @@ export const API_ENDPOINTS = {
     LIST: "/api/v1/alerts",
     CREATE: "/api/v1/alerts",
     DELETE: "/api/v1/alerts",
+    EVENTS: "/api/v1/alert-events",
   },
   STREAMING: {
     SNAPSHOT: "/snapshot",
@@ -68,6 +69,7 @@ export const API_ENDPOINTS = {
   },
   OBSERVER_PROXY: {
     ALERTS: "/api/observer/alerts",
+    ALERT_EVENTS: "/api/observer/alert-events",
     FAVORITES: "/api/observer/favorites",
     SNAPSHOT: "/api/observer/snapshot",
     HEALTH: "/api/observer/stream-health",

@@ -102,6 +102,24 @@ export interface AlertDeleteResponse {
   message: string;
 }
 
+export interface AlertEvent {
+  id: string;
+  user_id: string;
+  alert_id: string;
+  pair: string;
+  alert_type: string;
+  timeframe: string;
+  price: number;
+  triggered_at: string;
+  read_at: string | null;
+  data: Alert;
+}
+
+export interface AlertEventsResponse {
+  events: AlertEvent[];
+  unread_count: number;
+}
+
 const DRAW_TRIGGERS: DrawTrigger[] = ["sweep", "displacement", "reversal", "draw_met"];
 const STRUCTURE_EVENTS: StructureEventKind[] = ["bos", "choch", "sweep"];
 

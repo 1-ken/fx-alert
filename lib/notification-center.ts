@@ -4,7 +4,6 @@ import {
   LAST_VISIT_AT_KEY,
   MAX_KNOWN_TRIGGER_KEYS,
   SOUND_TRIGGER_RECENCY_MS,
-  VISIT_BANNER_MAX_AGE_MS,
 } from "@/lib/alert-sound";
 
 export type TriggerNotification = {
@@ -235,40 +234,6 @@ class NotificationCenter {
       this.persistKnownKeys();
       this.notify();
     }
-  }
-
-  getUnseenSinceVisit(allTriggered: Alert[]): TriggerNotification[] {
-    if (!this.lastVisitAt) {
-      return [];
-    }
-
-    const visitMs = Date.parse(this.lastVisitAt);
-    const nowMs = Date.now();
-    const unseen: TriggerNotification[] = [];
-
-    for (const alert of allTriggered) {
-      const notification = toTriggerNotification(alert);
-      if (!notification) {
-        continue;
-      }
-
-      const triggeredMs = Date.parse(notification.triggeredAt);
-      if (!Number.isFinite(triggeredMs)) {
-        continue;
-      }
-
-      if (triggeredMs <= visitMs) {
-        continue;
-      }
-
-      if (nowMs - triggeredMs > VISIT_BANNER_MAX_AGE_MS) {
-        continue;
-      }
-
-      unseen.push(notification);
-    }
-
-    return unseen.sort((a, b) => b.triggeredAt.localeCompare(a.triggeredAt));
   }
 
   peekToasts(): readonly TriggerNotification[] {

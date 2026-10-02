@@ -98,6 +98,11 @@ export function useObserverStream() {
           const payload = JSON.parse(event.data) as StreamPayload & { type?: string };
           if (payload?.type === "alert_triggered") {
             void globalMutate(API_ENDPOINTS.OBSERVER_PROXY.ALERTS);
+            void globalMutate(
+              (key) =>
+                typeof key === "string" &&
+                key.startsWith(API_ENDPOINTS.OBSERVER_PROXY.ALERT_EVENTS),
+            );
             return;
           }
           const normalizedPayload = normalizeMarketSnapshot(payload);

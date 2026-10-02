@@ -15,6 +15,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { NotificationBell } from "@/components/alerts/notification-bell";
 import { Separator } from "@/components/ui/separator";
 
 interface NavItem {
@@ -138,6 +139,8 @@ export function TopNav() {
 
       {/* Right side: Actions and User Menu */}
       <div className="flex items-center gap-4">
+        <NotificationBell />
+
         <Button asChild size="sm" variant="default">
           <Link href="/alerts" className="flex items-center gap-2">
             <BellAlertIcon className="h-4 w-4" />

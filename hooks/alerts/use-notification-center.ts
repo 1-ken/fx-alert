@@ -16,8 +16,7 @@ function getSnapshot(): number {
   return (
     notificationCenter.getActivityFeed().length +
     notificationCenter.peekToasts().length +
-    (notificationCenter.hasPendingSound() ? 1 : 0) +
-    (notificationCenter.getLastVisitAt()?.length ?? 0)
+    (notificationCenter.hasPendingSound() ? 1 : 0)
   );
 }
 
@@ -26,12 +25,9 @@ function getServerSnapshot(): number {
 }
 
 /**
- * Orchestrates notification center hydration/ingest and exposes unseen-since-visit state.
+ * Hydrates the live toast and sound queues from triggered alerts.
  */
-export function useNotificationCenter(
-  triggeredAlerts: Alert[],
-  hasFetched: boolean,
-) {
+export function useNotificationCenter(triggeredAlerts: Alert[], hasFetched: boolean) {
   useEffect(() => {
     return installVisitTracking();
   }, []);
@@ -50,23 +46,14 @@ export function useNotificationCenter(
   }, [hasFetched, triggeredAlerts]);
 
   const storeVersion = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-
-  const unseenSinceVisit = notificationCenter.getUnseenSinceVisit(triggeredAlerts);
-  const activityFeed = notificationCenter.getActivityFeed();
   void storeVersion;
-
-  const markVisitNow = useCallback(() => {
-    notificationCenter.markVisitNow();
-  }, []);
 
   const popNextToast = useCallback(() => notificationCenter.popNextToast(), []);
   const dequeueSound = useCallback(() => notificationCenter.dequeueSound(), []);
   const peekToasts = useCallback(() => notificationCenter.peekToasts(), []);
 
   return {
-    unseenSinceVisit,
-    activityFeed,
-    markVisitNow,
+    activityFeed: notificationCenter.getActivityFeed(),
     popNextToast,
     dequeueSound,
     peekToasts,
