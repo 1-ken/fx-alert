@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import type { Alert } from "@/types/alerts";
+import type { AlertEvent } from "@/types/alerts";
 import {
   installVisitTracking,
   notificationCenter,
@@ -16,7 +16,7 @@ function getSnapshot(): number {
   return (
     notificationCenter.getActivityFeed().length +
     notificationCenter.peekToasts().length +
-    notificationCenter.peekMissedSummaryCount() +
+    notificationCenter.peekSummaryCount() +
     (notificationCenter.hasPendingSound() ? 1 : 0)
   );
 }
@@ -26,9 +26,9 @@ function getServerSnapshot(): number {
 }
 
 /**
- * Hydrates the live toast and sound queues from triggered alerts.
+ * Hydrates the live toast and sound queues from persisted alert events (one row per firing).
  */
-export function useNotificationCenter(triggeredAlerts: Alert[], hasFetched: boolean) {
+export function useNotificationCenter(events: AlertEvent[], hasFetched: boolean) {
   useEffect(() => {
     return installVisitTracking();
   }, []);
@@ -39,12 +39,12 @@ export function useNotificationCenter(triggeredAlerts: Alert[], hasFetched: bool
     }
 
     if (!notificationCenter.isHydrated) {
-      notificationCenter.hydrateFromAlerts(triggeredAlerts);
+      notificationCenter.hydrateFromEvents(events);
       return;
     }
 
-    notificationCenter.ingest(triggeredAlerts);
-  }, [hasFetched, triggeredAlerts]);
+    notificationCenter.ingestEvents(events);
+  }, [hasFetched, events]);
 
   const storeVersion = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   void storeVersion;

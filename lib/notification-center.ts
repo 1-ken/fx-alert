@@ -1,4 +1,4 @@
-import type { Alert, AlertChannel } from "@/types/alerts";
+import type { Alert, AlertChannel, AlertEvent } from "@/types/alerts";
 import {
   KNOWN_TRIGGER_KEYS_KEY,
   LAST_VISIT_AT_KEY,
@@ -7,15 +7,19 @@ import {
 } from "@/lib/alert-sound";
 
 export type TriggerNotification = {
+  /** alert_events row id; unique per firing (repeating alerts fire many times). */
   triggerKey: string;
+  eventId: string;
   alertId: string;
   pair: string;
+  alertType: string;
   channel: AlertChannel;
   triggeredAt: string;
   alert: Alert;
 };
 
-const MAX_MISSED_TOASTS = 3;
+/** More new firings than this in one batch are announced as a single summary. */
+const MAX_BATCH_TOASTS = 3;
 
 class FeedNode {
   item: TriggerNotification;
@@ -27,25 +31,20 @@ class FeedNode {
   }
 }
 
-function makeTriggerKey(alert: Alert): string | null {
-  if (!alert.triggered_at) {
-    return null;
-  }
-  return `${alert.id}:${alert.triggered_at}`;
-}
-
-export function toTriggerNotification(alert: Alert): TriggerNotification | null {
-  const triggerKey = makeTriggerKey(alert);
-  if (!triggerKey) {
+export function toTriggerNotification(event: AlertEvent): TriggerNotification | null {
+  if (!event.id || !event.alert_id || !event.triggered_at) {
     return null;
   }
 
+  const alert = (event.data && typeof event.data === "object" ? event.data : {}) as Alert;
   return {
-    triggerKey,
-    alertId: alert.id,
-    pair: alert.pair,
-    channel: alert.channel,
-    triggeredAt: alert.triggered_at!,
+    triggerKey: event.id,
+    eventId: event.id,
+    alertId: event.alert_id,
+    pair: event.pair,
+    alertType: event.alert_type,
+    channel: alert.channel ?? "sound",
+    triggeredAt: event.triggered_at,
     alert,
   };
 }
@@ -92,7 +91,11 @@ function persistStringArray(key: string, values: string[]): void {
     return;
   }
 
-  window.localStorage.setItem(key, JSON.stringify(values));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(values));
+  } catch {
+    // Storage full or unavailable; keys stay in memory for this session.
+  }
 }
 
 function loadLastVisitAt(): string | null {
@@ -104,14 +107,18 @@ function loadLastVisitAt(): string | null {
   return raw && raw.length > 0 ? raw : null;
 }
 
+function byTriggeredAtAsc(a: TriggerNotification, b: TriggerNotification): number {
+  return Date.parse(a.triggeredAt) - Date.parse(b.triggeredAt);
+}
+
 class NotificationCenter {
-  private knownKeys = new Map<string, TriggerNotification>();
+  private knownKeys = new Set<string>();
   /** FIFO — dequeue from front */
   private soundQueue: TriggerNotification[] = [];
   /** LIFO — pop from end (newest first) */
   private toastStack: TriggerNotification[] = [];
   private feedHead: FeedNode | null = null;
-  private missedSummaryCount = 0;
+  private summaryCount = 0;
   private hydrated = false;
   private lastVisitAt: string | null = null;
   private listeners = new Set<() => void>();
@@ -123,21 +130,12 @@ class NotificationCenter {
   private loadPersistence(): void {
     this.lastVisitAt = loadLastVisitAt();
     for (const key of loadStringArray(KNOWN_TRIGGER_KEYS_KEY)) {
-      if (!this.knownKeys.has(key)) {
-        this.knownKeys.set(key, {
-          triggerKey: key,
-          alertId: key.split(":")[0] ?? key,
-          pair: "",
-          channel: "email",
-          triggeredAt: key.split(":").slice(1).join(":") || "",
-          alert: {} as Alert,
-        });
-      }
+      this.knownKeys.add(key);
     }
   }
 
   private persistKnownKeys(): void {
-    const keys = [...this.knownKeys.keys()];
+    const keys = [...this.knownKeys];
     const capped =
       keys.length > MAX_KNOWN_TRIGGER_KEYS
         ? keys.slice(keys.length - MAX_KNOWN_TRIGGER_KEYS)
@@ -148,6 +146,24 @@ class NotificationCenter {
   private notify(): void {
     for (const listener of this.listeners) {
       listener();
+    }
+  }
+
+  /** Adds new firings (oldest first) to the feed, sound queue and toasts. */
+  private announce(fresh: TriggerNotification[], nowMs: number): void {
+    fresh.sort(byTriggeredAtAsc);
+    for (const notification of fresh) {
+      const node = new FeedNode(notification);
+      node.next = this.feedHead;
+      this.feedHead = node;
+      if (isRecentSoundTrigger(notification, nowMs)) {
+        this.soundQueue.push(notification);
+      }
+    }
+    if (fresh.length > MAX_BATCH_TOASTS) {
+      this.summaryCount += fresh.length;
+    } else {
+      this.toastStack.push(...fresh);
     }
   }
 
@@ -177,51 +193,36 @@ class NotificationCenter {
   }
 
   /**
-   * First successful alerts fetch: mark all triggers as known. Triggers that fired since the
-   * last visit go to the feed and are announced (individually when few, else as one summary);
-   * only recent sound triggers are queued for playback.
+   * First successful events fetch: mark all firings as known. Unread firings since the
+   * last visit are announced; older history stays silent.
    */
-  hydrateFromAlerts(triggered: Alert[]): void {
+  hydrateFromEvents(events: AlertEvent[]): void {
     if (this.hydrated) {
       return;
     }
 
     const lastVisitMs = this.lastVisitAt ? Date.parse(this.lastVisitAt) : Number.NaN;
-    const nowMs = Date.now();
     const missed: TriggerNotification[] = [];
 
-    for (const alert of triggered) {
-      const notification = toTriggerNotification(alert);
+    for (const event of events) {
+      const notification = toTriggerNotification(event);
       if (!notification) {
         continue;
       }
       const triggeredMs = Date.parse(notification.triggeredAt);
       if (
         !this.knownKeys.has(notification.triggerKey) &&
+        !event.read_at &&
         Number.isFinite(lastVisitMs) &&
         Number.isFinite(triggeredMs) &&
         triggeredMs > lastVisitMs
       ) {
         missed.push(notification);
       }
-      this.knownKeys.set(notification.triggerKey, notification);
+      this.knownKeys.add(notification.triggerKey);
     }
 
-    missed.sort((a, b) => Date.parse(a.triggeredAt) - Date.parse(b.triggeredAt));
-    for (const notification of missed) {
-      const node = new FeedNode(notification);
-      node.next = this.feedHead;
-      this.feedHead = node;
-      if (isRecentSoundTrigger(notification, nowMs)) {
-        this.soundQueue.push(notification);
-      }
-    }
-    if (missed.length > MAX_MISSED_TOASTS) {
-      this.missedSummaryCount = missed.length;
-    } else {
-      this.toastStack.push(...missed);
-    }
-
+    this.announce(missed, Date.now());
     this.persistKnownKeys();
     this.hydrated = true;
 
@@ -233,37 +234,27 @@ class NotificationCenter {
   }
 
   /**
-   * Diff against known keys; live new triggers update feed, toast stack, and sound queue.
+   * Diff against known keys; new unread firings update feed, toast stack, and sound queue.
    */
-  ingest(triggered: Alert[]): void {
+  ingestEvents(events: AlertEvent[]): void {
     if (!this.hydrated) {
       return;
     }
 
-    const nowMs = Date.now();
-    let changed = false;
-
-    for (const alert of triggered) {
-      const notification = toTriggerNotification(alert);
+    const fresh: TriggerNotification[] = [];
+    for (const event of events) {
+      const notification = toTriggerNotification(event);
       if (!notification || this.knownKeys.has(notification.triggerKey)) {
         continue;
       }
-
-      this.knownKeys.set(notification.triggerKey, notification);
-      changed = true;
-
-      const node = new FeedNode(notification);
-      node.next = this.feedHead;
-      this.feedHead = node;
-
-      this.toastStack.push(notification);
-
-      if (isRecentSoundTrigger(notification, nowMs)) {
-        this.soundQueue.push(notification);
+      this.knownKeys.add(notification.triggerKey);
+      if (!event.read_at) {
+        fresh.push(notification);
       }
     }
 
-    if (changed) {
+    if (fresh.length > 0) {
+      this.announce(fresh, Date.now());
       this.persistKnownKeys();
       this.notify();
     }
@@ -281,26 +272,26 @@ class NotificationCenter {
     return item;
   }
 
+  peekSummaryCount(): number {
+    return this.summaryCount;
+  }
+
+  /** Returns, once, how many firings were collapsed into a summary toast. */
+  takeSummaryCount(): number {
+    const count = this.summaryCount;
+    if (count > 0) {
+      this.summaryCount = 0;
+      this.notify();
+    }
+    return count;
+  }
+
   dequeueSound(): TriggerNotification | null {
     const item = this.soundQueue.shift() ?? null;
     if (item) {
       this.notify();
     }
     return item;
-  }
-
-  peekMissedSummaryCount(): number {
-    return this.missedSummaryCount;
-  }
-
-  /** Returns the number of triggers missed while away (when too many to toast individually) once. */
-  takeMissedSummaryCount(): number {
-    const count = this.missedSummaryCount;
-    if (count > 0) {
-      this.missedSummaryCount = 0;
-      this.notify();
-    }
-    return count;
   }
 
   hasPendingSound(): boolean {
@@ -323,7 +314,7 @@ class NotificationCenter {
     this.soundQueue = [];
     this.toastStack = [];
     this.feedHead = null;
-    this.missedSummaryCount = 0;
+    this.summaryCount = 0;
     this.hydrated = false;
     this.lastVisitAt = null;
     this.notify();

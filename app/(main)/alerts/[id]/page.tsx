@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useObserverAlert, useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import {
   CALL_CUSTOM_MESSAGE_MAX_CHARS,
   CUSTOM_MESSAGE_MAX_CHARS,
@@ -36,9 +37,24 @@ export default function AlertDetailPage() {
   const alertId = params.id;
   const { alert, isInitialLoading, error } = useObserverAlert(alertId);
   const { updateAlert } = useObserverAlerts();
+  const { events: alertEvents, hasFetched: alertEventsFetched, markRead } = useAlertEvents();
   const cardRef = useRef<HTMLDivElement>(null);
   const highlightStartedRef = useRef(false);
+  const openedFromNotificationRef = useRef(searchParams.get("highlight") === "1");
+  const markedEventsReadRef = useRef(false);
   const [highlight, setHighlight] = useState(false);
+
+  useEffect(() => {
+    if (!openedFromNotificationRef.current || markedEventsReadRef.current || !alertEventsFetched) {
+      return;
+    }
+    markedEventsReadRef.current = true;
+    for (const event of alertEvents) {
+      if (event.alert_id === alertId && !event.read_at) {
+        void markRead(event.id);
+      }
+    }
+  }, [alertEvents, alertEventsFetched, alertId, markRead]);
 
   const [targetPrice, setTargetPrice] = useState("");
   const [customMessage, setCustomMessage] = useState("");

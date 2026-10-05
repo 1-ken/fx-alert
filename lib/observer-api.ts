@@ -42,6 +42,7 @@ export async function proxyObserverRequest(
     status: upstreamResponse.status,
     headers: {
       "Content-Type": contentType,
+      "Cache-Control": "no-store, no-cache, must-revalidate",
     },
   });
 }

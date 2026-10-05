@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import useSWR, { mutate as globalMutate } from "swr";
+import useSWR, { mutate as globalMutate, type SWRConfiguration } from "swr";
 import { toast } from "sonner";
 import { API_ENDPOINTS } from "@/lib/constants";
 import { fetcher, SWR_LIST_OPTIONS } from "@/lib/swr-config";
@@ -42,8 +42,11 @@ export function refreshAlertEvents(): Promise<unknown> {
   );
 }
 
-export function useAlertEvents() {
-  const swr = useSWR<AlertEventsResponse>(ALERT_EVENTS_KEY, fetcher, SWR_LIST_OPTIONS);
+export function useAlertEvents(options?: SWRConfiguration<AlertEventsResponse>) {
+  const swr = useSWR<AlertEventsResponse>(ALERT_EVENTS_KEY, fetcher, {
+    ...SWR_LIST_OPTIONS,
+    ...options,
+  });
   const { data, mutate } = swr;
 
   const markRead = useCallback(
@@ -87,6 +90,7 @@ export function useAlertEvents() {
     events: data?.events ?? [],
     unreadCount: data?.unread_count ?? 0,
     isLoading: swr.isLoading,
+    hasFetched: data !== undefined,
     error: swr.error as Error | undefined,
     refresh: mutate,
     markRead,

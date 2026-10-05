@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Alert } from "@/types/alerts";
+import type { Alert, AlertEvent } from "@/types/alerts";
 import { LAST_VISIT_AT_KEY } from "@/lib/alert-sound";
 
 function makeStorage(initial: Record<string, string>) {
@@ -11,22 +11,18 @@ function makeStorage(initial: Record<string, string>) {
   };
 }
 
-function triggeredAlert(id: string, triggeredAt: string): Alert {
+function firing(id: string, triggeredAt: string, readAt: string | null = null): AlertEvent {
   return {
     id,
+    user_id: "u",
+    alert_id: "sweep-1",
     pair: "EURUSD",
     alert_type: "sweep_confirm",
-    target_price: null,
-    condition: null,
-    interval: "5m",
-    direction: null,
-    threshold: null,
-    last_evaluated_candle_time: null,
-    status: "triggered",
-    channel: "email",
-    created_at: "2026-10-01T00:00:00.000Z",
+    timeframe: "5m",
+    price: 1.1,
     triggered_at: triggeredAt,
-    last_checked_price: null,
+    read_at: readAt,
+    data: { id: "sweep-1", channel: "email", status: "active" } as Alert,
   };
 }
 
@@ -38,7 +34,7 @@ async function loadCenter(lastVisitAt: string | null) {
   return mod.notificationCenter;
 }
 
-describe("notificationCenter.hydrateFromAlerts", () => {
+describe("notificationCenter", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-05T12:00:00.000Z"));
@@ -49,38 +45,55 @@ describe("notificationCenter.hydrateFromAlerts", () => {
     vi.unstubAllGlobals();
   });
 
-  it("announces triggers that fired since the last visit, newest first", async () => {
+  it("announces unread firings since the last visit, newest first", async () => {
     const center = await loadCenter("2026-10-05T08:00:00.000Z");
-    center.hydrateFromAlerts([
-      triggeredAlert("old", "2026-10-05T07:00:00.000Z"),
-      triggeredAlert("a", "2026-10-05T09:00:00.000Z"),
-      triggeredAlert("b", "2026-10-05T10:00:00.000Z"),
+    center.hydrateFromEvents([
+      firing("e3", "2026-10-05T10:00:00.000Z"),
+      firing("e2", "2026-10-05T09:00:00.000Z"),
+      firing("read", "2026-10-05T09:30:00.000Z", "2026-10-05T09:31:00.000Z"),
+      firing("old", "2026-10-05T07:00:00.000Z"),
     ]);
 
-    expect(center.getActivityFeed().map((item) => item.alertId)).toEqual(["b", "a"]);
-    expect(center.popNextToast()?.alertId).toBe("b");
-    expect(center.popNextToast()?.alertId).toBe("a");
+    expect(center.getActivityFeed().map((item) => item.eventId)).toEqual(["e3", "e2"]);
+    const first = center.popNextToast();
+    expect(first?.eventId).toBe("e3");
+    expect(first?.alertId).toBe("sweep-1");
+    expect(center.popNextToast()?.eventId).toBe("e2");
     expect(center.popNextToast()).toBeNull();
-    expect(center.takeMissedSummaryCount()).toBe(0);
+    expect(center.takeSummaryCount()).toBe(0);
   });
 
-  it("collapses many missed triggers into one summary", async () => {
+  it("collapses many missed firings into one summary", async () => {
     const center = await loadCenter("2026-10-05T08:00:00.000Z");
-    center.hydrateFromAlerts(
-      ["a", "b", "c", "d", "e"].map((id, i) => triggeredAlert(id, `2026-10-05T09:0${i}:00.000Z`)),
+    center.hydrateFromEvents(
+      ["a", "b", "c", "d", "e"].map((id, i) => firing(id, `2026-10-05T09:0${i}:00.000Z`)),
     );
 
     expect(center.peekToasts()).toHaveLength(0);
     expect(center.getActivityFeed()).toHaveLength(5);
-    expect(center.takeMissedSummaryCount()).toBe(5);
-    expect(center.takeMissedSummaryCount()).toBe(0);
+    expect(center.takeSummaryCount()).toBe(5);
+    expect(center.takeSummaryCount()).toBe(0);
   });
 
   it("does not announce anything on a first visit", async () => {
     const center = await loadCenter(null);
-    center.hydrateFromAlerts([triggeredAlert("a", "2026-10-05T09:00:00.000Z")]);
+    center.hydrateFromEvents([firing("a", "2026-10-05T09:00:00.000Z")]);
 
     expect(center.peekToasts()).toHaveLength(0);
     expect(center.getActivityFeed()).toHaveLength(0);
+  });
+
+  it("announces each new firing of a repeating alert after hydration", async () => {
+    const center = await loadCenter("2026-10-05T08:00:00.000Z");
+    center.hydrateFromEvents([]);
+    center.ingestEvents([firing("e1", "2026-10-05T11:00:00.000Z")]);
+    center.ingestEvents([
+      firing("e2", "2026-10-05T11:30:00.000Z"),
+      firing("e1", "2026-10-05T11:00:00.000Z"),
+    ]);
+
+    expect(center.popNextToast()?.eventId).toBe("e2");
+    expect(center.popNextToast()?.eventId).toBe("e1");
+    expect(center.popNextToast()).toBeNull();
   });
 });

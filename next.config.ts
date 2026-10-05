@@ -7,8 +7,19 @@ const withPWA = withPWAInit({
   scope: "/",
   sw: "sw.js",
   disable: process.env.NODE_ENV === "development",
+  extendDefaultRuntimeCaching: true,
   workboxOptions: {
     navigateFallbackDenylist: [/^\/api\//],
+    // Listed before the plugin defaults, so it wins over the default 24h "apis" cache:
+    // account and alert data must never be served stale from the service worker.
+    runtimeCaching: [
+      {
+        urlPattern: ({ sameOrigin, url: { pathname } }) =>
+          sameOrigin && pathname.startsWith("/api/"),
+        handler: "NetworkOnly",
+        method: "GET",
+      },
+    ],
   },
 });
 

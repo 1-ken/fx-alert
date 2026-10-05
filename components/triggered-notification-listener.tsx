@@ -3,23 +3,29 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import type { SWRConfiguration } from "swr";
+import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import { useAlertSound } from "@/hooks/alerts/use-alert-sound";
 import { useNotificationCenter } from "@/hooks/alerts/use-notification-center";
 import { showAlertOsNotification } from "@/lib/alert-sound";
 import { notificationCenter } from "@/lib/notification-center";
 import { formatKenyaRelative } from "@/lib/datetime";
+import {
+  formatAlertTypeLabel,
+  formatEventPair,
+} from "@/components/alerts/alert-event-detail-dialog";
+import type { AlertEventsResponse } from "@/types/alerts";
 
-function formatPairLabel(pair: string): string {
-  const cleanPair = pair.replace("/", "").toUpperCase();
-  if (cleanPair.length === 6) {
-    return `${cleanPair.slice(0, 3)}/${cleanPair.slice(3)}`;
-  }
-  return cleanPair;
-}
+const TRIGGERED_ALERTS_HREF = "/alerts/list?status=triggered";
 
-function alertHighlightHref(alertId: string): string {
-  return `/alerts/list?status=triggered&highlight=${encodeURIComponent(alertId)}`;
+/** Catch firings missed by the stream (e.g. while the tab slept) when the user comes back. */
+const EVENTS_POLL_OPTIONS: SWRConfiguration<AlertEventsResponse> = {
+  revalidateOnFocus: true,
+  refreshInterval: 60_000,
+};
+
+function alertHref(alertId: string): string {
+  return `/alerts/${encodeURIComponent(alertId)}?highlight=1`;
 }
 
 function subscribe(callback: () => void): () => void {
@@ -27,23 +33,25 @@ function subscribe(callback: () => void): () => void {
 }
 
 function getToastSnapshot(): number {
-  return notificationCenter.peekToasts().length + notificationCenter.peekMissedSummaryCount();
+  return notificationCenter.peekToasts().length + notificationCenter.peekSummaryCount();
 }
-
-const MISSED_ALERTS_HREF = "/alerts/list?status=triggered";
 
 function getServerSnapshot(): number {
   return 0;
 }
 
+const TOAST_CLASS =
+  "flex w-full min-w-70 cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background p-4 text-left shadow-lg";
+
 /**
- * Live triggered alerts: FIFO sound playback and LIFO sonner toasts (newest first).
- * When the tab is hidden, shows an OS desktop notification instead of an in-app toast.
+ * Alert firings from the persisted event log: FIFO sound playback and LIFO sonner toasts
+ * (newest first), including unread firings since the last visit. When the tab is hidden,
+ * shows an OS desktop notification instead of an in-app toast.
  */
 export function TriggeredNotificationListener() {
   const router = useRouter();
-  const { alerts, hasFetched } = useObserverAlerts();
-  const { popNextToast } = useNotificationCenter(alerts.triggered, hasFetched);
+  const { events, hasFetched, markRead } = useAlertEvents(EVENTS_POLL_OPTIONS);
+  const { popNextToast } = useNotificationCenter(events, hasFetched);
   const toastCount = useSyncExternalStore(subscribe, getToastSnapshot, getServerSnapshot);
   const shownToastKeysRef = useRef<Set<string>>(new Set());
 
@@ -54,22 +62,24 @@ export function TriggeredNotificationListener() {
       return;
     }
 
-    const missedCount = notificationCenter.takeMissedSummaryCount();
-    if (missedCount > 0) {
+    const summaryCount = notificationCenter.takeSummaryCount();
+    if (summaryCount > 0) {
       toast.custom(
         (toastId) => (
           <button
             type="button"
-            className="flex w-full min-w-70 cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background p-4 text-left shadow-lg"
+            className={TOAST_CLASS}
             onClick={() => {
               toast.dismiss(toastId);
-              router.push(MISSED_ALERTS_HREF);
+              router.push(TRIGGERED_ALERTS_HREF);
             }}
           >
             <span className="text-sm font-semibold text-foreground">
-              {missedCount} alerts triggered while you were away
+              {summaryCount} new alerts triggered
             </span>
-            <span className="text-xs text-muted-foreground">Open the bell or tap to see them all.</span>
+            <span className="text-xs text-muted-foreground">
+              Open the bell to see each one, or tap to view triggered alerts.
+            </span>
             <span className="mt-1 text-xs font-medium text-primary">View</span>
           </button>
         ),
@@ -81,9 +91,10 @@ export function TriggeredNotificationListener() {
     while (item) {
       if (!shownToastKeysRef.current.has(item.triggerKey)) {
         shownToastKeysRef.current.add(item.triggerKey);
-        const href = alertHighlightHref(item.alertId);
-        const pairLabel = formatPairLabel(item.pair);
-        const description = `${item.channel} · ${formatKenyaRelative(item.triggeredAt)}`;
+        const eventId = item.eventId;
+        const href = alertHref(item.alertId);
+        const pairLabel = formatEventPair(item.pair);
+        const description = `${formatAlertTypeLabel(item.alertType)} · ${formatKenyaRelative(item.triggeredAt)}`;
         const tabHidden =
           typeof document !== "undefined" && document.visibilityState === "hidden";
 
@@ -95,17 +106,15 @@ export function TriggeredNotificationListener() {
             href,
           });
         } else {
-          const go = () => {
-            router.push(href);
-          };
           toast.custom(
             (toastId) => (
               <button
                 type="button"
-                className="flex w-full min-w-70 cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background p-4 text-left shadow-lg"
+                className={TOAST_CLASS}
                 onClick={() => {
                   toast.dismiss(toastId);
-                  go();
+                  void markRead(eventId);
+                  router.push(href);
                 }}
               >
                 <span className="text-sm font-semibold text-foreground">
@@ -121,7 +130,7 @@ export function TriggeredNotificationListener() {
       }
       item = popNextToast();
     }
-  }, [hasFetched, popNextToast, router, toastCount]);
+  }, [hasFetched, markRead, popNextToast, router, toastCount]);
 
   return null;
 }
