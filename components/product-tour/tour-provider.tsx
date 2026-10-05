@@ -84,7 +84,7 @@ export function ProductTourProvider({ children }: ProductTourProviderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { data: session } = useSession();
-  const { bootstrap, refetch, isBootstrapBlocking } = useBootstrap();
+  const { bootstrap, refetch, isBootstrapBlocking, isBootstrapStale } = useBootstrap();
   const [isActive, setIsActive] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
@@ -258,6 +258,7 @@ export function ProductTourProvider({ children }: ProductTourProviderProps) {
     if (
       autoTourStartedRef.current ||
       isBootstrapBlocking ||
+      isBootstrapStale ||
       !bootstrap ||
       typeof window === "undefined"
     ) {
@@ -279,7 +280,7 @@ export function ProductTourProvider({ children }: ProductTourProviderProps) {
     window.setTimeout(() => {
       startTour({ source: "post-onboarding" });
     }, 0);
-  }, [bootstrap, isBootstrapBlocking, startTour]);
+  }, [bootstrap, isBootstrapBlocking, isBootstrapStale, startTour]);
 
   const value = useMemo<ProductTourContextValue>(
     () => ({

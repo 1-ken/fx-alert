@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BellIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -8,22 +10,30 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { formatKenyaRelative } from "@/lib/datetime";
 import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import type { AlertEvent } from "@/types/alerts";
-import {
-  AlertEventDetailDialog,
-  formatAlertTypeLabel,
-  formatEventPair,
-} from "@/components/alerts/alert-event-detail-dialog";
+import { formatAlertTypeLabel, formatEventPair } from "@/components/alerts/alert-event-detail-dialog";
 import { cn } from "@/lib/utils";
+
+const VIEW_ALL_HREF = "/alerts/list?status=triggered";
+
+function alertEventHref(event: AlertEvent): string {
+  return `/alerts/${encodeURIComponent(event.alert_id)}?highlight=1`;
+}
 
 function EventRows({
   events,
+  isLoading,
   onSelect,
 }: {
   events: AlertEvent[];
+  isLoading: boolean;
   onSelect: (event: AlertEvent) => void;
 }) {
   if (events.length === 0) {
-    return <p className="px-3 py-6 text-center text-sm text-muted-foreground">No alerts yet</p>;
+    return (
+      <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+        {isLoading ? "Loading..." : "No alerts yet"}
+      </p>
+    );
   }
   return (
     <ul className="max-h-96 space-y-1 overflow-y-auto">
@@ -64,13 +74,17 @@ function EventRows({
 function EventPanel({
   events,
   unreadCount,
+  isLoading,
   onSelect,
   onMarkAll,
+  onViewAll,
 }: {
   events: AlertEvent[];
   unreadCount: number;
+  isLoading: boolean;
   onSelect: (event: AlertEvent) => void;
   onMarkAll: () => void;
+  onViewAll: () => void;
 }) {
   return (
     <div>
@@ -82,22 +96,45 @@ function EventPanel({
           </Button>
         ) : null}
       </div>
-      <EventRows events={events} onSelect={onSelect} />
+      <EventRows events={events} isLoading={isLoading} onSelect={onSelect} />
+      <div className="mt-2 border-t border-border px-1 pt-2 text-right">
+        <Link
+          href={VIEW_ALL_HREF}
+          onClick={onViewAll}
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          View all
+        </Link>
+      </div>
     </div>
   );
 }
 
 export function NotificationBell() {
-  const { events, unreadCount, markRead, markAllRead } = useAlertEvents();
+  const router = useRouter();
+  const { events, unreadCount, isLoading, refresh, markRead, markAllRead } = useAlertEvents();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
-  const [selected, setSelected] = useState<AlertEvent | null>(null);
 
-  const select = (event: AlertEvent) => {
-    setSelected(event);
+  const closePanels = () => {
     setMobileOpen(false);
     setDesktopOpen(false);
+  };
+
+  const select = (event: AlertEvent) => {
+    closePanels();
     if (!event.read_at) void markRead(event.id);
+    router.push(alertEventHref(event));
+  };
+
+  const setMobile = (next: boolean) => {
+    setMobileOpen(next);
+    if (next) void refresh();
+  };
+
+  const setDesktop = (next: boolean) => {
+    setDesktopOpen(next);
+    if (next) void refresh();
   };
 
   const badge =
@@ -114,6 +151,17 @@ export function NotificationBell() {
     </Button>
   );
 
+  const panel = (
+    <EventPanel
+      events={events}
+      unreadCount={unreadCount}
+      isLoading={isLoading}
+      onSelect={select}
+      onMarkAll={() => void markAllRead()}
+      onViewAll={closePanels}
+    />
+  );
+
   return (
     <>
       <div className="md:hidden">
@@ -123,45 +171,28 @@ export function NotificationBell() {
           size="icon"
           className="relative"
           aria-label="Alerts"
-          onClick={() => setMobileOpen(true)}
+          onClick={() => setMobile(true)}
         >
           <BellIcon className="h-5 w-5" />
           {badge}
         </Button>
-        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <Sheet open={mobileOpen} onOpenChange={setMobile}>
           <SheetContent side="bottom" className="max-h-[80vh]">
             <SheetHeader>
               <SheetTitle>Alerts</SheetTitle>
             </SheetHeader>
-            <EventPanel
-              events={events}
-              unreadCount={unreadCount}
-              onSelect={select}
-              onMarkAll={() => void markAllRead()}
-            />
+            {panel}
           </SheetContent>
         </Sheet>
       </div>
       <div className="hidden md:block">
-        <Popover open={desktopOpen} onOpenChange={setDesktopOpen}>
+        <Popover open={desktopOpen} onOpenChange={setDesktop}>
           <PopoverTrigger asChild>{trigger}</PopoverTrigger>
           <PopoverContent align="end" className="w-80 p-3">
-            <EventPanel
-              events={events}
-              unreadCount={unreadCount}
-              onSelect={select}
-              onMarkAll={() => void markAllRead()}
-            />
+            {panel}
           </PopoverContent>
         </Popover>
       </div>
-      <AlertEventDetailDialog
-        event={selected}
-        open={selected != null}
-        onOpenChange={(next) => {
-          if (!next) setSelected(null);
-        }}
-      />
     </>
   );
 }

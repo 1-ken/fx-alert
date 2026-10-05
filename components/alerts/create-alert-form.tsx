@@ -52,6 +52,8 @@ import {
 } from "@/lib/subscription-limits";
 
 const ALERT_RECENT_PAIRS_STORAGE_KEY = "fx-alert:recent-pairs";
+/** Must match kMaxBatchPairs in cpp-fx/src/alerts/AlertManager.h. */
+const MAX_BATCH_PAIRS = 100;
 
 const channelOptions = [
   { value: "sms" as const, label: "SMS" },
@@ -284,6 +286,12 @@ const alertFormSchema = z
           path: ["pairs"],
           message: "Select at least one pair",
         });
+      } else if (value.pairs.length > MAX_BATCH_PAIRS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: `Select at most ${MAX_BATCH_PAIRS} pairs`,
+        });
       }
       if (!value.dol_trigger || value.dol_trigger.length === 0) {
         ctx.addIssue({
@@ -326,11 +334,11 @@ const alertFormSchema = z
           path: ["pairs"],
           message: "Select at least one pair",
         });
-      } else if (value.pairs.length > 20) {
+      } else if (value.pairs.length > MAX_BATCH_PAIRS) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["pairs"],
-          message: "Select at most 20 pairs",
+          message: `Select at most ${MAX_BATCH_PAIRS} pairs`,
         });
       }
       if (!value.intervals || value.intervals.length === 0) {
@@ -369,11 +377,11 @@ const alertFormSchema = z
           path: ["pairs"],
           message: "Select at least one pair",
         });
-      } else if (value.pairs.length > 20) {
+      } else if (value.pairs.length > MAX_BATCH_PAIRS) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["pairs"],
-          message: "Select at most 20 pairs",
+          message: `Select at most ${MAX_BATCH_PAIRS} pairs`,
         });
       }
       const confirmations = (value.structure_event ?? []).filter(
@@ -1112,13 +1120,25 @@ export function CreateAlertForm({
                           ]);
                         }}
                       >
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6">
-                          <TabsTrigger value="price">Price</TabsTrigger>
-                          <TabsTrigger value="candle_close">Candle Close</TabsTrigger>
-                          <TabsTrigger value="prev_day_level">Prev day H/L</TabsTrigger>
-                          <TabsTrigger value="market_structure">BOS / CHoCH</TabsTrigger>
-                          <TabsTrigger value="structure_session">Session</TabsTrigger>
-                          <TabsTrigger value="sweep_confirm">Sweep confirm</TabsTrigger>
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3">
+                          {(
+                            [
+                              ["price", "Price"],
+                              ["candle_close", "Candle Close"],
+                              ["prev_day_level", "Prev day H/L"],
+                              ["market_structure", "BOS / CHoCH"],
+                              ["structure_session", "Session"],
+                              ["sweep_confirm", "Sweep confirm"],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <TabsTrigger
+                              key={value}
+                              value={value}
+                              className="min-h-9 min-w-0 whitespace-normal px-2 text-center leading-tight"
+                            >
+                              {label}
+                            </TabsTrigger>
+                          ))}
                         </TabsList>
                       </Tabs>
                     </FormControl>
@@ -1237,9 +1257,13 @@ export function CreateAlertForm({
                         form.clearErrors("pairs");
                       };
                       const selectAllPairs = () => {
-                        field.onChange([...pairs]);
+                        field.onChange(pairs.slice(0, MAX_BATCH_PAIRS));
                         form.clearErrors("pairs");
                       };
+                      const allPairsSelected =
+                        pairs.length > 0 &&
+                        selected.length >= Math.min(pairs.length, MAX_BATCH_PAIRS) &&
+                        pairs.slice(0, MAX_BATCH_PAIRS).every((pair) => selected.includes(pair));
                       const clearPairs = () => {
                         field.onChange([]);
                         form.clearErrors("pairs");
@@ -1255,9 +1279,9 @@ export function CreateAlertForm({
                                 size="sm"
                                 className="h-8"
                                 onClick={selectAllPairs}
-                                disabled={pairs.length === 0}
+                                disabled={pairs.length === 0 || allPairsSelected}
                               >
-                                Select all
+                                All pairs ({Math.min(pairs.length, MAX_BATCH_PAIRS)})
                               </Button>
                               <Button
                                 type="button"
@@ -1281,7 +1305,11 @@ export function CreateAlertForm({
                                 placeholder="Search pairs, e.g. EURUSD"
                                 className="h-12 border-border bg-background"
                               />
-                              {selected.length > 0 ? (
+                              {allPairsSelected ? (
+                                <p className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-foreground">
+                                  Watching all {selected.length} pairs
+                                </p>
+                              ) : selected.length > 0 ? (
                                 <div className="flex flex-wrap gap-2">
                                   {selected.map((pair) => (
                                     <button
@@ -1324,12 +1352,7 @@ export function CreateAlertForm({
                               </div>
                               <p className="text-xs text-muted-foreground">
                                 {selected.length} selected / {pairs.length} available.
-                                One alert is created per pair
-                                {selectedAlertType === "structure_session" ||
-                                selectedAlertType === "sweep_confirm"
-                                  ? " (up to 20)"
-                                  : ""}
-                                .
+                                One alert is created per pair (up to {MAX_BATCH_PAIRS}).
                               </p>
                             </div>
                           </FormControl>

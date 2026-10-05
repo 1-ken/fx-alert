@@ -23,7 +23,7 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { bootstrap, isBootstrapBlocking } = useBootstrap();
+  const { bootstrap, isBootstrapBlocking, isBootstrapStale } = useBootstrap();
   const hasRestoredRoute = useRef(false);
 
   const currentRoute = useMemo(() => {
@@ -35,7 +35,7 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
     Boolean(bootstrap?.onboardingCompletedAt) && !bootstrap?.tourCompletedAt;
 
   useEffect(() => {
-    if (!enabled || hasRestoredRoute.current || isBootstrapBlocking) {
+    if (!enabled || hasRestoredRoute.current || isBootstrapBlocking || isBootstrapStale) {
       return;
     }
 
@@ -52,7 +52,7 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
     if (storedRoute && storedRoute !== currentRoute) {
       router.replace(storedRoute);
     }
-  }, [currentRoute, enabled, isBootstrapBlocking, pathname, router, tourPending]);
+  }, [currentRoute, enabled, isBootstrapBlocking, isBootstrapStale, pathname, router, tourPending]);
 
   useEffect(() => {
     if (!enabled || !hasRestoredRoute.current) {
@@ -68,13 +68,13 @@ function RoutePersistence({ enabled }: { enabled: boolean }) {
 function OnboardingGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { bootstrap, error, isBootstrapBlocking, refetch } = useBootstrap();
+  const { bootstrap, error, isBootstrapBlocking, isBootstrapStale, refetch } = useBootstrap();
   const shouldRedirectToOnboarding =
     bootstrap?.isFirstTimeUser === true && !bootstrap.onboardingCompletedAt;
   const isOnboardingPage = pathname === "/onboarding";
 
   useEffect(() => {
-    if (isBootstrapBlocking) {
+    if (isBootstrapBlocking || isBootstrapStale) {
       return;
     }
 
@@ -93,6 +93,7 @@ function OnboardingGuard({ children }: { children: React.ReactNode }) {
   }, [
     bootstrap,
     isBootstrapBlocking,
+    isBootstrapStale,
     isOnboardingPage,
     pathname,
     router,

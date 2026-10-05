@@ -48,15 +48,14 @@ export const SWR_STATIC_OPTIONS: SWRConfiguration = {
   revalidateIfStale: false,
 };
 
-/** Bootstrap/subscription state: always revalidate so DB trial changes appear quickly. */
+/** Bootstrap/subscription state: background revalidation on focus and once a minute. */
 export const SWR_BOOTSTRAP_OPTIONS: SWRConfiguration = {
   revalidateOnFocus: true,
   revalidateOnReconnect: true,
   revalidateIfStale: true,
   revalidateOnMount: true,
-  dedupingInterval: 0,
-  refreshInterval: 10_000,
-  keepPreviousData: true,
+  dedupingInterval: 5_000,
+  refreshInterval: 60_000,
   errorRetryCount: 2,
 };
 

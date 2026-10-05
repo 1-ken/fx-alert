@@ -87,6 +87,7 @@ export function useAlertEvents() {
     events: data?.events ?? [],
     unreadCount: data?.unread_count ?? 0,
     isLoading: swr.isLoading,
+    refresh: mutate,
     markRead,
     markAllRead,
   };
