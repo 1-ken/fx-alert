@@ -22,12 +22,26 @@ function alertEventHref(event: AlertEvent): string {
 function EventRows({
   events,
   isLoading,
+  hasError,
+  onRetry,
   onSelect,
 }: {
   events: AlertEvent[];
   isLoading: boolean;
+  hasError: boolean;
+  onRetry: () => void;
   onSelect: (event: AlertEvent) => void;
 }) {
+  if (events.length === 0 && hasError && !isLoading) {
+    return (
+      <div className="space-y-2 px-3 py-6 text-center">
+        <p className="text-sm text-destructive">Couldn&apos;t load alerts.</p>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
   if (events.length === 0) {
     return (
       <p className="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -75,6 +89,8 @@ function EventPanel({
   events,
   unreadCount,
   isLoading,
+  hasError,
+  onRetry,
   onSelect,
   onMarkAll,
   onViewAll,
@@ -82,6 +98,8 @@ function EventPanel({
   events: AlertEvent[];
   unreadCount: number;
   isLoading: boolean;
+  hasError: boolean;
+  onRetry: () => void;
   onSelect: (event: AlertEvent) => void;
   onMarkAll: () => void;
   onViewAll: () => void;
@@ -96,7 +114,13 @@ function EventPanel({
           </Button>
         ) : null}
       </div>
-      <EventRows events={events} isLoading={isLoading} onSelect={onSelect} />
+      <EventRows
+        events={events}
+        isLoading={isLoading}
+        hasError={hasError}
+        onRetry={onRetry}
+        onSelect={onSelect}
+      />
       <div className="mt-2 border-t border-border px-1 pt-2 text-right">
         <Link
           href={VIEW_ALL_HREF}
@@ -112,7 +136,8 @@ function EventPanel({
 
 export function NotificationBell() {
   const router = useRouter();
-  const { events, unreadCount, isLoading, refresh, markRead, markAllRead } = useAlertEvents();
+  const { events, unreadCount, isLoading, error, refresh, markRead, markAllRead } =
+    useAlertEvents();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopOpen, setDesktopOpen] = useState(false);
 
@@ -156,6 +181,8 @@ export function NotificationBell() {
       events={events}
       unreadCount={unreadCount}
       isLoading={isLoading}
+      hasError={error != null}
+      onRetry={() => void refresh()}
       onSelect={select}
       onMarkAll={() => void markAllRead()}
       onViewAll={closePanels}
