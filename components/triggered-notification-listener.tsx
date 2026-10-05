@@ -27,8 +27,10 @@ function subscribe(callback: () => void): () => void {
 }
 
 function getToastSnapshot(): number {
-  return notificationCenter.peekToasts().length;
+  return notificationCenter.peekToasts().length + notificationCenter.peekMissedSummaryCount();
 }
+
+const MISSED_ALERTS_HREF = "/alerts/list?status=triggered";
 
 function getServerSnapshot(): number {
   return 0;
@@ -50,6 +52,29 @@ export function TriggeredNotificationListener() {
   useEffect(() => {
     if (!hasFetched || toastCount === 0) {
       return;
+    }
+
+    const missedCount = notificationCenter.takeMissedSummaryCount();
+    if (missedCount > 0) {
+      toast.custom(
+        (toastId) => (
+          <button
+            type="button"
+            className="flex w-full min-w-70 cursor-pointer flex-col gap-1 rounded-lg border border-border bg-background p-4 text-left shadow-lg"
+            onClick={() => {
+              toast.dismiss(toastId);
+              router.push(MISSED_ALERTS_HREF);
+            }}
+          >
+            <span className="text-sm font-semibold text-foreground">
+              {missedCount} alerts triggered while you were away
+            </span>
+            <span className="text-xs text-muted-foreground">Open the bell or tap to see them all.</span>
+            <span className="mt-1 text-xs font-medium text-primary">View</span>
+          </button>
+        ),
+        { duration: 10_000 },
+      );
     }
 
     let item = popNextToast();

@@ -15,6 +15,8 @@ export type TriggerNotification = {
   alert: Alert;
 };
 
+const MAX_MISSED_TOASTS = 3;
+
 class FeedNode {
   item: TriggerNotification;
   next: FeedNode | null;
@@ -109,6 +111,7 @@ class NotificationCenter {
   /** LIFO — pop from end (newest first) */
   private toastStack: TriggerNotification[] = [];
   private feedHead: FeedNode | null = null;
+  private missedSummaryCount = 0;
   private hydrated = false;
   private lastVisitAt: string | null = null;
   private listeners = new Set<() => void>();
@@ -174,19 +177,49 @@ class NotificationCenter {
   }
 
   /**
-   * First successful alerts fetch: mark all triggers as known without sound/toast.
+   * First successful alerts fetch: mark all triggers as known. Triggers that fired since the
+   * last visit go to the feed and are announced (individually when few, else as one summary);
+   * only recent sound triggers are queued for playback.
    */
   hydrateFromAlerts(triggered: Alert[]): void {
     if (this.hydrated) {
       return;
     }
 
+    const lastVisitMs = this.lastVisitAt ? Date.parse(this.lastVisitAt) : Number.NaN;
+    const nowMs = Date.now();
+    const missed: TriggerNotification[] = [];
+
     for (const alert of triggered) {
       const notification = toTriggerNotification(alert);
       if (!notification) {
         continue;
       }
+      const triggeredMs = Date.parse(notification.triggeredAt);
+      if (
+        !this.knownKeys.has(notification.triggerKey) &&
+        Number.isFinite(lastVisitMs) &&
+        Number.isFinite(triggeredMs) &&
+        triggeredMs > lastVisitMs
+      ) {
+        missed.push(notification);
+      }
       this.knownKeys.set(notification.triggerKey, notification);
+    }
+
+    missed.sort((a, b) => Date.parse(a.triggeredAt) - Date.parse(b.triggeredAt));
+    for (const notification of missed) {
+      const node = new FeedNode(notification);
+      node.next = this.feedHead;
+      this.feedHead = node;
+      if (isRecentSoundTrigger(notification, nowMs)) {
+        this.soundQueue.push(notification);
+      }
+    }
+    if (missed.length > MAX_MISSED_TOASTS) {
+      this.missedSummaryCount = missed.length;
+    } else {
+      this.toastStack.push(...missed);
     }
 
     this.persistKnownKeys();
@@ -256,6 +289,20 @@ class NotificationCenter {
     return item;
   }
 
+  peekMissedSummaryCount(): number {
+    return this.missedSummaryCount;
+  }
+
+  /** Returns the number of triggers missed while away (when too many to toast individually) once. */
+  takeMissedSummaryCount(): number {
+    const count = this.missedSummaryCount;
+    if (count > 0) {
+      this.missedSummaryCount = 0;
+      this.notify();
+    }
+    return count;
+  }
+
   hasPendingSound(): boolean {
     return this.soundQueue.length > 0;
   }
@@ -276,6 +323,7 @@ class NotificationCenter {
     this.soundQueue = [];
     this.toastStack = [];
     this.feedHead = null;
+    this.missedSummaryCount = 0;
     this.hydrated = false;
     this.lastVisitAt = null;
     this.notify();

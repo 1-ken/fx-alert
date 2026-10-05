@@ -16,6 +16,7 @@ function getSnapshot(): number {
   return (
     notificationCenter.getActivityFeed().length +
     notificationCenter.peekToasts().length +
+    notificationCenter.peekMissedSummaryCount() +
     (notificationCenter.hasPendingSound() ? 1 : 0)
   );
 }
