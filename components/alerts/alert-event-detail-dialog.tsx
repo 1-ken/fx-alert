@@ -31,6 +31,31 @@ export function formatEventPair(pair: string): string {
   return pair;
 }
 
+const DELIVERY_LABELS: Record<string, string> = {
+  call: "Call",
+  sms: "SMS",
+  email: "Email",
+};
+
+export function formatDeliverySummary(event: AlertEvent): string {
+  const parts: string[] = [];
+  for (const key of ["call", "sms", "email"]) {
+    const item = event.delivery?.[key];
+    if (!item?.status) continue;
+    const label = DELIVERY_LABELS[key] ?? key;
+    if (item.status === "skipped") {
+      parts.push(item.reason ? `${label} skipped: ${item.reason}` : `${label} skipped`);
+    } else if (item.status === "failed") {
+      parts.push(item.reason ? `${label} failed: ${item.reason}` : `${label} failed`);
+    } else if (item.status === "placed") {
+      parts.push(`${label} placed`);
+    } else if (item.status === "sent") {
+      parts.push(`${label} sent`);
+    }
+  }
+  return parts.join(" · ");
+}
+
 function detailLine(label: string, value: string | null | undefined) {
   if (!value) return null;
   return (
@@ -86,6 +111,7 @@ export function AlertEventDetailDialog({
             {detailLine("Events", alert?.structure_event?.join(", "))}
             {detailLine("Direction", alert?.structure_direction)}
             {detailLine("Message", alert?.custom_message)}
+            {detailLine("Delivery", formatDeliverySummary(event))}
             <div className="flex flex-wrap gap-3 pt-2">
               <Link href={`/alerts/${event.alert_id}`} className="text-sm font-medium text-primary underline-offset-4 hover:underline">
                 Open alert

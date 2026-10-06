@@ -119,14 +119,13 @@ export function TopNav() {
   };
 
   return (
-    <div className="hidden md:flex items-center justify-between h-16 px-4 bg-background border-b border-border">
-      {/* Left side: Logo/Branding and Navigation Links */}
+    <div className="flex items-center justify-between h-14 md:h-16 px-4 bg-background border-b border-border">
       <div className="flex items-center gap-8">
         <div className="text-lg font-bold">FX Alert</div>
-        
-        <Separator orientation="vertical" className="h-6" />
-        
-        <nav className="flex items-center gap-1">
+
+        <Separator orientation="vertical" className="hidden md:block h-6" />
+
+        <nav className="hidden md:flex items-center gap-1">
           {NAV_ITEMS.map((item) => (
             <NavLink
               key={item.url}
@@ -137,24 +136,27 @@ export function TopNav() {
         </nav>
       </div>
 
-      {/* Right side: Actions and User Menu */}
       <div className="flex items-center gap-4">
         <NotificationBell />
 
-        <Button asChild size="sm" variant="default">
+        <Button asChild size="sm" variant="default" className="hidden md:inline-flex">
           <Link href="/alerts" className="flex items-center gap-2">
             <BellAlertIcon className="h-4 w-4" />
             <span>Create Alert</span>
           </Link>
         </Button>
 
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="hidden md:block h-6" />
 
-        <ThemeSwitcher />
+        <div className="hidden md:block">
+          <ThemeSwitcher />
+        </div>
 
-        <Separator orientation="vertical" className="h-6" />
+        <Separator orientation="vertical" className="hidden md:block h-6" />
 
-        <UserMenu />
+        <div className="hidden md:block">
+          <UserMenu />
+        </div>
       </div>
     </div>
   );

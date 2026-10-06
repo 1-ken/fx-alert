@@ -15,7 +15,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeSwitcher } from "@/components/theme-switcher";
-import { NotificationBell } from "@/components/alerts/notification-bell";
 import { AlertEventDetailDialog, formatAlertTypeLabel, formatEventPair } from "@/components/alerts/alert-event-detail-dialog";
 import dynamic from "next/dynamic";
 const BottomNav = dynamic(() => import("@/components/mobile/bottom-nav").then((m) => m.BottomNav), { ssr: false });
@@ -200,10 +199,7 @@ export function DashboardPageContent() {
                 {/* <StreamHealthBadge /> */}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <NotificationBell />
-              <ThemeSwitcher />
-            </div>
+            <ThemeSwitcher />
           </div>
         </header>
 

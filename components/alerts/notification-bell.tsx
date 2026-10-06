@@ -10,7 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { formatKenyaRelative } from "@/lib/datetime";
 import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import type { AlertEvent } from "@/types/alerts";
-import { formatAlertTypeLabel, formatEventPair } from "@/components/alerts/alert-event-detail-dialog";
+import { formatAlertTypeLabel, formatDeliverySummary, formatEventPair } from "@/components/alerts/alert-event-detail-dialog";
 import { cn } from "@/lib/utils";
 
 const VIEW_ALL_HREF = "/alerts/list?status=triggered";
@@ -73,6 +73,7 @@ function EventRows({
                   event.timeframe,
                   Number.isFinite(event.price) ? String(event.price) : null,
                   formatKenyaRelative(event.triggered_at),
+                  formatDeliverySummary(event) || null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}

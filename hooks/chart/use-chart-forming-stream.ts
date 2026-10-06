@@ -10,6 +10,7 @@ import {
   normalizeObserverWebSocketUrl,
 } from "@/lib/constants";
 import { useObserverWsToken } from "@/hooks/observer/use-ws-token";
+import { noteAlertTriggered } from "@/hooks/alerts/use-alert-events";
 import { acquireChartWs } from "@/hooks/chart/chart-ws-shared";
 import { chartFormingSwrKey, chartTickEqual, type ChartTickCache } from "@/lib/swr-ohlc";
 import type { ChartInterval } from "@/lib/chart-utils";
@@ -204,6 +205,7 @@ export function useChartFormingStream(
             type?: string;
           };
           if (payload?.type === "alert_triggered") {
+            noteAlertTriggered(payload);
             return;
           }
           const forming = extractFormingFromPayload(payload);

@@ -7,6 +7,7 @@ import {
   normalizeObserverWebSocketUrl,
 } from "@/lib/constants";
 import { useObserverWsToken } from "@/hooks/observer/use-ws-token";
+import { noteAlertTriggered } from "@/hooks/alerts/use-alert-events";
 import {
   normalizeAlertsResponse,
   useObserverAlerts,
@@ -97,12 +98,8 @@ export function useObserverStream() {
         try {
           const payload = JSON.parse(event.data) as StreamPayload & { type?: string };
           if (payload?.type === "alert_triggered") {
+            noteAlertTriggered(payload);
             void globalMutate(API_ENDPOINTS.OBSERVER_PROXY.ALERTS);
-            void globalMutate(
-              (key) =>
-                typeof key === "string" &&
-                key.startsWith(API_ENDPOINTS.OBSERVER_PROXY.ALERT_EVENTS),
-            );
             return;
           }
           const normalizedPayload = normalizeMarketSnapshot(payload);

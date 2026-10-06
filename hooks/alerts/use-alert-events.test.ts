@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { markAllEventsReadInList, markEventReadInList } from "@/hooks/alerts/use-alert-events";
+import { markAllEventsReadInList, markEventReadInList, mergeAlertEvents, prependAlertEvent } from "@/hooks/alerts/use-alert-events";
 import type { AlertEventsResponse } from "@/types/alerts";
 
 function sample(): AlertEventsResponse {
@@ -53,5 +53,14 @@ describe("alert event read updates", () => {
     const next = markAllEventsReadInList(sample(), "2026-06-04T00:00:00.000Z");
     expect(next.unread_count).toBe(0);
     expect(next.events.every((event) => event.read_at)).toBe(true);
+  });
+
+  it("keeps a socket firing when a stale empty response arrives", () => {
+    const firing = sample().events[0];
+    if (!firing) throw new Error("missing sample event");
+    const shown = prependAlertEvent(undefined, firing);
+    const merged = mergeAlertEvents(shown, { events: [], unread_count: 0 });
+    expect(merged.events.map((event) => event.id)).toEqual(["e1"]);
+    expect(merged.unread_count).toBe(1);
   });
 });

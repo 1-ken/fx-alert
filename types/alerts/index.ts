@@ -113,6 +113,7 @@ export interface AlertEvent {
   triggered_at: string;
   read_at: string | null;
   data: Alert;
+  delivery?: Record<string, { status?: string; reason?: string }>;
 }
 
 export interface AlertEventsResponse {
