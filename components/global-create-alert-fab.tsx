@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button";
 export function GlobalCreateAlertFab() {
   const pathname = usePathname();
   const isPairDetailPage = /^\/instruments\/[^/]+$/.test(pathname);
+  const isCreateAlertPage = pathname === "/alerts";
 
-  if (isPairDetailPage) {
+  if (isPairDetailPage || isCreateAlertPage) {
     return null;
   }
 

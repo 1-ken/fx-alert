@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { z } from "zod";
@@ -38,6 +39,9 @@ import {
   ALERT_DEFAULT_PHONE_STORAGE_KEY,
   CALL_CUSTOM_MESSAGE_MAX_CHARS,
   CUSTOM_MESSAGE_MAX_CHARS,
+  defaultNotifyLabel,
+  getDefaultNotifyChannel,
+  type DefaultNotifyChannel,
 } from "@/lib/alert-preferences";
 import { saveUserPhone } from "@/lib/api/bootstrap";
 import { useBootstrap } from "@/components/bootstrap-provider";
@@ -566,6 +570,8 @@ export function CreateAlertForm({
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [recentPairs, setRecentPairs] = useState<string[]>([]);
   const initialNotifyViaAppliedRef = useRef(false);
+  const urlChoseChannel = (initialNotifyVia?.length ?? 0) > 0;
+  const [defaultNotifyChannel, setDefaultNotifyChannelState] = useState<DefaultNotifyChannel | null>(null);
 
   const normalizedInitialPair = useMemo(() => {
     const pair = initialPair?.trim();
@@ -634,6 +640,24 @@ export function CreateAlertForm({
           : expiresAtFromHours(24),
     },
   });
+
+  useEffect(() => {
+    if (urlChoseChannel) {
+      setDefaultNotifyChannelState(null);
+      return;
+    }
+    setDefaultNotifyChannelState(getDefaultNotifyChannel());
+  }, [urlChoseChannel]);
+
+  useEffect(() => {
+    if (urlChoseChannel || !defaultNotifyChannel || defaultNotifyChannel === "sound") {
+      return;
+    }
+    form.setValue("notifyVia", [defaultNotifyChannel], {
+      shouldDirty: false,
+      shouldValidate: true,
+    });
+  }, [defaultNotifyChannel, form, urlChoseChannel]);
 
   useEffect(() => {
     const currentPhone = form.getValues("phone")?.trim();
@@ -2002,6 +2026,15 @@ export function CreateAlertForm({
                 </p>
               ) : null}
 
+              {defaultNotifyChannel ? (
+                <p className="text-sm text-muted-foreground">
+                  Using your default: {defaultNotifyLabel(defaultNotifyChannel)}.{" "}
+                  <Link href="/settings" className="font-medium text-primary underline-offset-4 hover:underline">
+                    Change in Settings
+                  </Link>
+                  .
+                </p>
+              ) : (
               <FormField
                 control={form.control}
                 name="notifyVia"
@@ -2053,6 +2086,7 @@ export function CreateAlertForm({
                   </FormItem>
                 )}
               />
+              )}
 
               {showPhoneInput ? (
                 <FormField

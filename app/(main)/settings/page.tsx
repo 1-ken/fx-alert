@@ -23,7 +23,13 @@ import {
   setSoundAlertsEnabled,
   type AlertSoundMode,
 } from "@/lib/alert-sound";
-import { ALERT_DEFAULT_PHONE_STORAGE_KEY } from "@/lib/alert-preferences";
+import {
+  ALERT_DEFAULT_PHONE_STORAGE_KEY,
+  defaultNotifyLabel,
+  getDefaultNotifyChannel,
+  setDefaultNotifyChannel,
+  type DefaultNotifyChannel,
+} from "@/lib/alert-preferences";
 import { logoutUser } from "@/lib/auth-client";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { PlanPricingDialog } from "@/components/subscription/paywall-modal";
@@ -36,6 +42,7 @@ export default function SettingsPage() {
   const { bootstrap, refetch } = useBootstrap();
   const [pricingOpen, setPricingOpen] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [defaultChannel, setDefaultChannel] = useState<DefaultNotifyChannel>("sound");
   const [isSavingPhone, setIsSavingPhone] = useState(false);
   const [phoneInitialized, setPhoneInitialized] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,6 +68,11 @@ export default function SettingsPage() {
       setPhoneInitialized(true);
     }
   }, [bootstrap, phoneInitialized]);
+
+  useEffect(() => {
+    const saved = getDefaultNotifyChannel();
+    if (saved) setDefaultChannel(saved);
+  }, []);
 
   const [soundAlertsEnabled, setSoundAlertsEnabledState] = useState(() => {
     if (typeof window === "undefined") {
@@ -102,24 +114,27 @@ export default function SettingsPage() {
 
   const savePhoneNumber = async () => {
     const trimmed = phoneNumber.trim();
-    if (!trimmed) {
-      toast.error("Enter a phone number");
+    const needsPhone = defaultChannel === "sms" || defaultChannel === "call";
+    if (needsPhone && !trimmed) {
+      toast.error("Enter a phone number for SMS or call alerts");
       return;
     }
 
     setIsSavingPhone(true);
     try {
-      const result = await saveUserPhone(session, trimmed);
-      if (!result.success) {
-        toast.error(result.error ?? "Failed to save phone number");
-        return;
+      setDefaultNotifyChannel(defaultChannel);
+      if (trimmed) {
+        const result = await saveUserPhone(session, trimmed);
+        if (!result.success) {
+          toast.error(result.error ?? "Failed to save phone number");
+          return;
+        }
+        const saved = result.phone?.trim() || trimmed;
+        window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, saved);
+        setPhoneNumber(saved);
+        await refetch();
       }
-
-      const saved = result.phone?.trim() || trimmed;
-      window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, saved);
-      setPhoneNumber(saved);
-      await refetch();
-      toast.success("Default alert phone number saved");
+      toast.success(`Default alert method saved: ${defaultNotifyLabel(defaultChannel)}`);
     } finally {
       setIsSavingPhone(false);
     }
@@ -378,13 +393,30 @@ export default function SettingsPage() {
 
       <Card data-tour="settings-default-phone" className="scroll-mt-24">
         <CardHeader>
-          <CardTitle>Default alert phone</CardTitle>
+          <CardTitle>Default alert method</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This number pre-fills the phone field when creating SMS and call alerts. You can still edit
-            it per alert.
+            New alerts use this method. In-app sound is always included. Call and SMS use the number
+            below, so you do not pick a channel again when creating an alert.
           </p>
+          <div className="grid grid-cols-2 gap-2">
+            {(["sound", "sms", "call", "email"] as const).map((channel) => (
+              <button
+                key={channel}
+                type="button"
+                onClick={() => setDefaultChannel(channel)}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-sm transition",
+                  defaultChannel === channel
+                    ? "border-primary/40 bg-primary/10 text-foreground"
+                    : "border-border bg-card/60 text-muted-foreground hover:border-primary/30",
+                )}
+              >
+                {defaultNotifyLabel(channel)}
+              </button>
+            ))}
+          </div>
           <Input
             value={phoneNumber}
             onChange={(event) => setPhoneNumber(event.target.value)}
@@ -392,7 +424,7 @@ export default function SettingsPage() {
             className="h-12"
           />
           <Button className="h-11 w-full" onClick={() => void savePhoneNumber()} disabled={isSavingPhone}>
-            Save Number
+            Save
           </Button>
         </CardContent>
       </Card>
