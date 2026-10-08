@@ -47,7 +47,8 @@ type AlertTypeFilter =
   | "prev_day_level"
   | "market_structure"
   | "structure_session"
-  | "sweep_confirm";
+  | "sweep_confirm"
+  | "hour_sweep_cisd";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -79,7 +80,8 @@ function normalizeType(value?: string): AlertTypeFilter {
     value === "prev_day_level" ||
     value === "market_structure" ||
     value === "structure_session" ||
-    value === "sweep_confirm"
+    value === "sweep_confirm" ||
+    value === "hour_sweep_cisd"
   ) {
     return value;
   }
@@ -190,6 +192,9 @@ function formatAlertTypeBadge(
   }
   if (alertType === "sweep_confirm") {
     return "Sweep confirm";
+  }
+  if (alertType === "hour_sweep_cisd") {
+    return "1h sweep + CISD";
   }
   return "price";
 }
@@ -379,6 +384,7 @@ export function AlertsListPage({
       market_structure: source.filter((alert) => alert.alert_type === "market_structure").length,
       structure_session: source.filter((alert) => alert.alert_type === "structure_session").length,
       sweep_confirm: source.filter((alert) => alert.alert_type === "sweep_confirm").length,
+      hour_sweep_cisd: source.filter((alert) => alert.alert_type === "hour_sweep_cisd").length,
     };
   }, [alerts?.all]);
 
@@ -518,6 +524,11 @@ export function AlertsListPage({
               <Button asChild variant={type === "sweep_confirm" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "sweep_confirm")}>
                   Sweep confirm ({typeCounts.sweep_confirm})
+                </Link>
+              </Button>
+              <Button asChild variant={type === "hour_sweep_cisd" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "hour_sweep_cisd")}>
+                  1h sweep + CISD ({typeCounts.hour_sweep_cisd})
                 </Link>
               </Button>
             </div>
@@ -797,6 +808,37 @@ export function AlertsListPage({
                         <span className="text-foreground">
                           {alert.pending_dir
                             ? `Pending ${alert.pending_dir} sweep (${alert.pending_bars ?? 1} of 12)`
+                            : "No pending sweep"}
+                        </span>
+                      </p>
+                      <p>
+                        Last fire:{" "}
+                        <span className="text-foreground">{formatDateTime(alert.triggered_at)}</span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "hour_sweep_cisd" ? (
+                    <>
+                      {alert.batch_id ? (
+                        <p>
+                          Multi-pair group:{" "}
+                          <span className="text-foreground">{alert.batch_id.slice(0, 8)}</span>
+                        </p>
+                      ) : null}
+                      <p>
+                        Setup:{" "}
+                        <span className="text-foreground">
+                          Prev 1h high/low swept in the forming hour, then 5m CISD
+                        </span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground">{alert.structure_direction ?? "any"}</span>
+                      </p>
+                      <p>
+                        State:{" "}
+                        <span className="text-foreground">
+                          {alert.pending_dir
+                            ? `Pending ${alert.pending_dir} sweep, waiting for CISD`
                             : "No pending sweep"}
                         </span>
                       </p>

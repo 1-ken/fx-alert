@@ -56,14 +56,16 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
             ? "structure_session"
             : record.alert_type === "sweep_confirm"
               ? "sweep_confirm"
-              : "price";
+              : record.alert_type === "hour_sweep_cisd"
+                ? "hour_sweep_cisd"
+                : "price";
   const levelRef =
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref
       : null;
   const dolTrigger = normalizeDrawTriggers(record.dol_trigger);
   const structureEvent =
-    record.alert_type === "sweep_confirm"
+    record.alert_type === "sweep_confirm" || record.alert_type === "hour_sweep_cisd"
       ? normalizeSweepConfirmations(record.structure_event)
       : normalizeStructureEvents(record.structure_event);
   const structureDirection =

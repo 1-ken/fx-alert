@@ -221,6 +221,16 @@ export default function AlertDetailPage() {
                   ? ` · last fire ${new Date(alert.triggered_at).toLocaleString()}`
                   : ""}
               </p>
+            ) : alert.alert_type === "hour_sweep_cisd" ? (
+              <p className="text-sm">
+                Prev 1h high/low swept → 5m CISD · {alert.structure_direction}
+                {alert.pending_dir
+                  ? ` · pending ${alert.pending_dir} sweep, waiting for CISD`
+                  : " · no pending sweep"}
+                {alert.triggered_at
+                  ? ` · last fire ${new Date(alert.triggered_at).toLocaleString()}`
+                  : ""}
+              </p>
             ) : alert.alert_type === "market_structure" ? (
               <p className="text-sm">
                 {alert.interval} · {(alert.structure_event ?? []).join(", ")} ·{" "}

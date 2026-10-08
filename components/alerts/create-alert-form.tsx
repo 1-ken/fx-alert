@@ -228,6 +228,7 @@ const alertFormSchema = z
       "market_structure",
       "structure_session",
       "sweep_confirm",
+      "hour_sweep_cisd",
     ]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
@@ -274,6 +275,7 @@ const alertFormSchema = z
       value.alert_type !== "prev_day_level" &&
       value.alert_type !== "structure_session" &&
       value.alert_type !== "sweep_confirm" &&
+      value.alert_type !== "hour_sweep_cisd" &&
       !value.pair
     ) {
       ctx.addIssue({
@@ -370,6 +372,29 @@ const alertFormSchema = z
           code: z.ZodIssueCode.custom,
           path: ["structure_direction"],
           message: "Pick bull or bear when more than one timeframe is selected",
+        });
+      }
+    }
+
+    if (value.alert_type === "hour_sweep_cisd") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      } else if (value.pairs.length > MAX_BATCH_PAIRS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: `Select at most ${MAX_BATCH_PAIRS} pairs`,
+        });
+      }
+      if (!value.structure_direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Select a direction",
         });
       }
     }
@@ -612,7 +637,9 @@ export function CreateAlertForm({
                 ? "structure_session"
                 : initialAlertType === "sweep_confirm"
                   ? "sweep_confirm"
-                  : "price",
+                  : initialAlertType === "hour_sweep_cisd"
+                    ? "hour_sweep_cisd"
+                    : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -729,6 +756,14 @@ export function CreateAlertForm({
         shouldDirty: false,
         shouldValidate: true,
       });
+    }
+
+    if (initialAlertType === "hour_sweep_cisd") {
+      form.setValue("alert_type", "hour_sweep_cisd", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+      form.setValue("structure_event", ["cisd"], { shouldDirty: false, shouldValidate: true });
     }
   }, [form, initialAlertType]);
 
@@ -1026,6 +1061,20 @@ export function CreateAlertForm({
           structure_event: confirmations,
           structure_direction: values.structure_direction,
         });
+      } else if (alertType === "hour_sweep_cisd") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
+        const hourPayload = { ...basePayload };
+        delete hourPayload.depends_on_alert_id;
+        await createAlert({
+          ...hourPayload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
+          interval: "5m",
+          structure_event: ["cisd"],
+          structure_direction: values.structure_direction,
+        });
       } else if (alertType === "market_structure") {
         await createAlert({
           ...basePayload,
@@ -1119,6 +1168,11 @@ export function CreateAlertForm({
                               kept.length > 0 ? kept : ["bos", "cisd"],
                               { shouldDirty: false, shouldValidate: true },
                             );
+                          } else if (value === "hour_sweep_cisd") {
+                            form.setValue("structure_event", ["cisd"], {
+                              shouldDirty: false,
+                              shouldValidate: true,
+                            });
                           } else {
                             const current = form.getValues("structure_event") ?? [];
                             const kept = current.filter((event) => event !== "cisd");
@@ -1153,6 +1207,7 @@ export function CreateAlertForm({
                               ["market_structure", "BOS / CHoCH"],
                               ["structure_session", "Session"],
                               ["sweep_confirm", "Sweep confirm"],
+                              ["hour_sweep_cisd", "1h sweep + CISD"],
                             ] as const
                           ).map(([value, label]) => (
                             <TabsTrigger
@@ -1173,7 +1228,8 @@ export function CreateAlertForm({
 
               {selectedAlertType !== "prev_day_level" &&
               selectedAlertType !== "structure_session" &&
-              selectedAlertType !== "sweep_confirm" ? (
+              selectedAlertType !== "sweep_confirm" &&
+              selectedAlertType !== "hour_sweep_cisd" ? (
               <FormField
                 control={form.control}
                 name="pair"
@@ -1266,7 +1322,8 @@ export function CreateAlertForm({
 
               {selectedAlertType === "prev_day_level" ||
               selectedAlertType === "structure_session" ||
-              selectedAlertType === "sweep_confirm" ? (
+              selectedAlertType === "sweep_confirm" ||
+              selectedAlertType === "hour_sweep_cisd" ? (
                 <>
                   <FormField
                     control={form.control}
@@ -1884,6 +1941,44 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
+              ) : selectedAlertType === "hour_sweep_cisd" ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Inside the forming 1-hour candle, a 5-minute candle trades at or beyond the
+                    previous 1-hour high (bearish) or low (bullish). A wick, a touch, or a close
+                    beyond all count. You are alerted when a 5-minute candle then closes back
+                    through the open of the candle run that pushed into that level (CISD). The
+                    sweep and the CISD must both happen in the same hour. Each side can fire once
+                    per hour, and the alert stays active until it expires.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["bull", "bear", "any"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm capitalize transition",
+                                field.value === value
+                                  ? "border-primary/40 bg-primary/10"
+                                  : "border-border",
+                              )}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
               ) : selectedAlertType === "market_structure" ? (
                 <>
                   <FormField
@@ -1986,7 +2081,9 @@ export function CreateAlertForm({
                 </>
               ) : null}
 
-              {selectedAlertType === "structure_session" || selectedAlertType === "sweep_confirm" ? null : (
+              {selectedAlertType === "structure_session" ||
+              selectedAlertType === "sweep_confirm" ||
+              selectedAlertType === "hour_sweep_cisd" ? null : (
               <FormField
                 control={form.control}
                 name="depends_on_alert_id"

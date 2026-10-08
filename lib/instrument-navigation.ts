@@ -48,7 +48,7 @@ export function resolveTriggerChartInterval(target: TriggeredChartTarget): Chart
       return last;
     }
   }
-  if (target.alertType === "sweep_confirm") {
+  if (target.alertType === "sweep_confirm" || target.alertType === "hour_sweep_cisd") {
     return "5m";
   }
   if (target.alertType === "prev_day_level") {

@@ -18,6 +18,8 @@ export function formatAlertTypeLabel(alertType: string): string {
       return "Session";
     case "sweep_confirm":
       return "Sweep confirm";
+    case "hour_sweep_cisd":
+      return "1h sweep + CISD";
     case "price":
       return "Price";
     default:
@@ -91,7 +93,9 @@ export function AlertEventDetailDialog({
           ? (alert.intervals ?? []).join(" → ")
           : alert?.alert_type === "sweep_confirm"
             ? "1h swing, 5m confirm"
-            : null;
+            : alert?.alert_type === "hour_sweep_cisd"
+              ? "Prev 1h high/low swept, 5m CISD"
+              : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

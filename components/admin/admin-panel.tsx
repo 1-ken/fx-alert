@@ -112,6 +112,9 @@ function formatAlertTarget(alert: AdminAlertRow): string {
   if (alert.alert_type === "sweep_confirm") {
     return "sweep confirm";
   }
+  if (alert.alert_type === "hour_sweep_cisd") {
+    return "1h sweep + CISD";
+  }
   return alert.target_price !== null ? String(alert.target_price) : "—";
 }
 
