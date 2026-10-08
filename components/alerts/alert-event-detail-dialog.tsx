@@ -49,6 +49,8 @@ export function formatDeliverySummary(event: AlertEvent): string {
       parts.push(item.reason ? `${label} skipped: ${item.reason}` : `${label} skipped`);
     } else if (item.status === "failed") {
       parts.push(item.reason ? `${label} failed: ${item.reason}` : `${label} failed`);
+    } else if (item.status === "queued") {
+      parts.push(`${label} queued for the next call`);
     } else if (item.status === "placed") {
       parts.push(`${label} placed`);
     } else if (item.status === "sent") {
