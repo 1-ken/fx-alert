@@ -42,6 +42,30 @@ describe("buildWatchPayload", () => {
     expect(hour.structure_direction).toBe("any");
   });
 
+  it("sends the trimmed message for call and sms, never for sound or email", () => {
+    const call = buildWatchPayload("sweep_confirm", ["EURUSD"], { ...ctx, message: "  Watch  " });
+    expect(call.custom_message).toBe("Watch");
+    const sms = buildWatchPayload("sweep_confirm", ["EURUSD"], {
+      ...ctx,
+      channel: "sms",
+      message: "Hi",
+    });
+    expect(sms.custom_message).toBe("Hi");
+    const sound = buildWatchPayload("sweep_confirm", ["EURUSD"], {
+      ...ctx,
+      channel: "sound",
+      message: "Hi",
+    });
+    expect(sound.custom_message).toBeUndefined();
+    const email = buildWatchPayload("sweep_confirm", ["EURUSD"], {
+      ...ctx,
+      channel: "email",
+      email: "a@b.co",
+      message: "Hi",
+    });
+    expect(email.custom_message).toBeUndefined();
+  });
+
   it("sends only sound when the default is in-app", () => {
     const p = buildWatchPayload("sweep_confirm", ["EURUSD"], { ...ctx, channel: "sound" });
     expect(p.channels).toEqual(["sound"]);
@@ -105,6 +129,28 @@ describe("checkWatchRequest", () => {
   it("blocks empty favorites and empty types", () => {
     expect(checkWatchRequest({ ...base, pairs: [] }).ok).toBe(false);
     expect(checkWatchRequest({ ...base, types: [] }).ok).toBe(false);
+  });
+
+  it("requires a message for call and sms only", () => {
+    const withPhone = { ...base, phone: "+254712345678" };
+    expect(checkWatchRequest({ ...withPhone, channel: "call" }).ok).toBe(false);
+    expect(checkWatchRequest({ ...withPhone, channel: "call", message: "   " }).ok).toBe(false);
+    expect(checkWatchRequest({ ...withPhone, channel: "call", message: "Watch" }).ok).toBe(true);
+    expect(checkWatchRequest({ ...withPhone, channel: "sms", message: "Watch" }).ok).toBe(true);
+    expect(checkWatchRequest({ ...base, channel: "sound" }).ok).toBe(true);
+    expect(
+      checkWatchRequest({ ...base, channel: "email", email: "a@b.co" }).ok,
+    ).toBe(true);
+  });
+
+  it("limits message length per channel", () => {
+    const withPhone = { ...base, phone: "+254712345678" };
+    const long = "x".repeat(550);
+    expect(checkWatchRequest({ ...withPhone, channel: "call", message: long }).ok).toBe(true);
+    expect(checkWatchRequest({ ...withPhone, channel: "sms", message: long }).ok).toBe(false);
+    expect(
+      checkWatchRequest({ ...withPhone, channel: "call", message: "x".repeat(601) }).ok,
+    ).toBe(false);
   });
 
   it("blocks call without a phone", () => {

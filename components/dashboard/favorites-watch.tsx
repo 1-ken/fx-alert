@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { EyeIcon } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,10 @@ import {
   type DefaultNotifyChannel,
 } from "@/lib/alert-preferences";
 import {
+  DEFAULT_WATCH_MESSAGE,
+  WATCH_MESSAGE_STORAGE_KEY,
+  watchMessageMaxChars,
+  watchNeedsMessage,
   WATCH_TYPES,
   WATCH_TYPE_LABELS,
   buildWatchPayload,
@@ -60,6 +65,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const [channel, setChannel] = useState<DefaultNotifyChannel>("sound");
   const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<WatchType[]>([...WATCH_TYPES]);
+  const [message, setMessage] = useState(DEFAULT_WATCH_MESSAGE);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<StepResult[] | null>(null);
   const runningRef = useRef(false);
@@ -72,6 +78,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
 
   const openWatch = () => {
     setChannel(getDefaultNotifyChannel() ?? "sound");
+    setMessage(window.localStorage.getItem(WATCH_MESSAGE_STORAGE_KEY) || DEFAULT_WATCH_MESSAGE);
     setSelectedPairs(favorites.map(pairKey));
     setSelectedTypes([...WATCH_TYPES]);
     setResults(null);
@@ -88,6 +95,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     channel,
     phone,
     email,
+    message,
     bootstrap,
     activeCount,
   });
@@ -111,7 +119,13 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
       for (const step of steps) {
         try {
           await createAlert(
-            buildWatchPayload(step.type, step.pairs, { channel, phone, email, now: Date.now() }),
+            buildWatchPayload(step.type, step.pairs, {
+              channel,
+              phone,
+              email,
+              message,
+              now: Date.now(),
+            }),
             { silent: true },
           );
           out.push({ step, ok: true });
@@ -129,6 +143,9 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
 
   const startWatch = () => {
     if (!check.ok) return;
+    if (watchNeedsMessage(channel)) {
+      window.localStorage.setItem(WATCH_MESSAGE_STORAGE_KEY, message.trim());
+    }
     setResults([]);
     void run(planWatchSteps(selectedTypes, selectedPairs));
   };
@@ -305,6 +322,26 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               </Link>
               . PDH/PDL expires at the end of the UTC day. The others expire in 24 hours.
             </p>
+
+            {watchNeedsMessage(channel) ? (
+              <div className="space-y-1">
+                <label htmlFor="watch-message" className="text-sm font-medium">
+                  Message for {defaultNotifyLabel(channel)} alerts
+                </label>
+                <Textarea
+                  id="watch-message"
+                  value={message}
+                  disabled={running}
+                  maxLength={watchMessageMaxChars(channel)}
+                  rows={2}
+                  onChange={(event) => setMessage(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required for Call and SMS. Sent with every alert in this run, along with the pair,
+                  type and price.
+                </p>
+              </div>
+            ) : null}
 
             {existingForSelection > 0 ? (
               <p className="text-xs text-muted-foreground">

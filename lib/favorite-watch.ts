@@ -1,5 +1,9 @@
 import type { BootstrapData } from "@/lib/api/bootstrap";
-import type { DefaultNotifyChannel } from "@/lib/alert-preferences";
+import {
+  CALL_CUSTOM_MESSAGE_MAX_CHARS,
+  CUSTOM_MESSAGE_MAX_CHARS,
+  type DefaultNotifyChannel,
+} from "@/lib/alert-preferences";
 import { FREE_MAX_ALERTS } from "@/lib/pricing";
 import { getChannelLimitState } from "@/lib/subscription-limits";
 import type { Alert, AlertType, AlertUpsertInput } from "@/types/alerts";
@@ -66,7 +70,20 @@ export interface WatchPayloadContext {
   channel: DefaultNotifyChannel;
   phone: string;
   email: string;
+  /** Required by the server for Call and SMS. Ignored for Sound and Email. */
+  message?: string;
   now: number;
+}
+
+export const DEFAULT_WATCH_MESSAGE = "Favorites watch alert";
+export const WATCH_MESSAGE_STORAGE_KEY = "fx-alert:watch-message";
+
+export function watchNeedsMessage(channel: DefaultNotifyChannel): boolean {
+  return channel === "sms" || channel === "call";
+}
+
+export function watchMessageMaxChars(channel: DefaultNotifyChannel): number {
+  return channel === "call" ? CALL_CUSTOM_MESSAGE_MAX_CHARS : CUSTOM_MESSAGE_MAX_CHARS;
 }
 
 export function channelsFor(channel: DefaultNotifyChannel): Array<"sms" | "call" | "email" | "sound"> {
@@ -90,6 +107,9 @@ export function buildWatchPayload(
     email: needsEmail ? ctx.email : undefined,
     phone: needsPhone ? ctx.phone : "",
     expires_at: defaultWatchExpiry(type, ctx.now),
+    ...(watchNeedsMessage(ctx.channel) && ctx.message?.trim()
+      ? { custom_message: ctx.message.trim() }
+      : {}),
   };
   switch (type) {
     case "prev_day_level":
@@ -160,6 +180,7 @@ export function checkWatchRequest(args: {
   channel: DefaultNotifyChannel;
   phone: string;
   email: string;
+  message?: string;
   bootstrap: BootstrapData | null | undefined;
   activeCount: number;
 }): WatchCheck {
@@ -168,6 +189,14 @@ export function checkWatchRequest(args: {
   if (args.types.length === 0) return { ok: false, error: "Select at least one alert type." };
   if ((args.channel === "sms" || args.channel === "call") && !args.phone.trim()) {
     return { ok: false, error: "Add a phone number in Settings to use Call or SMS." };
+  }
+  if (watchNeedsMessage(args.channel)) {
+    const message = (args.message ?? "").trim();
+    const max = watchMessageMaxChars(args.channel);
+    if (!message) return { ok: false, error: "Enter a message for Call and SMS alerts." };
+    if (message.length > max) {
+      return { ok: false, error: `Message must be ${max} characters or less.` };
+    }
   }
   if (args.channel === "email" && !args.email.trim()) {
     return { ok: false, error: "No email address on your account for email alerts." };
