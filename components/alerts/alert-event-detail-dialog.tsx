@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { buildInstrumentPairUrl } from "@/lib/instrument-navigation";
+import { buildTriggeredChartUrl, triggeredChartTargetFromEvent } from "@/lib/instrument-navigation";
 import { formatKenyaRelative } from "@/lib/datetime";
 import type { AlertEvent } from "@/types/alerts";
 
@@ -117,7 +117,7 @@ export function AlertEventDetailDialog({
                 Open alert
               </Link>
               <Link
-                href={buildInstrumentPairUrl(event.pair, event.price)}
+                href={buildTriggeredChartUrl(triggeredChartTargetFromEvent(event))}
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"
               >
                 Open chart

@@ -11,12 +11,13 @@ import { formatKenyaRelative } from "@/lib/datetime";
 import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import type { AlertEvent } from "@/types/alerts";
 import { formatAlertTypeLabel, formatDeliverySummary, formatEventPair } from "@/components/alerts/alert-event-detail-dialog";
+import { buildTriggeredChartUrl, triggeredChartTargetFromEvent } from "@/lib/instrument-navigation";
 import { cn } from "@/lib/utils";
 
 const VIEW_ALL_HREF = "/alerts/list?status=triggered";
 
 function alertEventHref(event: AlertEvent): string {
-  return `/alerts/${encodeURIComponent(event.alert_id)}?highlight=1`;
+  return buildTriggeredChartUrl(triggeredChartTargetFromEvent(event));
 }
 
 function EventRows({

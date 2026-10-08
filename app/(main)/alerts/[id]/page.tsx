@@ -17,7 +17,11 @@ import {
   CALL_CUSTOM_MESSAGE_MAX_CHARS,
   CUSTOM_MESSAGE_MAX_CHARS,
 } from "@/lib/alert-preferences";
-import { buildInstrumentPairUrl } from "@/lib/instrument-navigation";
+import {
+  buildInstrumentPairUrl,
+  buildTriggeredChartUrl,
+  triggeredChartTargetFromAlert,
+} from "@/lib/instrument-navigation";
 import { cn } from "@/lib/utils";
 
 function formatPairLabel(pair: string): string {
@@ -164,7 +168,10 @@ export default function AlertDetailPage() {
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle>
               <Link
-                href={buildInstrumentPairUrl(alert.pair)}
+                href={(() => {
+                  const target = triggeredChartTargetFromAlert(alert);
+                  return target ? buildTriggeredChartUrl(target) : buildInstrumentPairUrl(alert.pair);
+                })()}
                 className="text-primary underline-offset-4 hover:underline"
               >
                 {formatPairLabel(alert.pair)}

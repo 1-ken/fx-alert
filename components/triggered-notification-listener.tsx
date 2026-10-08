@@ -14,6 +14,7 @@ import {
   formatAlertTypeLabel,
   formatEventPair,
 } from "@/components/alerts/alert-event-detail-dialog";
+import { buildTriggeredChartUrl } from "@/lib/instrument-navigation";
 import type { AlertEventsResponse } from "@/types/alerts";
 
 const TRIGGERED_ALERTS_HREF = "/alerts/list?status=triggered";
@@ -23,10 +24,6 @@ const EVENTS_POLL_OPTIONS: SWRConfiguration<AlertEventsResponse> = {
   revalidateOnFocus: true,
   refreshInterval: 60_000,
 };
-
-function alertHref(alertId: string): string {
-  return `/alerts/${encodeURIComponent(alertId)}?highlight=1`;
-}
 
 function subscribe(callback: () => void): () => void {
   return notificationCenter.subscribe(callback);
@@ -92,7 +89,15 @@ export function TriggeredNotificationListener() {
       if (!shownToastKeysRef.current.has(item.triggerKey)) {
         shownToastKeysRef.current.add(item.triggerKey);
         const eventId = item.eventId;
-        const href = alertHref(item.alertId);
+        const href = buildTriggeredChartUrl({
+          pair: item.pair,
+          alertType: item.alertType,
+          interval: item.alert.interval,
+          intervals: item.alert.intervals,
+          candleTime: item.alert.last_evaluated_candle_time,
+          triggeredAt: item.triggeredAt,
+          price: item.alert.last_checked_price,
+        });
         const pairLabel = formatEventPair(item.pair);
         const description = `${formatAlertTypeLabel(item.alertType)} · ${formatKenyaRelative(item.triggeredAt)}`;
         const tabHidden =

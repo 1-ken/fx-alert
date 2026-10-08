@@ -26,6 +26,7 @@ import {
   sortAlertsByChain,
 } from "@/lib/alert-chain";
 import { formatKenyaDateTime } from "@/lib/datetime";
+import { buildTriggeredChartUrl, triggeredChartTargetFromAlert } from "@/lib/instrument-navigation";
 import { cn } from "@/lib/utils";
 import type { Alert } from "@/types/alerts";
 import { toast } from "sonner";
@@ -610,7 +611,10 @@ export function AlertsListPage({
                   (a) => Boolean(a.depends_on_alert_id) || (a.sequence_index ?? 0) > 0,
                 ));
 
-            const cards = block.alerts.map((alert) => (
+            const cards = block.alerts.map((alert) => {
+              const chartTarget = triggeredChartTargetFromAlert(alert);
+              const chartHref = chartTarget ? buildTriggeredChartUrl(chartTarget) : null;
+              return (
               <Card
                 key={alert.id}
                 id={`alert-row-${alert.id}`}
@@ -619,7 +623,15 @@ export function AlertsListPage({
                   isQueue && alert.status === "waiting" && "ml-3 border-dashed",
                   highlightId === alert.id &&
                     "animate-pulse ring-2 ring-primary ring-offset-2 ring-offset-background",
+                  chartHref && "cursor-pointer hover:border-primary/40",
                 )}
+                onClick={
+                  chartHref
+                    ? () => {
+                        router.push(chartHref);
+                      }
+                    : undefined
+                }
               >
                 <CardHeader className="pb-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -629,6 +641,7 @@ export function AlertsListPage({
                         onCheckedChange={(checked) =>
                           toggleAlertSelection(alert.id, Boolean(checked))
                         }
+                        onClick={(event) => event.stopPropagation()}
                         aria-label={`Select alert for ${alert.pair}`}
                       />
                       <CardTitle className="text-lg">{formatPairLabel(alert.pair)}</CardTitle>
@@ -651,6 +664,7 @@ export function AlertsListPage({
                           <Link
                             href={`/alerts/${alert.id}`}
                             aria-label={`Edit alert for ${alert.pair}`}
+                            onClick={(event) => event.stopPropagation()}
                           >
                             <PencilIcon className="h-4 w-4" />
                           </Link>
@@ -661,7 +675,10 @@ export function AlertsListPage({
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => setDeleteTarget(alert)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeleteTarget(alert);
+                        }}
                         aria-label={`Delete alert for ${alert.pair}`}
                       >
                         <TrashIcon className="h-4 w-4" />
@@ -883,7 +900,8 @@ export function AlertsListPage({
                   </p>
                 </CardContent>
               </Card>
-            ));
+              );
+            });
 
             if (!isQueue) {
               return <div key={block.key}>{cards}</div>;

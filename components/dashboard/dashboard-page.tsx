@@ -79,7 +79,7 @@ export function DashboardPageContent() {
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<DashboardTab>("all");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("favorites");
   const [selectedEvent, setSelectedEvent] = useState<AlertEvent | null>(null);
 
   useEffect(() => {

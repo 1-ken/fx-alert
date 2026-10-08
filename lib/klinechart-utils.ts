@@ -389,6 +389,67 @@ export function syncAlertOverlays(chart: Chart, alerts: Alert[]): void {
   }
 }
 
+const TRIGGER_PRICE_ID = "alert-trigger-price";
+const TRIGGER_MARK_ID = "alert-trigger-mark";
+
+export function syncTriggerFocusOverlay(
+  chart: Chart,
+  focus: { price?: number; candleTimestampMs?: number } | null,
+): void {
+  if (!focus) {
+    chart.removeOverlay({ id: TRIGGER_PRICE_ID });
+    chart.removeOverlay({ id: TRIGGER_MARK_ID });
+    return;
+  }
+
+  if (typeof focus.price === "number" && Number.isFinite(focus.price)) {
+    const points = [{ value: focus.price }];
+    const styles = {
+      line: { style: "dashed" as const, color: "#f59e0b", size: 1, dashedValue: [4, 3] },
+    };
+    if (chart.getOverlays({ id: TRIGGER_PRICE_ID }).length > 0) {
+      chart.overrideOverlay({ id: TRIGGER_PRICE_ID, points, styles });
+    } else {
+      chart.createOverlay({
+        name: "priceLine",
+        id: TRIGGER_PRICE_ID,
+        lock: true,
+        points,
+        styles,
+      });
+    }
+  } else {
+    chart.removeOverlay({ id: TRIGGER_PRICE_ID });
+  }
+
+  if (
+    typeof focus.candleTimestampMs === "number" &&
+    Number.isFinite(focus.candleTimestampMs) &&
+    typeof focus.price === "number" &&
+    Number.isFinite(focus.price)
+  ) {
+    const points = [{ timestamp: focus.candleTimestampMs, value: focus.price }];
+    if (chart.getOverlays({ id: TRIGGER_MARK_ID }).length > 0) {
+      chart.overrideOverlay({ id: TRIGGER_MARK_ID, points, extendData: "Triggered" });
+    } else {
+      chart.createOverlay({
+        name: "simpleAnnotation",
+        id: TRIGGER_MARK_ID,
+        lock: true,
+        points,
+        extendData: "Triggered",
+        styles: {
+          text: { color: "#f59e0b", size: 11 },
+          line: { color: "#f59e0b", style: "dashed" },
+        },
+      });
+    }
+    return;
+  }
+
+  chart.removeOverlay({ id: TRIGGER_MARK_ID });
+}
+
 export function syncLivePriceOverlay(chart: Chart, price: number | undefined): void {
   if (typeof price !== "number" || !Number.isFinite(price)) {
     chart.removeOverlay({ id: LIVE_OVERLAY_ID });

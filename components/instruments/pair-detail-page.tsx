@@ -32,6 +32,11 @@ import {
 } from "@/lib/draw-on-liquidity";
 import { formatTradingDayLabel } from "@/lib/daily-trading-day";
 import { formatKenyaDateTime } from "@/lib/datetime";
+import { CHART_INTERVAL_OPTIONS, type ChartInterval } from "@/lib/chart-utils";
+import {
+  buildTriggeredChartUrl,
+  triggeredChartTargetFromAlert,
+} from "@/lib/instrument-navigation";
 
 function decodePairSlug(slug: string): string {
   const compact = decodeURIComponent(slug).replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -51,6 +56,13 @@ function formatPairLabel(pair: string): string {
     return `${compact.slice(0, 3)}/${compact.slice(3)}`;
   }
   return compact;
+}
+
+function parseChartInterval(value: string | null): ChartInterval | undefined {
+  if (value && (CHART_INTERVAL_OPTIONS as readonly string[]).includes(value)) {
+    return value as ChartInterval;
+  }
+  return undefined;
 }
 
 /**
@@ -77,6 +89,8 @@ export function PairDetailPageContent() {
         return Number.isFinite(parsed) ? parsed : undefined;
       })()
     : undefined;
+  const focusAt = searchParams.get("at");
+  const focusInterval = parseChartInterval(searchParams.get("interval"));
 
   const livePrice = snapshot?.pairs.find(
     (item) => normalizePairKey(item.pair) === pairKey,
@@ -186,6 +200,12 @@ export function PairDetailPageContent() {
         <InteractiveTradingChart
           pair={pair}
           livePrice={displayPrice}
+          interval={focusInterval}
+          triggerFocus={
+            focusAt
+              ? { at: focusAt, price: queryPrice }
+              : null
+          }
           onCreateAlert={handleCreateAlert}
         />
         </section>
@@ -203,11 +223,22 @@ export function PairDetailPageContent() {
               </CardContent>
             </Card>
           ) : (
-            pairAlerts.map((alert) => (
-              <Card key={alert.id}>
+            pairAlerts.map((alert) => {
+              const chartTarget = triggeredChartTargetFromAlert(alert);
+              const chartHref = chartTarget ? buildTriggeredChartUrl(chartTarget) : null;
+              return (
+              <Card key={alert.id} className={chartHref ? "cursor-pointer hover:border-primary/40" : undefined}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base capitalize">
-                    {alert.alert_type.replace("_", " ")} · {alert.status}
+                    {chartHref ? (
+                      <Link href={chartHref} className="hover:text-primary">
+                        {alert.alert_type.replace("_", " ")} · {alert.status}
+                      </Link>
+                    ) : (
+                      <>
+                        {alert.alert_type.replace("_", " ")} · {alert.status}
+                      </>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
@@ -232,7 +263,8 @@ export function PairDetailPageContent() {
                   ) : null}
                 </CardContent>
               </Card>
-            ))
+              );
+            })
           )}
         </section>
       </div>

@@ -44,6 +44,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
   applyLivePriceToForming,
   CHART_INTERVAL_OPTIONS,
+  chartIntervalToSeconds,
   closedCandlesContentEqual,
   extractFormingCandle,
   resolveClosedCandles,
@@ -67,6 +68,7 @@ import {
   syncAlertOverlays,
   syncDrawHistory,
   syncPrevDayLevels,
+  syncTriggerFocusOverlay,
   type ChartLayoutSnapshot,
   type KLineChartType,
 } from "@/lib/klinechart-utils";
@@ -100,6 +102,12 @@ export type ChartAlertDraft = {
   structureDirection?: "bull" | "bear" | "any";
 };
 
+export type ChartTriggerFocus = {
+  /** Candle open, or the trigger timestamp when no candle time was stored. */
+  at: string;
+  price?: number;
+};
+
 export interface InteractiveTradingChartProps {
   pair: string;
   livePrice?: number;
@@ -112,7 +120,30 @@ export interface InteractiveTradingChartProps {
   showDrawOnLiquidity?: boolean;
   /** Show per-day PDH/PDL history segments across the chart (default false). */
   showDrawHistory?: boolean;
+  /** Scroll to and mark the candle/price that fired an alert. */
+  triggerFocus?: ChartTriggerFocus | null;
 };
+
+function candleAtTime(
+  candles: OhlcCandle[],
+  atMs: number,
+  intervalMs: number,
+): OhlcCandle | null {
+  let containing: OhlcCandle | null = null;
+  for (const candle of candles) {
+    const openMs = Date.parse(candle.timestamp);
+    if (!Number.isFinite(openMs)) {
+      continue;
+    }
+    if (Math.abs(openMs - atMs) < 2000) {
+      return candle;
+    }
+    if (openMs <= atMs && atMs < openMs + intervalMs) {
+      containing = candle;
+    }
+  }
+  return containing;
+}
 
 function normalizePairKey(pair: string): string {
   return pair.replace(/[^a-z0-9]/gi, "").toUpperCase();
@@ -147,6 +178,7 @@ export function InteractiveTradingChart({
   className,
   showDrawOnLiquidity = true,
   showDrawHistory = false,
+  triggerFocus = null,
 }: InteractiveTradingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Chart | null>(null);
@@ -203,6 +235,11 @@ export function InteractiveTradingChart({
   const [latestFlash, setLatestFlash] = useState(false);
   const [cachedClosed, setCachedClosed] = useState<OhlcCandle[]>([]);
   const [dataReady, setDataReady] = useState(false);
+  const [focusPinned, setFocusPinned] = useState(Boolean(triggerFocus?.at));
+  const focusPinnedRef = useRef(focusPinned);
+  const triggerFocusRef = useRef(triggerFocus);
+  focusPinnedRef.current = focusPinned;
+  triggerFocusRef.current = triggerFocus;
   const [activeIndicators, setActiveIndicators] = useState<Set<string>>(() => new Set());
 
   const structureLayers = useChartPrefsStore((s) => s.layers);
@@ -247,7 +284,25 @@ export function InteractiveTradingChart({
     [pairAlerts],
   );
 
-  const ohlcParams = useMemo(() => ({ pair, interval, limit }), [pair, interval, limit]);
+  const ohlcParams = useMemo(() => {
+    if (!focusPinned || !triggerFocus?.at) {
+      return { pair, interval, limit };
+    }
+    const atMs = Date.parse(triggerFocus.at);
+    if (!Number.isFinite(atMs)) {
+      return { pair, interval, limit };
+    }
+    const intervalMs = chartIntervalToSeconds(interval) * 1000;
+    const start = new Date(atMs - 80 * intervalMs).toISOString();
+    const endMs = Math.max(atMs + intervalMs, Math.min(Date.now(), atMs + 160 * intervalMs));
+    return {
+      pair,
+      interval,
+      limit: Math.max(limit, 400),
+      start,
+      end: new Date(endMs).toISOString(),
+    };
+  }, [focusPinned, interval, limit, pair, triggerFocus?.at]);
   const historyKey = useMemo(() => chartFormingOhlcKey(ohlcParams), [ohlcParams]);
 
   const {
@@ -360,12 +415,78 @@ export function InteractiveTradingChart({
     hapticTap();
   }, []);
 
+  useEffect(() => {
+    setFocusPinned(Boolean(triggerFocus?.at));
+  }, [triggerFocus?.at, pair]);
+
+  const scrollToTrigger = useCallback((chart: Chart) => {
+    const focus = triggerFocusRef.current;
+    if (!focusPinnedRef.current || !focus?.at) {
+      syncTriggerFocusOverlay(chart, null);
+      return;
+    }
+    const atMs = Date.parse(focus.at);
+    if (!Number.isFinite(atMs)) {
+      return;
+    }
+    const intervalMs = chartIntervalToSeconds(intervalRef.current) * 1000;
+    const candle = candleAtTime(closedCandlesRef.current, atMs, intervalMs);
+    const candleTimestampMs = candle ? Date.parse(candle.timestamp) : atMs;
+    const price =
+      typeof focus.price === "number" && Number.isFinite(focus.price)
+        ? focus.price
+        : candle?.close;
+    syncTriggerFocusOverlay(chart, {
+      price,
+      candleTimestampMs: Number.isFinite(candleTimestampMs) ? candleTimestampMs : undefined,
+    });
+    const dataList = chart.getDataList();
+    if (dataList.length === 0 || !Number.isFinite(candleTimestampMs)) {
+      return;
+    }
+    let nearest = 0;
+    let nearestDiff = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < dataList.length; i += 1) {
+      const timestamp = dataList[i]?.timestamp;
+      if (typeof timestamp !== "number") {
+        continue;
+      }
+      const diff = Math.abs(timestamp - candleTimestampMs);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearest = i;
+      }
+    }
+    if (!dataList[nearest]) {
+      return;
+    }
+    chart.scrollToDataIndex(nearest);
+  }, []);
+  const scrollToTriggerRef = useRef(scrollToTrigger);
+  scrollToTriggerRef.current = scrollToTrigger;
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) {
+      return;
+    }
+    if (!focusPinned || !triggerFocus?.at) {
+      syncTriggerFocusOverlay(chart, null);
+      return;
+    }
+    if (closedForChart.length === 0) {
+      return;
+    }
+    scrollToTrigger(chart);
+  }, [closedForChart, focusPinned, scrollToTrigger, triggerFocus]);
+
   const resetView = useCallback(() => {
     const chart = chartRef.current;
     if (!chart) {
       return;
     }
     setFollowLive(true);
+    setFocusPinned(false);
     userHasPannedRef.current = false;
     chart.scrollToRealTime(200);
     flashButton("reset");
@@ -378,6 +499,7 @@ export function InteractiveTradingChart({
       return;
     }
     setFollowLive(true);
+    setFocusPinned(false);
     userHasPannedRef.current = false;
     chart.scrollToRealTime(200);
     flashButton("latest");
@@ -600,7 +722,9 @@ export function InteractiveTradingChart({
         chart.setOffsetRightDistance(80);
         rehydrateOverlaysRef.current();
         pushFormingBar(subscribeBarRef.current, formingCandleRef.current);
-        if (followLiveRef.current) {
+        if (focusPinnedRef.current) {
+          scrollToTriggerRef.current(chart);
+        } else if (followLiveRef.current) {
           chart.scrollToRealTime(0);
         }
       },
@@ -705,7 +829,7 @@ export function InteractiveTradingChart({
     if (lastTsChanged && oneBarAdvanced && subscribeBarRef.current && newLast) {
       subscribeBarRef.current(ohlcToKLineData(newLast));
       pushFormingBar(subscribeBarRef.current, formingCandleRef.current);
-      if (followLiveRef.current) {
+      if (followLiveRef.current && !focusPinnedRef.current) {
         chart.scrollToRealTime(0);
       }
       return;
@@ -721,11 +845,11 @@ export function InteractiveTradingChart({
     const ts = formingCandle?.timestamp ?? null;
     if (ts !== lastFormingTsRef.current) {
       lastFormingTsRef.current = ts;
-      if (followLive) {
+      if (followLive && !focusPinned) {
         chartRef.current?.scrollToRealTime(0);
       }
     }
-  }, [formingCandle, followLive]);
+  }, [formingCandle, followLive, focusPinned]);
 
   useEffect(() => {
     const chart = chartRef.current;
