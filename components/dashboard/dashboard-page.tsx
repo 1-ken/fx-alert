@@ -28,6 +28,7 @@ import { prefetchPairOhlc } from "@/lib/chart-prefetch";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
 import { useAlertEvents } from "@/hooks/alerts/use-alert-events";
 import { useFavorites } from "@/hooks/favorites/use-favorites";
+import { FavoritesWatch } from "@/components/dashboard/favorites-watch";
 import { useObserverStreamContext } from "@/components/stream-alerts-provider";
 import type { AlertEvent } from "@/types/alerts";
 
@@ -288,9 +289,12 @@ export function DashboardPageContent() {
           <h2 className="text-lg font-semibold tracking-wide text-muted-foreground">
             LIVE PRICE GRID
           </h2>
-          <Badge variant="outline" className="rounded-full px-3 py-1">
-            {cards.length} instruments
-          </Badge>
+          <div className="flex items-center gap-2">
+            {activeTab === "favorites" ? <FavoritesWatch favorites={favorites} /> : null}
+            <Badge variant="outline" className="rounded-full px-3 py-1">
+              {cards.length} instruments
+            </Badge>
+          </div>
         </div>
 
         <div className="relative mb-4">

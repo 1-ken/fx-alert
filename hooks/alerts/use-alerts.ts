@@ -376,7 +376,7 @@ export function useObserverAlerts() {
   const hasFetched = data !== undefined;
 
   const createAlert = useCallback(
-    async (input: AlertUpsertInput): Promise<Alert | null> => {
+    async (input: AlertUpsertInput, options?: { silent?: boolean }): Promise<Alert | null> => {
       const optimisticAlerts =
         input.pairs && input.pairs.length > 1
           ? input.pairs.map((pair) => buildOptimisticAlert({ ...input, pair }))
@@ -419,7 +419,9 @@ export function useObserverAlerts() {
         const created = payload.alert;
         const createdCount = payload.alerts?.length ?? (created ? 1 : 0);
         const wantedQueue = Boolean(input.depends_on_alert_id?.trim());
-        if (wantedQueue && created?.status !== "waiting") {
+        if (options?.silent) {
+          // Caller reports the result itself.
+        } else if (wantedQueue && created?.status !== "waiting") {
           toast.error("Queue not applied — alert is watching immediately instead of waiting.");
         } else if (created?.status === "waiting") {
           toast.success("Queued — arms after the selected alert triggers.");
