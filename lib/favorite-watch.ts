@@ -264,6 +264,25 @@ export function summarizeWatched(
   return { pairs, unwatchedFavorites };
 }
 
+/**
+ * Alert ids to delete when the user stops watching the given pairs. Built from the
+ * summary, so only active/waiting alerts of the four watch types are ever included.
+ */
+export function collectWatchAlertIds(
+  summary: WatchedSummary,
+  pairKeys: readonly string[],
+): string[] {
+  const wanted = new Set(pairKeys.map(pairKey).filter(Boolean));
+  const ids = new Set<string>();
+  for (const row of summary.pairs) {
+    if (!wanted.has(row.key)) continue;
+    for (const type of WATCH_TYPES) {
+      for (const id of row.byType[type]) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 /** Extracts a readable message from a failed create response body. */
 export function errorMessage(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);

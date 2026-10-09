@@ -3,6 +3,7 @@ import {
   buildWatchPayload,
   checkWatchRequest,
   chunkPairs,
+  collectWatchAlertIds,
   defaultWatchExpiry,
   planWatchSteps,
   summarizeWatched,
@@ -213,5 +214,52 @@ describe("summarizeWatched", () => {
 
   it("handles empty inputs", () => {
     expect(summarizeWatched([], [])).toEqual({ pairs: [], unwatchedFavorites: [] });
+  });
+});
+
+describe("collectWatchAlertIds", () => {
+  const summary = summarizeWatched(
+    [
+      alert({ id: "a", pair: "EURUSD", alert_type: "prev_day_level" }),
+      alert({ id: "b", pair: "EUR/USD", alert_type: "structure_session" }),
+      alert({ id: "c", pair: "EURUSD", alert_type: "sweep_confirm", status: "waiting" }),
+      alert({ id: "d", pair: "EURUSD", alert_type: "hour_sweep_cisd" }),
+      alert({ id: "e", pair: "GBPUSD", alert_type: "prev_day_level" }),
+      alert({ id: "f", pair: "AUDUSD", alert_type: "prev_day_level" }),
+      alert({ id: "p", pair: "EURUSD", alert_type: "price" }),
+      alert({ id: "t", pair: "EURUSD", alert_type: "prev_day_level", status: "triggered" }),
+    ],
+    ["EURUSD", "GBPUSD"],
+  );
+
+  it("returns every watch type for the selected pairs only", () => {
+    expect(collectWatchAlertIds(summary, ["EURUSD"]).sort()).toEqual(["a", "b", "c", "d"]);
+    expect(collectWatchAlertIds(summary, ["eur/usd", "GBPUSD"]).sort()).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+    ]);
+  });
+
+  it("excludes non-watch and non-active alerts", () => {
+    const ids = collectWatchAlertIds(summary, ["EURUSD"]);
+    expect(ids).not.toContain("p");
+    expect(ids).not.toContain("t");
+  });
+
+  it("includes watched pairs that are not favorites", () => {
+    expect(collectWatchAlertIds(summary, ["AUDUSD"])).toEqual(["f"]);
+  });
+
+  it("de-duplicates and ignores unknown or empty keys", () => {
+    expect(collectWatchAlertIds(summary, ["EURUSD", "EUR/USD", "", "XXXYYY"]).sort()).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
+    expect(collectWatchAlertIds(summary, [])).toEqual([]);
   });
 });

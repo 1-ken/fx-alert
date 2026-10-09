@@ -4,6 +4,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { EyeIcon } from "@heroicons/react/24/outline";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +41,7 @@ import {
   WATCH_TYPE_LABELS,
   buildWatchPayload,
   checkWatchRequest,
+  collectWatchAlertIds,
   errorMessage,
   pairKey,
   pairLabel,
@@ -60,7 +72,7 @@ function typeSummaryLabel(results: StepResult[]): string {
 export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const { data: session } = useSession();
   const { bootstrap } = useBootstrap();
-  const { alerts, hasFetched, createAlert, mutate } = useObserverAlerts();
+  const { alerts, hasFetched, createAlert, deleteAlert, mutate } = useObserverAlerts();
   const [mode, setMode] = useState<Mode>("closed");
   const [channel, setChannel] = useState<DefaultNotifyChannel>("sound");
   const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
@@ -69,9 +81,23 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<StepResult[] | null>(null);
   const runningRef = useRef(false);
+  const stoppingRef = useRef(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopSelected, setStopSelected] = useState<string[]>([]);
+  const [confirmStop, setConfirmStop] = useState(false);
 
   const all = useMemo(() => alerts?.all ?? [], [alerts?.all]);
   const summary = useMemo(() => summarizeWatched(all, favorites), [all, favorites]);
+  const watchedKeys = useMemo(() => summary.pairs.map((row) => row.key), [summary.pairs]);
+  // Only keys that still exist can be selected (rows vanish as deletes finish).
+  const validStopSelected = useMemo(
+    () => stopSelected.filter((key) => watchedKeys.includes(key)),
+    [stopSelected, watchedKeys],
+  );
+  const stopIds = useMemo(
+    () => collectWatchAlertIds(summary, validStopSelected),
+    [summary, validStopSelected],
+  );
   const activeCount = (alerts?.active?.length ?? 0) + (alerts?.waiting?.length ?? 0);
   const phone = bootstrap?.phone?.trim() ?? "";
   const email = session?.user?.email?.trim() ?? "";
@@ -88,6 +114,15 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   useEffect(() => {
     if (mode === "closed" && !runningRef.current) setResults(null);
   }, [mode]);
+
+  const watchedPairCount = summary.pairs.length;
+  useEffect(() => {
+    // Last watched pair removed: leave the (now empty) View dialog.
+    if (mode === "view" && hasFetched && watchedPairCount === 0 && !stopping) {
+      setConfirmStop(false);
+      setMode("closed");
+    }
+  }, [mode, hasFetched, watchedPairCount, stopping]);
 
   const check = checkWatchRequest({
     types: selectedTypes,
@@ -141,6 +176,47 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     }
   };
 
+  const openView = () => {
+    setStopSelected([]);
+    setMode("view");
+  };
+
+  const stopWatching = async () => {
+    if (stoppingRef.current) return;
+    const ids = stopIds;
+    if (ids.length === 0) {
+      setConfirmStop(false);
+      return;
+    }
+    stoppingRef.current = true;
+    setStopping(true);
+    const failedIds = new Set<string>();
+    let deleted = 0;
+    try {
+      for (const id of ids) {
+        try {
+          await deleteAlert(id, { silent: true });
+          deleted += 1;
+        } catch {
+          failedIds.add(id);
+        }
+      }
+      await mutate();
+    } finally {
+      stoppingRef.current = false;
+      setStopping(false);
+      setConfirmStop(false);
+    }
+    if (failedIds.size === 0) {
+      toast.success(`Stopped watching: ${deleted} alert${deleted === 1 ? "" : "s"} deleted`);
+      setStopSelected([]);
+    } else {
+      toast.error(`Deleted ${deleted} of ${ids.length} alerts. ${failedIds.size} failed.`);
+      // Keep only pairs that still have alerts so they can be retried.
+      setStopSelected((prev) => prev.filter((key) => watchedKeys.includes(key)));
+    }
+  };
+
   const startWatch = () => {
     if (!check.ok) return;
     if (watchNeedsMessage(channel)) {
@@ -171,13 +247,18 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
         size="sm"
         disabled={noFavorites || !hasFetched}
         title={noFavorites ? "Add favorites first" : undefined}
-        onClick={() => (watchedCount > 0 ? setMode("view") : openWatch())}
+        onClick={() => (watchedCount > 0 ? openView() : openWatch())}
       >
         <EyeIcon className="mr-1 h-4 w-4" />
         {label}
       </Button>
 
-      <Dialog open={mode === "view"} onOpenChange={(open) => !open && setMode("closed")}>
+      <Dialog
+        open={mode === "view"}
+        onOpenChange={(open) => {
+          if (!open && !stopping) setMode("closed");
+        }}
+      >
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>
@@ -192,6 +273,21 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground">
+                  <th className="w-8 py-2 pr-2">
+                    <Checkbox
+                      aria-label="Select all watched pairs"
+                      disabled={stopping || watchedKeys.length === 0}
+                      checked={
+                        validStopSelected.length > 0 &&
+                        validStopSelected.length === watchedKeys.length
+                      }
+                      onCheckedChange={() =>
+                        setStopSelected(
+                          validStopSelected.length === watchedKeys.length ? [] : watchedKeys,
+                        )
+                      }
+                    />
+                  </th>
                   <th className="py-2 pr-3 font-medium">Pair</th>
                   {WATCH_TYPES.map((type) => (
                     <th key={type} className="px-2 py-2 text-center font-medium">
@@ -203,6 +299,16 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               <tbody>
                 {summary.pairs.map((row) => (
                   <tr key={row.key} className="border-t border-border">
+                    <td className="w-8 py-2 pr-2">
+                      <Checkbox
+                        aria-label={`Select ${row.pair}`}
+                        disabled={stopping}
+                        checked={validStopSelected.includes(row.key)}
+                        onCheckedChange={() =>
+                          setStopSelected(toggle(validStopSelected, row.key))
+                        }
+                      />
+                    </td>
                     <td className="py-2 pr-3">
                       <span className="font-medium">{row.pair}</span>
                       {!row.isFavorite ? (
@@ -241,9 +347,51 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               Not watched yet: {summary.unwatchedFavorites.join(", ")}
             </p>
           ) : null}
-          <Button onClick={openWatch}>Add alerts</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={openWatch} disabled={stopping}>
+              Add alerts
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={stopping || stopIds.length === 0}
+              onClick={() => setConfirmStop(true)}
+            >
+              {stopping ? "Stopping..." : `Stop watching (${validStopSelected.length})`}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={confirmStop}
+        onOpenChange={(open) => {
+          if (!open && !stopping) setConfirmStop(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Stop watching?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes {stopIds.length} alert{stopIds.length === 1 ? "" : "s"} across{" "}
+              {validStopSelected.length} pair{validStopSelected.length === 1 ? "" : "s"}. Your
+              favorites are not changed and triggered alerts are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={stopping}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={stopping || stopIds.length === 0}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void stopWatching();
+              }}
+            >
+              {stopping ? "Deleting..." : "Stop watching"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={mode === "watch"}
@@ -393,7 +541,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
                 </Button>
               ) : null}
               {!running && results && results.length > 0 && results.every((r) => r.ok) ? (
-                <Button variant="outline" onClick={() => setMode("view")}>
+                <Button variant="outline" onClick={openView}>
                   View
                 </Button>
               ) : null}
