@@ -16,6 +16,7 @@ import { chartFormingSwrKey, chartTickEqual, type ChartTickCache } from "@/lib/s
 import type { ChartInterval } from "@/lib/chart-utils";
 import type { OhlcCandle } from "@/types/historical";
 import type { ChartStreamPayload } from "@/types/snapshot";
+import { handleFvgWebSocketMessage } from "@/stores/fvg-store";
 
 function buildChartWsUrl(
   baseUrl: string,
@@ -206,6 +207,10 @@ export function useChartFormingStream(
           };
           if (payload?.type === "alert_triggered") {
             noteAlertTriggered(payload);
+            return;
+          }
+          if (payload?.type === "FVG_ALERT") {
+            handleFvgWebSocketMessage(payload);
             return;
           }
           const forming = extractFormingFromPayload(payload);

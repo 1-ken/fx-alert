@@ -30,6 +30,7 @@ import { buildTriggeredChartUrl, triggeredChartTargetFromAlert } from "@/lib/ins
 import { cn } from "@/lib/utils";
 import type { Alert } from "@/types/alerts";
 import { toast } from "sonner";
+import { FvgAlertsPanel } from "@/components/alerts/fvg-alerts-panel";
 
 type AlertStatusFilter =
   | "all"
@@ -569,6 +570,8 @@ export function AlertsListPage({
           </div>
         </div>
       </header>
+
+      <FvgAlertsPanel />
 
       {hasVisibleAlerts ? (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/60 p-3">

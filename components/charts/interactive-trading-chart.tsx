@@ -83,6 +83,8 @@ import {
   syncPendingStructureAlertOverlays,
   type StructureLayerFlags,
 } from "@/lib/structure-overlay";
+import { syncFvgOverlays } from "@/lib/fvg-overlay";
+import { useFvgStore } from "@/stores/fvg-store";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useChartPrefsStore } from "@/stores/chart-prefs-store";
 import {
@@ -953,6 +955,19 @@ export function InteractiveTradingChart({
     closedForChart,
   ]);
 
+  const fvgActiveZones = useFvgStore((state) => state.activeZones);
+  const fvgDetectorEnabled = useFvgStore((state) => state.fvgDetectorEnabled);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const zones = Object.values(fvgActiveZones);
+    syncFvgOverlays(chart, zones, pair, interval, fvgDetectorEnabled);
+    return () => {
+      syncFvgOverlays(chart, [], pair, interval, false);
+    };
+  }, [fvgActiveZones, pair, interval, fvgDetectorEnabled]);
+
   // Keep a stable rehydrate callback for getBars after resetData clears system overlays.
   useEffect(() => {
     rehydrateOverlaysRef.current = () => {
@@ -989,6 +1004,13 @@ export function InteractiveTradingChart({
         structureAlertAnchorPrice,
         layers.pendingStructureAlerts,
       );
+      syncFvgOverlays(
+        chart,
+        Object.values(fvgActiveZones),
+        pair,
+        interval,
+        fvgDetectorEnabled,
+      );
     };
   }, [
     priceAlerts,
@@ -1000,6 +1022,10 @@ export function InteractiveTradingChart({
     closedForChart,
     structureAlerts,
     structureAlertAnchorPrice,
+    fvgActiveZones,
+    fvgDetectorEnabled,
+    pair,
+    interval,
   ]);
 
   const scrollToBarIndex = useCallback((index: number) => {

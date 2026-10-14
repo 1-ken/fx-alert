@@ -18,6 +18,7 @@ import {
   isStructureOverlayId,
   type StructureLayerFlags,
 } from "@/lib/structure-overlay";
+import { isFvgOverlayId } from "@/lib/fvg-overlay";
 
 export const LIVE_OVERLAY_ID = "fx-live-price";
 export const ALERT_OVERLAY_PREFIX = "fx-alert-";
@@ -113,7 +114,8 @@ export function isSystemOverlayId(id?: string): boolean {
     id === TRADE_POSITION_OVERLAY_ID ||
     id.startsWith(ALERT_OVERLAY_PREFIX) ||
     id.startsWith(DOL_SEGMENT_PREFIX) ||
-    isStructureOverlayId(id)
+    isStructureOverlayId(id) ||
+    isFvgOverlayId(id)
   );
 }
 

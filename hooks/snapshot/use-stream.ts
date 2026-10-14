@@ -17,6 +17,7 @@ import {
   useObserverSnapshot,
 } from "@/hooks/snapshot/use-snapshot";
 import type { StreamPayload } from "@/types/snapshot";
+import { handleFvgWebSocketMessage } from "@/stores/fvg-store";
 
 /**
  * Live market stream via WebSocket with SWR snapshot/alert cache updates.
@@ -100,6 +101,10 @@ export function useObserverStream() {
           if (payload?.type === "alert_triggered") {
             noteAlertTriggered(payload);
             void globalMutate(API_ENDPOINTS.OBSERVER_PROXY.ALERTS);
+            return;
+          }
+          if (payload?.type === "FVG_ALERT") {
+            handleFvgWebSocketMessage(payload);
             return;
           }
           const normalizedPayload = normalizeMarketSnapshot(payload);
