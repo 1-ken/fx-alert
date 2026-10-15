@@ -58,7 +58,9 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
               ? "sweep_confirm"
               : record.alert_type === "hour_sweep_cisd"
                 ? "hour_sweep_cisd"
-                : "price";
+                : record.alert_type === "fvg"
+                  ? "fvg"
+                  : "price";
   const levelRef =
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref

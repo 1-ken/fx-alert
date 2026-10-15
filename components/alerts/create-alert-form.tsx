@@ -229,6 +229,7 @@ const alertFormSchema = z
       "structure_session",
       "sweep_confirm",
       "hour_sweep_cisd",
+      "fvg",
     ]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
@@ -482,6 +483,16 @@ const alertFormSchema = z
       }
     }
 
+    if (value.alert_type === "fvg") {
+      if (!value.interval) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["interval"],
+          message: "Select a timeframe",
+        });
+      }
+    }
+
     if (selectedSet.has("sms") && !value.phone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -639,7 +650,9 @@ export function CreateAlertForm({
                   ? "sweep_confirm"
                   : initialAlertType === "hour_sweep_cisd"
                     ? "hour_sweep_cisd"
-                    : "price",
+                    : initialAlertType === "fvg"
+                      ? "fvg"
+                      : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -765,6 +778,13 @@ export function CreateAlertForm({
       });
       form.setValue("structure_event", ["cisd"], { shouldDirty: false, shouldValidate: true });
     }
+
+    if (initialAlertType === "fvg") {
+      form.setValue("alert_type", "fvg", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
   }, [form, initialAlertType]);
 
   useEffect(() => {
@@ -855,6 +875,8 @@ export function CreateAlertForm({
       base = `Prev-day ${(alert.dol_trigger ?? []).join("/")} ${alert.level_ref}${step} (${alert.status})`;
     } else if (alert.alert_type === "structure_session") {
       base = `Session ${(alert.intervals ?? []).join("→")} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
+    } else if (alert.alert_type === "fvg") {
+      base = `FVG ${alert.interval} ${alert.structure_direction ?? "any"}${step} (${alert.status})`;
     } else {
       base = `Structure ${alert.interval} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
     }
@@ -1082,6 +1104,12 @@ export function CreateAlertForm({
           structure_event: values.structure_event,
           structure_direction: values.structure_direction,
         });
+      } else if (alertType === "fvg") {
+        await createAlert({
+          ...basePayload,
+          interval: values.interval,
+          structure_direction: values.structure_direction ?? "any",
+        });
       } else {
         await createAlert({
           ...basePayload,
@@ -1198,7 +1226,7 @@ export function CreateAlertForm({
                           ]);
                         }}
                       >
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
                           {(
                             [
                               ["price", "Price"],
@@ -1208,6 +1236,7 @@ export function CreateAlertForm({
                               ["structure_session", "Session"],
                               ["sweep_confirm", "Sweep confirm"],
                               ["hour_sweep_cisd", "1h sweep + CISD"],
+                              ["fvg", "Fair Value Gap (FVG)"],
                             ] as const
                           ).map(([value, label]) => (
                             <TabsTrigger
@@ -2071,6 +2100,76 @@ export function CreateAlertForm({
                               )}
                             >
                               {value}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              ) : selectedAlertType === "fvg" ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Triggers when a Fair Value Gap (FVG / 3-candle imbalance) forms on the selected
+                    timeframe. Formed strictly on closed candles to avoid false alerts.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="interval"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Timeframe</FormLabel>
+                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                          {candleIntervalOptions.map((interval) => {
+                            const active = field.value === interval;
+                            return (
+                              <button
+                                key={interval}
+                                type="button"
+                                onClick={() => field.onChange(interval)}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                {interval}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(
+                            [
+                              ["bull", "Bullish (Demand)"],
+                              ["bear", "Bearish (Supply)"],
+                              ["any", "Any Direction"],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm transition",
+                                (field.value ?? "any") === value
+                                  ? "border-primary/40 bg-primary/10 text-foreground font-medium"
+                                  : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                              )}
+                            >
+                              {label}
                             </button>
                           ))}
                         </div>

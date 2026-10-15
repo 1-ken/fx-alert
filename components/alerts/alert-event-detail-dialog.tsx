@@ -20,6 +20,9 @@ export function formatAlertTypeLabel(alertType: string): string {
       return "Sweep confirm";
     case "hour_sweep_cisd":
       return "1h sweep + CISD";
+    case "fvg":
+    case "fair_value_gap":
+      return "Fair Value Gap (FVG)";
     case "price":
       return "Price";
     default:
@@ -97,7 +100,9 @@ export function AlertEventDetailDialog({
             ? "1h swing, 5m confirm"
             : alert?.alert_type === "hour_sweep_cisd"
               ? "Prev 1h high/low swept, 5m CISD"
-              : null;
+              : alert?.alert_type === "fvg"
+                ? `${alert.structure_direction ?? "any"} FVG on ${alert.interval ?? ""}`
+                : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

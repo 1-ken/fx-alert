@@ -8,7 +8,8 @@ export type AlertType =
   | "market_structure"
   | "structure_session"
   | "sweep_confirm"
-  | "hour_sweep_cisd";
+  | "hour_sweep_cisd"
+  | "fvg";
 export type StructureEventKind = "bos" | "choch" | "sweep" | "cisd";
 export type SweepConfirmKind = "bos" | "choch" | "cisd";
 /** @deprecated Prefer StructureEventKind[]; "any" only appears on legacy data before normalize. */

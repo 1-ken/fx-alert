@@ -49,7 +49,8 @@ type AlertTypeFilter =
   | "market_structure"
   | "structure_session"
   | "sweep_confirm"
-  | "hour_sweep_cisd";
+  | "hour_sweep_cisd"
+  | "fvg";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -82,7 +83,8 @@ function normalizeType(value?: string): AlertTypeFilter {
     value === "market_structure" ||
     value === "structure_session" ||
     value === "sweep_confirm" ||
-    value === "hour_sweep_cisd"
+    value === "hour_sweep_cisd" ||
+    value === "fvg"
   ) {
     return value;
   }
@@ -196,6 +198,9 @@ function formatAlertTypeBadge(
   }
   if (alertType === "hour_sweep_cisd") {
     return "1h sweep + CISD";
+  }
+  if (alertType === "fvg") {
+    return "Fair Value Gap (FVG)";
   }
   return "price";
 }
@@ -386,6 +391,7 @@ export function AlertsListPage({
       structure_session: source.filter((alert) => alert.alert_type === "structure_session").length,
       sweep_confirm: source.filter((alert) => alert.alert_type === "sweep_confirm").length,
       hour_sweep_cisd: source.filter((alert) => alert.alert_type === "hour_sweep_cisd").length,
+      fvg: source.filter((alert) => alert.alert_type === "fvg").length,
     };
   }, [alerts?.all]);
 
@@ -530,6 +536,11 @@ export function AlertsListPage({
               <Button asChild variant={type === "hour_sweep_cisd" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "hour_sweep_cisd")}>
                   1h sweep + CISD ({typeCounts.hour_sweep_cisd})
+                </Link>
+              </Button>
+              <Button asChild variant={type === "fvg" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "fvg")}>
+                  FVG ({typeCounts.fvg})
                 </Link>
               </Button>
             </div>
@@ -865,6 +876,19 @@ export function AlertsListPage({
                       <p>
                         Direction:{" "}
                         <span className="text-foreground">
+                          {alert.structure_direction ?? "any"}
+                        </span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "fvg" ? (
+                    <>
+                      <p>
+                        Timeframe:{" "}
+                        <span className="text-foreground">{alert.interval ?? "-"}</span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground capitalize">
                           {alert.structure_direction ?? "any"}
                         </span>
                       </p>
