@@ -957,6 +957,13 @@ export function InteractiveTradingChart({
 
   const fvgActiveZones = useFvgStore((state) => state.activeZones);
   const fvgDetectorEnabled = useFvgStore((state) => state.fvgDetectorEnabled);
+  const hydrateActiveZones = useFvgStore((state) => state.hydrateActiveZones);
+
+  useEffect(() => {
+    if (fvgDetectorEnabled) {
+      void hydrateActiveZones(pair, interval);
+    }
+  }, [pair, interval, fvgDetectorEnabled, hydrateActiveZones]);
 
   useEffect(() => {
     const chart = chartRef.current;

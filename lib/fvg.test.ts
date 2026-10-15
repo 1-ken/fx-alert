@@ -183,4 +183,47 @@ describe("FVG Zustand Store & Lifecycle", () => {
     // Invalid frame returns false safely
     expect(handleFvgWebSocketMessage({ type: "UNKNOWN" })).toBe(false);
   });
+
+  it("hydrates active zones across all pairs from REST endpoint", async () => {
+    const mockZones = [
+      {
+        id: "EURUSD_M15_1710000000",
+        symbol: "EURUSD",
+        timeframe: "M15",
+        direction: "BULLISH",
+        top: 1.0855,
+        bottom: 1.0848,
+        bar_time: 1710000000,
+        status: "FORMED",
+      },
+      {
+        id: "GBPJPY_H1_1710003600",
+        symbol: "GBPJPY",
+        timeframe: "H1",
+        direction: "BEARISH",
+        top: 190.5,
+        bottom: 190.1,
+        bar_time: 1710003600,
+        status: "FORMED",
+      },
+    ];
+
+    const originalFetch = global.fetch;
+    global.fetch = (async () => ({
+      ok: true,
+      json: async () => ({ enabled: true, zones: mockZones }),
+    })) as unknown as typeof fetch;
+
+    try {
+      await useFvgStore.getState().hydrateActiveZones();
+
+      const state = useFvgStore.getState();
+      expect(state.activeZones["EURUSD_M15_1710000000"]).toBeDefined();
+      expect(state.activeZones["GBPJPY_H1_1710003600"]).toBeDefined();
+      expect(state.alerts["EURUSD_M15_1710000000"]).toBeDefined();
+      expect(state.alerts["GBPJPY_H1_1710003600"]).toBeDefined();
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

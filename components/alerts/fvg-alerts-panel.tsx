@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   BellIcon,
@@ -33,6 +33,13 @@ export function FvgAlertsPanel() {
   const setToastEnabled = useFvgStore((state) => state.setToastEnabled);
   const setFvgDetectorEnabled = useFvgStore((state) => state.setFvgDetectorEnabled);
   const clearAlerts = useFvgStore((state) => state.clearAlerts);
+  const hydrateActiveZones = useFvgStore((state) => state.hydrateActiveZones);
+
+  useEffect(() => {
+    if (fvgDetectorEnabled) {
+      void hydrateActiveZones();
+    }
+  }, [fvgDetectorEnabled, hydrateActiveZones]);
 
   const alertsList = useMemo(() => {
     const list = Object.values(alerts);

@@ -3,6 +3,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { toast } from "sonner";
 import {
   FvgAlertMessageSchema,
+  FvgAlertPayloadSchema,
   generateFvgCompositeId,
   type FvgAlertPayload,
   type FvgTimeframe,
@@ -20,6 +21,7 @@ type FvgState = {
   fvgDetectorEnabled: boolean;
 
   ingestAlert: (payload: FvgAlertPayload) => void;
+  hydrateActiveZones: (symbol?: string, timeframe?: string) => Promise<void>;
   setFilterSymbol: (symbol: string | null) => void;
   setFilterTimeframe: (tf: FvgTimeframe | null) => void;
   setSoundEnabled: (enabled: boolean) => void;
@@ -84,6 +86,45 @@ export const useFvgStore = create<FvgState>()(
             delete nextActive[compositeId];
             return { alerts: nextAlerts, activeZones: nextActive };
           });
+        }
+      },
+      hydrateActiveZones: async (symbol?: string, timeframe?: string) => {
+        try {
+          const params = new URLSearchParams();
+          if (symbol) params.set("symbol", symbol);
+          if (timeframe) params.set("timeframe", timeframe);
+          const qs = params.toString();
+          const url = `/api/observer/fvg/active${qs ? `?${qs}` : ""}`;
+          const res = await fetch(url);
+          if (!res.ok) return;
+          const json = await res.json();
+          if (json?.enabled && Array.isArray(json?.zones)) {
+            const incomingActive: Record<string, FvgAlertPayload> = {};
+            const nextAlerts: Record<string, FvgAlertPayload> = { ...get().alerts };
+            for (const item of json.zones) {
+              const parsed = FvgAlertPayloadSchema.safeParse(item);
+              if (parsed.success) {
+                const zone = parsed.data;
+                const compositeId = generateFvgCompositeId(
+                  zone.symbol,
+                  zone.timeframe,
+                  zone.bar_time,
+                );
+                incomingActive[compositeId] = zone;
+                if (!nextAlerts[compositeId]) {
+                  nextAlerts[compositeId] = zone;
+                }
+              }
+            }
+            set((prev) => ({
+              alerts: nextAlerts,
+              activeZones: symbol || timeframe
+                ? { ...prev.activeZones, ...incomingActive }
+                : incomingActive,
+            }));
+          }
+        } catch (err) {
+          console.warn("[FVG Store] Failed to hydrate active zones:", err);
         }
       },
 

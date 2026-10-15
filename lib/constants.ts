@@ -66,6 +66,7 @@ export const API_ENDPOINTS = {
     HISTORICAL_OHLC: "/historical/ohlc",
     HISTORICAL_STREAM_METRICS: "/historical/stream-metrics",
     HISTORICAL_OHLC_WITH_FORMING: "/historical/ohlc-with-forming",
+    FVG_ACTIVE: "/api/fvg/active",
   },
   OBSERVER_PROXY: {
     ALERTS: "/api/observer/alerts",
@@ -79,6 +80,7 @@ export const API_ENDPOINTS = {
     HISTORICAL_OHLC: "/api/observer/historical/ohlc",
     HISTORICAL_STREAM_METRICS: "/api/observer/historical/stream-metrics",
     HISTORICAL_OHLC_WITH_FORMING: "/api/observer/historical/ohlc-with-forming",
+    FVG_ACTIVE: "/api/observer/fvg/active",
   },
   // Add your own API endpoints here
  
