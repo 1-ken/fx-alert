@@ -1,139 +1,102 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { toast } from "sonner";
 import {
   FvgAlertMessageSchema,
   FvgAlertPayloadSchema,
   generateFvgCompositeId,
+  normalizeFvgTimeframe,
   type FvgAlertPayload,
-  type FvgTimeframe,
 } from "@/types/fvg";
-import { fvgRateLimiter } from "@/lib/fvg-rate-limiter";
-import { playAlertSound } from "@/lib/alert-sound";
 
+/**
+ * FVG zone cache used ONLY for chart overlays.
+ *
+ * FVG *alerts* (toast / sound / SMS / email / call) are user-owned alerts and are delivered
+ * through the regular `alert_triggered` stream, exactly like every other alert type.
+ * Nothing in this store may notify the user.
+ */
 type FvgState = {
-  alerts: Record<string, FvgAlertPayload>;
   activeZones: Record<string, FvgAlertPayload>;
-  filterSymbol: string | null;
-  filterTimeframe: FvgTimeframe | null;
-  soundEnabled: boolean;
-  toastEnabled: boolean;
+  showFvgOnChart: boolean;
   fvgDetectorEnabled: boolean;
 
-  ingestAlert: (payload: FvgAlertPayload) => void;
-  hydrateActiveZones: (symbol?: string, timeframe?: string) => Promise<void>;
-  setFilterSymbol: (symbol: string | null) => void;
-  setFilterTimeframe: (tf: FvgTimeframe | null) => void;
-  setSoundEnabled: (enabled: boolean) => void;
-  setToastEnabled: (enabled: boolean) => void;
+  ingestZone: (payload: FvgAlertPayload) => void;
+  hydrateActiveZones: (symbol: string, timeframe?: string) => Promise<void>;
+  setShowFvgOnChart: (show: boolean) => void;
   setFvgDetectorEnabled: (enabled: boolean) => void;
-  clearAlerts: () => void;
+  clearZones: () => void;
 };
 
 export const useFvgStore = create<FvgState>()(
   persist(
     (set, get) => ({
-      alerts: {},
       activeZones: {},
-      filterSymbol: null,
-      filterTimeframe: null,
-      soundEnabled: true,
-      toastEnabled: true,
+      showFvgOnChart: false,
       fvgDetectorEnabled:
         typeof process !== "undefined" &&
         process.env.NEXT_PUBLIC_FVG_DETECTOR_ENABLED !== "false",
 
-      ingestAlert: (payload: FvgAlertPayload) => {
-        const state = get();
-        if (!state.fvgDetectorEnabled) {
+      ingestZone: (payload: FvgAlertPayload) => {
+        if (!get().fvgDetectorEnabled) {
           return;
         }
-
         const compositeId = generateFvgCompositeId(
           payload.symbol,
           payload.timeframe,
           payload.bar_time,
         );
-
-        const existing = state.alerts[compositeId];
-        // Guard against duplicate alerts that could occur on reconnect
-        if (existing && existing.status === payload.status) {
-          return;
-        }
-
         if (payload.status === "FORMED") {
           set((prev) => ({
-            alerts: { ...prev.alerts, [compositeId]: payload },
             activeZones: { ...prev.activeZones, [compositeId]: payload },
           }));
-
-          // Trigger sound rate-limited to 1 sound per symbol per minute
-          if (state.soundEnabled && fvgRateLimiter.shouldPlaySound(payload.symbol)) {
-            void playAlertSound().catch(() => {});
-          }
-
-          // Trigger toast notification
-          if (state.toastEnabled && fvgRateLimiter.shouldShowToast(compositeId)) {
-            const dirColor = payload.direction === "BULLISH" ? "🟢 Bullish" : "🔴 Bearish";
-            toast.info(`FVG Formed: ${payload.symbol} (${payload.timeframe})`, {
-              description: `${dirColor} gap [${payload.bottom.toFixed(5)} – ${payload.top.toFixed(5)}]`,
-            });
-          }
         } else if (payload.status === "MITIGATED") {
           set((prev) => {
-            const nextAlerts = { ...prev.alerts, [compositeId]: payload };
-            const nextActive = { ...prev.activeZones };
-            delete nextActive[compositeId];
-            return { alerts: nextAlerts, activeZones: nextActive };
+            if (!(compositeId in prev.activeZones)) return prev;
+            const next = { ...prev.activeZones };
+            delete next[compositeId];
+            return { activeZones: next };
           });
         }
       },
-      hydrateActiveZones: async (symbol?: string, timeframe?: string) => {
+
+      hydrateActiveZones: async (symbol: string, timeframe?: string) => {
+        const sym = symbol.trim();
+        // Never load a market-wide list: zones are fetched per chart symbol only.
+        if (!sym) return;
         try {
-          const params = new URLSearchParams();
-          if (symbol) params.set("symbol", symbol);
-          if (timeframe) params.set("timeframe", timeframe);
-          const qs = params.toString();
-          const url = `/api/observer/fvg/active${qs ? `?${qs}` : ""}`;
-          const res = await fetch(url);
+          const params = new URLSearchParams({ symbol: sym });
+          const tf = timeframe ? normalizeFvgTimeframe(timeframe) : null;
+          if (tf) params.set("timeframe", tf);
+          const res = await fetch(`/api/observer/fvg/active?${params.toString()}`);
           if (!res.ok) return;
           const json = await res.json();
-          if (json?.enabled && Array.isArray(json?.zones)) {
-            const incomingActive: Record<string, FvgAlertPayload> = {};
-            const nextAlerts: Record<string, FvgAlertPayload> = { ...get().alerts };
-            for (const item of json.zones) {
-              const parsed = FvgAlertPayloadSchema.safeParse(item);
-              if (parsed.success) {
-                const zone = parsed.data;
-                const compositeId = generateFvgCompositeId(
-                  zone.symbol,
-                  zone.timeframe,
-                  zone.bar_time,
-                );
-                incomingActive[compositeId] = zone;
-                if (!nextAlerts[compositeId]) {
-                  nextAlerts[compositeId] = zone;
-                }
-              }
-            }
-            set((prev) => ({
-              alerts: nextAlerts,
-              activeZones: symbol || timeframe
-                ? { ...prev.activeZones, ...incomingActive }
-                : incomingActive,
-            }));
+          if (!json?.enabled || !Array.isArray(json?.zones)) return;
+
+          const incoming: Record<string, FvgAlertPayload> = {};
+          for (const item of json.zones) {
+            const parsed = FvgAlertPayloadSchema.safeParse(item);
+            if (!parsed.success) continue;
+            const z = parsed.data;
+            incoming[generateFvgCompositeId(z.symbol, z.timeframe, z.bar_time)] = z;
           }
+          set((prev) => {
+            const kept: Record<string, FvgAlertPayload> = {};
+            for (const [id, z] of Object.entries(prev.activeZones)) {
+              // Replace the zones for this symbol (and timeframe, if given) with server truth.
+              const sameSymbol = z.symbol.toUpperCase() === sym.toUpperCase();
+              const sameTf = !tf || z.timeframe === tf;
+              if (!(sameSymbol && sameTf)) kept[id] = z;
+            }
+            return { activeZones: { ...kept, ...incoming } };
+          });
         } catch (err) {
           console.warn("[FVG Store] Failed to hydrate active zones:", err);
         }
       },
 
-      setFilterSymbol: (filterSymbol) => set({ filterSymbol }),
-      setFilterTimeframe: (filterTimeframe) => set({ filterTimeframe }),
-      setSoundEnabled: (soundEnabled) => set({ soundEnabled }),
-      setToastEnabled: (toastEnabled) => set({ toastEnabled }),
+      setShowFvgOnChart: (showFvgOnChart) => set({ showFvgOnChart }),
       setFvgDetectorEnabled: (fvgDetectorEnabled) => set({ fvgDetectorEnabled }),
-      clearAlerts: () => set({ alerts: {}, activeZones: {} }),
+      clearZones: () => set({ activeZones: {} }),
     }),
     {
       name: "fx-fvg-store",
@@ -147,8 +110,7 @@ export const useFvgStore = create<FvgState>()(
             },
       ),
       partialize: (state) => ({
-        soundEnabled: state.soundEnabled,
-        toastEnabled: state.toastEnabled,
+        showFvgOnChart: state.showFvgOnChart,
         fvgDetectorEnabled: state.fvgDetectorEnabled,
       }),
     },
@@ -156,8 +118,8 @@ export const useFvgStore = create<FvgState>()(
 );
 
 /**
- * Defensive WebSocket message handler for FVG alerts.
- * Uses Zod validation to parse payloads safely without throwing runtime errors.
+ * Defensive WebSocket handler for FVG zone frames (silent chart data).
+ * Uses Zod validation so malformed packets can never throw.
  */
 export function handleFvgWebSocketMessage(raw: unknown): boolean {
   try {
@@ -165,8 +127,7 @@ export function handleFvgWebSocketMessage(raw: unknown): boolean {
     if (!parsed.success) {
       return false;
     }
-
-    useFvgStore.getState().ingestAlert(parsed.data.data);
+    useFvgStore.getState().ingestZone(parsed.data.data);
     return true;
   } catch (err) {
     console.error("[FVG] Failed to handle message:", err);

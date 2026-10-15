@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import {
   FvgAlertMessageSchema,
   FvgAlertPayloadSchema,
@@ -6,8 +6,14 @@ import {
   normalizeFvgTimeframe,
   type FvgAlertPayload,
 } from "@/types/fvg";
-import { fvgRateLimiter } from "@/lib/fvg-rate-limiter";
 import { handleFvgWebSocketMessage, useFvgStore } from "@/stores/fvg-store";
+
+const { toastInfo, playSound } = vi.hoisted(() => ({
+  toastInfo: vi.fn(),
+  playSound: vi.fn(),
+}));
+vi.mock("sonner", () => ({ toast: { info: toastInfo } }));
+vi.mock("@/lib/alert-sound", () => ({ playAlertSound: playSound }));
 
 describe("FVG Types & Defensive Zod Validation", () => {
   it("successfully validates a well-formed FVG payload", () => {
@@ -94,136 +100,85 @@ describe("FVG Types & Defensive Zod Validation", () => {
   });
 });
 
-describe("FVG Rate Limiter", () => {
-  beforeEach(() => {
-    fvgRateLimiter.reset();
-  });
-
-  it("allows the first sound and throttles subsequent sounds within 60s for the same symbol", () => {
-    const t0 = 100000;
-    expect(fvgRateLimiter.shouldPlaySound("EURUSD", t0)).toBe(true);
-
-    // 10 seconds later: should be throttled
-    expect(fvgRateLimiter.shouldPlaySound("EURUSD", t0 + 10_000)).toBe(false);
-
-    // Different symbol: should be allowed
-    expect(fvgRateLimiter.shouldPlaySound("GBPUSD", t0 + 10_000)).toBe(true);
-
-    // 61 seconds later for EURUSD: should be allowed again
-    expect(fvgRateLimiter.shouldPlaySound("EURUSD", t0 + 61_000)).toBe(true);
-  });
-
-  it("throttles rapid duplicate toasts for the same alert ID", () => {
-    const t0 = 100000;
-    expect(fvgRateLimiter.shouldShowToast("alert-1", t0)).toBe(true);
-    expect(fvgRateLimiter.shouldShowToast("alert-1", t0 + 5_000)).toBe(false);
-    expect(fvgRateLimiter.shouldShowToast("alert-1", t0 + 11_000)).toBe(true);
-  });
+const zone = (over: Partial<FvgAlertPayload> = {}): FvgAlertPayload => ({
+  id: "EURUSD_M15_1710000000",
+  symbol: "EURUSD",
+  timeframe: "M15",
+  direction: "BULLISH",
+  top: 1.0855,
+  bottom: 1.0848,
+  bar_time: 1710000000,
+  status: "FORMED",
+  ...over,
 });
 
-describe("FVG Zustand Store & Lifecycle", () => {
+describe("FVG store is a silent chart-zone cache (no user notifications)", () => {
   beforeEach(() => {
-    useFvgStore.getState().clearAlerts();
+    useFvgStore.getState().clearZones();
     useFvgStore.getState().setFvgDetectorEnabled(true);
-    fvgRateLimiter.reset();
   });
 
-  it("ingests formed alert and handles mitigation", () => {
-    const formedPayload: FvgAlertPayload = {
-      id: "EURUSD_M15_1710000000",
-      symbol: "EURUSD",
-      timeframe: "M15",
-      direction: "BULLISH",
-      top: 1.0855,
-      bottom: 1.0848,
-      bar_time: 1710000000,
-      status: "FORMED",
-    };
-
-    useFvgStore.getState().ingestAlert(formedPayload);
-    const state1 = useFvgStore.getState();
+  it("ingests formed zones and removes them on mitigation", () => {
+    useFvgStore.getState().ingestZone(zone());
     const key = "EURUSD_M15_1710000000";
-    expect(state1.alerts[key]).toBeDefined();
-    expect(state1.activeZones[key]).toBeDefined();
-    expect(state1.activeZones[key]?.status).toBe("FORMED");
+    expect(useFvgStore.getState().activeZones[key]?.status).toBe("FORMED");
 
-    // Mitigated update
-    const mitigatedPayload: FvgAlertPayload = {
-      ...formedPayload,
-      status: "MITIGATED",
-    };
+    useFvgStore.getState().ingestZone(zone({ status: "MITIGATED" }));
+    expect(useFvgStore.getState().activeZones[key]).toBeUndefined();
+  });
 
-    useFvgStore.getState().ingestAlert(mitigatedPayload);
-    const state2 = useFvgStore.getState();
-    expect(state2.alerts[key]?.status).toBe("MITIGATED");
-    expect(state2.activeZones[key]).toBeUndefined();
+  it("never raises toast or sound when a zone arrives", () => {
+    useFvgStore.getState().ingestZone(zone());
+    expect(toastInfo).not.toHaveBeenCalled();
+    expect(playSound).not.toHaveBeenCalled();
+  });
+
+  it("ignores zones when the detector flag is off", () => {
+    useFvgStore.getState().setFvgDetectorEnabled(false);
+    useFvgStore.getState().ingestZone(zone());
+    expect(Object.keys(useFvgStore.getState().activeZones)).toHaveLength(0);
+  });
+
+  it("chart overlay toggle defaults to off", () => {
+    expect(useFvgStore.getState().showFvgOnChart).toBe(false);
   });
 
   it("safely routes through handleFvgWebSocketMessage", () => {
-    const frame = {
-      type: "FVG_ALERT",
-      data: {
-        id: "USDJPY_H1_1710000000",
-        symbol: "USDJPY",
-        timeframe: "H1",
-        direction: "BEARISH",
-        top: 150.5,
-        bottom: 150.2,
-        bar_time: 1710000000,
-        status: "FORMED",
-      },
-    };
-
-    const res = handleFvgWebSocketMessage(frame);
-    expect(res).toBe(true);
-
-    const key = "USDJPY_H1_1710000000";
-    expect(useFvgStore.getState().activeZones[key]).toBeDefined();
-
-    // Invalid frame returns false safely
+    const frame = { type: "FVG_ALERT", data: zone({ symbol: "USDJPY", timeframe: "H1" }) };
+    expect(handleFvgWebSocketMessage(frame)).toBe(true);
+    expect(
+      useFvgStore.getState().activeZones["USDJPY_H1_1710000000"],
+    ).toBeDefined();
     expect(handleFvgWebSocketMessage({ type: "UNKNOWN" })).toBe(false);
   });
 
-  it("hydrates active zones across all pairs from REST endpoint", async () => {
-    const mockZones = [
-      {
-        id: "EURUSD_M15_1710000000",
-        symbol: "EURUSD",
-        timeframe: "M15",
-        direction: "BULLISH",
-        top: 1.0855,
-        bottom: 1.0848,
-        bar_time: 1710000000,
-        status: "FORMED",
-      },
-      {
-        id: "GBPJPY_H1_1710003600",
-        symbol: "GBPJPY",
-        timeframe: "H1",
-        direction: "BEARISH",
-        top: 190.5,
-        bottom: 190.1,
-        bar_time: 1710003600,
-        status: "FORMED",
-      },
-    ];
-
-    const originalFetch = global.fetch;
-    global.fetch = (async () => ({
+  it("hydrates one symbol only, never the whole market", async () => {
+    const fetchMock = vi.fn(async (url: string) => ({
       ok: true,
-      json: async () => ({ enabled: true, zones: mockZones }),
-    })) as unknown as typeof fetch;
-
+      json: async () => ({
+        enabled: true,
+        zones: [zone({ symbol: "GBPJPY", timeframe: "H1", bar_time: 1710003600 })],
+      }),
+      url,
+    }));
+    const original = global.fetch;
+    global.fetch = fetchMock as unknown as typeof fetch;
     try {
-      await useFvgStore.getState().hydrateActiveZones();
+      // No symbol -> no request at all.
+      await useFvgStore.getState().hydrateActiveZones("");
+      expect(fetchMock).not.toHaveBeenCalled();
 
-      const state = useFvgStore.getState();
-      expect(state.activeZones["EURUSD_M15_1710000000"]).toBeDefined();
-      expect(state.activeZones["GBPJPY_H1_1710003600"]).toBeDefined();
-      expect(state.alerts["EURUSD_M15_1710000000"]).toBeDefined();
-      expect(state.alerts["GBPJPY_H1_1710003600"]).toBeDefined();
+      useFvgStore.getState().ingestZone(zone()); // EURUSD zone must survive GBPJPY hydrate
+      await useFvgStore.getState().hydrateActiveZones("GBPJPY", "1h");
+
+      const calledUrl = String(fetchMock.mock.calls[0]?.[0]);
+      expect(calledUrl).toContain("symbol=GBPJPY");
+      expect(calledUrl).toContain("timeframe=H1");
+      const zones = useFvgStore.getState().activeZones;
+      expect(zones["GBPJPY_H1_1710003600"]).toBeDefined();
+      expect(zones["EURUSD_M15_1710000000"]).toBeDefined();
     } finally {
-      global.fetch = originalFetch;
+      global.fetch = original;
     }
   });
 });

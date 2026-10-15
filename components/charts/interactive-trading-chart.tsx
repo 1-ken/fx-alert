@@ -957,23 +957,27 @@ export function InteractiveTradingChart({
 
   const fvgActiveZones = useFvgStore((state) => state.activeZones);
   const fvgDetectorEnabled = useFvgStore((state) => state.fvgDetectorEnabled);
+  const showFvgOnChart = useFvgStore((state) => state.showFvgOnChart);
+  const setShowFvgOnChart = useFvgStore((state) => state.setShowFvgOnChart);
   const hydrateActiveZones = useFvgStore((state) => state.hydrateActiveZones);
+  // FVG zones are chart data only; they are drawn solely when the user opts in.
+  const fvgOverlayOn = fvgDetectorEnabled && showFvgOnChart;
 
   useEffect(() => {
-    if (fvgDetectorEnabled) {
+    if (fvgOverlayOn) {
       void hydrateActiveZones(pair, interval);
     }
-  }, [pair, interval, fvgDetectorEnabled, hydrateActiveZones]);
+  }, [pair, interval, fvgOverlayOn, hydrateActiveZones]);
 
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     const zones = Object.values(fvgActiveZones);
-    syncFvgOverlays(chart, zones, pair, interval, fvgDetectorEnabled);
+    syncFvgOverlays(chart, zones, pair, interval, fvgOverlayOn);
     return () => {
       syncFvgOverlays(chart, [], pair, interval, false);
     };
-  }, [fvgActiveZones, pair, interval, fvgDetectorEnabled]);
+  }, [fvgActiveZones, pair, interval, fvgOverlayOn]);
 
   // Keep a stable rehydrate callback for getBars after resetData clears system overlays.
   useEffect(() => {
@@ -1016,7 +1020,7 @@ export function InteractiveTradingChart({
         Object.values(fvgActiveZones),
         pair,
         interval,
-        fvgDetectorEnabled,
+        fvgOverlayOn,
       );
     };
   }, [
@@ -1030,7 +1034,7 @@ export function InteractiveTradingChart({
     structureAlerts,
     structureAlertAnchorPrice,
     fvgActiveZones,
-    fvgDetectorEnabled,
+    fvgOverlayOn,
     pair,
     interval,
   ]);
@@ -1204,6 +1208,19 @@ export function InteractiveTradingChart({
           >
             Fit
           </Button>
+          {fvgDetectorEnabled ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={showFvgOnChart ? "default" : "outline"}
+              className={toolbarButtonClass}
+              aria-pressed={showFvgOnChart}
+              title="Show Fair Value Gap zones on this chart (display only, no notifications)"
+              onClick={() => setShowFvgOnChart(!showFvgOnChart)}
+            >
+              FVG
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
