@@ -94,6 +94,8 @@ describe("FVG Types & Defensive Zod Validation", () => {
   it("generates composite IDs and normalizes timeframes", () => {
     expect(generateFvgCompositeId("EURUSD", "M15", 1710000000)).toBe("EURUSD_M15_1710000000");
     expect(normalizeFvgTimeframe("15m")).toBe("M15");
+    expect(normalizeFvgTimeframe("30m")).toBe("M30");
+    expect(normalizeFvgTimeframe("M30")).toBe("M30");
     expect(normalizeFvgTimeframe("1h")).toBe("H1");
     expect(normalizeFvgTimeframe("M5")).toBe("M5");
     expect(normalizeFvgTimeframe("unknown")).toBeNull();

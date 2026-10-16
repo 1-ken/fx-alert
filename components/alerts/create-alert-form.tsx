@@ -277,6 +277,7 @@ const alertFormSchema = z
       value.alert_type !== "structure_session" &&
       value.alert_type !== "sweep_confirm" &&
       value.alert_type !== "hour_sweep_cisd" &&
+      value.alert_type !== "fvg" &&
       !value.pair
     ) {
       ctx.addIssue({
@@ -484,6 +485,28 @@ const alertFormSchema = z
     }
 
     if (value.alert_type === "fvg") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      } else if (value.pairs.length > MAX_BATCH_PAIRS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: `Select at most ${MAX_BATCH_PAIRS} pairs`,
+        });
+      }
+
+      if (value.pairs && value.pairs.length > 1 && value.depends_on_alert_id) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["depends_on_alert_id"],
+          message: "Chained alert dependency cannot be used with multi-pair batch alerts",
+        });
+      }
+
       if (!value.interval) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -725,6 +748,13 @@ export function CreateAlertForm({
   useEffect(() => {
     if (normalizedInitialPair) {
       form.setValue("pair", normalizedInitialPair, { shouldDirty: false, shouldValidate: true });
+      const currentPairs = form.getValues("pairs") ?? [];
+      if (!currentPairs.includes(normalizedInitialPair)) {
+        form.setValue("pairs", [normalizedInitialPair, ...currentPairs], {
+          shouldDirty: false,
+          shouldValidate: true,
+        });
+      }
       setPairSearch(normalizedInitialPair);
     }
   }, [form, normalizedInitialPair]);
@@ -851,8 +881,8 @@ export function CreateAlertForm({
 
   const queueParents = useMemo(() => {
     const pairRaw =
-      selectedAlertType === "prev_day_level"
-        ? selectedDolPairs[0]
+      selectedAlertType === "prev_day_level" || selectedAlertType === "fvg"
+        ? (selectedDolPairs[0] || selectedPair)
         : selectedPair;
     if (!pairRaw) {
       return [];
@@ -1105,8 +1135,17 @@ export function CreateAlertForm({
           structure_direction: values.structure_direction,
         });
       } else if (alertType === "fvg") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
+        const fvgPayload = { ...basePayload };
+        if (normalizedPairs.length > 1) {
+          delete fvgPayload.depends_on_alert_id;
+        }
         await createAlert({
-          ...basePayload,
+          ...fvgPayload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
           interval: values.interval,
           structure_direction: values.structure_direction ?? "any",
         });
@@ -1186,6 +1225,32 @@ export function CreateAlertForm({
                             shouldDirty: false,
                             shouldValidate: false,
                           });
+                          if (
+                            value === "prev_day_level" ||
+                            value === "structure_session" ||
+                            value === "sweep_confirm" ||
+                            value === "hour_sweep_cisd" ||
+                            value === "fvg"
+                          ) {
+                            const currentPairs = form.getValues("pairs") ?? [];
+                            const singlePair = form.getValues("pair");
+                            if (currentPairs.length === 0 && singlePair) {
+                              form.setValue("pairs", [singlePair], {
+                                shouldDirty: false,
+                                shouldValidate: false,
+                              });
+                            }
+                          } else {
+                            const currentPairs = form.getValues("pairs") ?? [];
+                            const singlePair = form.getValues("pair");
+                            if (!singlePair && currentPairs.length > 0) {
+                              form.setValue("pair", currentPairs[0], {
+                                shouldDirty: false,
+                                shouldValidate: false,
+                              });
+                              setPairSearch(currentPairs[0]);
+                            }
+                          }
                           if (value === "sweep_confirm") {
                             const current = form.getValues("structure_event") ?? [];
                             const kept = current.filter(
@@ -1258,7 +1323,8 @@ export function CreateAlertForm({
               {selectedAlertType !== "prev_day_level" &&
               selectedAlertType !== "structure_session" &&
               selectedAlertType !== "sweep_confirm" &&
-              selectedAlertType !== "hour_sweep_cisd" ? (
+              selectedAlertType !== "hour_sweep_cisd" &&
+              selectedAlertType !== "fvg" ? (
               <FormField
                 control={form.control}
                 name="pair"
@@ -1352,7 +1418,8 @@ export function CreateAlertForm({
               {selectedAlertType === "prev_day_level" ||
               selectedAlertType === "structure_session" ||
               selectedAlertType === "sweep_confirm" ||
-              selectedAlertType === "hour_sweep_cisd" ? (
+              selectedAlertType === "hour_sweep_cisd" ||
+              selectedAlertType === "fvg" ? (
                 <>
                   <FormField
                     control={form.control}
@@ -2182,7 +2249,8 @@ export function CreateAlertForm({
 
               {selectedAlertType === "structure_session" ||
               selectedAlertType === "sweep_confirm" ||
-              selectedAlertType === "hour_sweep_cisd" ? null : (
+              selectedAlertType === "hour_sweep_cisd" ||
+              (selectedAlertType === "fvg" && (form.watch("pairs") ?? []).length > 1) ? null : (
               <FormField
                 control={form.control}
                 name="depends_on_alert_id"
