@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -27,8 +28,11 @@ import {
 } from "@/components/ui/dialog";
 import { useBootstrap } from "@/components/bootstrap-provider";
 import { useObserverAlerts } from "@/hooks/alerts/use-alerts";
+import { saveUserPhone } from "@/lib/api/bootstrap";
 import {
+  ALERT_DEFAULT_PHONE_STORAGE_KEY,
   defaultNotifyLabel,
+  getDefaultAlertPhone,
   getDefaultNotifyChannel,
   type DefaultNotifyChannel,
 } from "@/lib/alert-preferences";
@@ -76,13 +80,14 @@ function typeSummaryLabel(results: StepResult[]): string {
  */
 export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const { data: session } = useSession();
-  const { bootstrap } = useBootstrap();
+  const { bootstrap, refetch: refetchBootstrap } = useBootstrap();
   const { alerts, hasFetched, createAlert, deleteAlert, mutate } = useObserverAlerts();
   const [mode, setMode] = useState<Mode>("closed");
   const [channel, setChannel] = useState<DefaultNotifyChannel>("sound");
   const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<WatchType[]>([...WATCH_TYPES]);
   const [fvgInterval, setFvgInterval] = useState<FvgWatchInterval>(DEFAULT_FVG_WATCH_INTERVAL);
+  const [phone, setPhone] = useState("");
   const [message, setMessage] = useState(DEFAULT_WATCH_MESSAGE);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<StepResult[] | null>(null);
@@ -105,11 +110,18 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     [summary, validStopSelected],
   );
   const activeCount = (alerts?.active?.length ?? 0) + (alerts?.waiting?.length ?? 0);
-  const phone = bootstrap?.phone?.trim() ?? "";
   const email = session?.user?.email?.trim() ?? "";
+
+  useEffect(() => {
+    const resolved = getDefaultAlertPhone(bootstrap?.phone);
+    if (resolved) {
+      setPhone((prev) => (prev.trim() ? prev : resolved));
+    }
+  }, [bootstrap?.phone]);
 
   const openWatch = () => {
     setChannel(getDefaultNotifyChannel() ?? "sound");
+    setPhone(getDefaultAlertPhone(bootstrap?.phone));
     setMessage(window.localStorage.getItem(WATCH_MESSAGE_STORAGE_KEY) || DEFAULT_WATCH_MESSAGE);
     setFvgInterval(
       normalizeFvgWatchInterval(window.localStorage.getItem(WATCH_FVG_INTERVAL_STORAGE_KEY)),
@@ -231,6 +243,13 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const startWatch = () => {
     if (!check.ok) return;
     if (watchNeedsMessage(channel)) {
+      const trimmedPhone = phone.trim();
+      if (trimmedPhone) {
+        window.localStorage.setItem(ALERT_DEFAULT_PHONE_STORAGE_KEY, trimmedPhone);
+        void saveUserPhone(session ?? null, trimmedPhone, { onlyIfEmpty: true }).then(() => {
+          refetchBootstrap();
+        });
+      }
       window.localStorage.setItem(WATCH_MESSAGE_STORAGE_KEY, message.trim());
     }
     if (selectedTypes.includes("fvg")) {
@@ -515,22 +534,37 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
             </p>
 
             {watchNeedsMessage(channel) ? (
-              <div className="space-y-1">
-                <label htmlFor="watch-message" className="text-sm font-medium">
-                  Message for {defaultNotifyLabel(channel)} alerts
-                </label>
-                <Textarea
-                  id="watch-message"
-                  value={message}
-                  disabled={running}
-                  maxLength={watchMessageMaxChars(channel)}
-                  rows={2}
-                  onChange={(event) => setMessage(event.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Required for Call and SMS. Sent with every alert in this run, along with the pair,
-                  type and price.
-                </p>
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label htmlFor="watch-phone" className="text-sm font-medium">
+                    Phone number
+                  </label>
+                  <Input
+                    id="watch-phone"
+                    type="tel"
+                    placeholder="+1 555 000 0000"
+                    value={phone}
+                    disabled={running}
+                    onChange={(event) => setPhone(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="watch-message" className="text-sm font-medium">
+                    Message for {defaultNotifyLabel(channel)} alerts
+                  </label>
+                  <Textarea
+                    id="watch-message"
+                    value={message}
+                    disabled={running}
+                    maxLength={watchMessageMaxChars(channel)}
+                    rows={2}
+                    onChange={(event) => setMessage(event.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Required for Call and SMS. Sent with every alert in this run, along with the pair,
+                    type and price.
+                  </p>
+                </div>
               </div>
             ) : null}
 

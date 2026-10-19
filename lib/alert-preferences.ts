@@ -20,6 +20,13 @@ export function setDefaultNotifyChannel(channel: DefaultNotifyChannel): void {
   window.localStorage.setItem(ALERT_DEFAULT_NOTIFY_CHANNEL_STORAGE_KEY, channel);
 }
 
+export function getDefaultAlertPhone(serverPhone?: string | null): string {
+  const fromServer = serverPhone?.trim();
+  if (fromServer) return fromServer;
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(ALERT_DEFAULT_PHONE_STORAGE_KEY)?.trim() ?? "";
+}
+
 export function defaultNotifyLabel(channel: DefaultNotifyChannel): string {
   switch (channel) {
     case "sms":
