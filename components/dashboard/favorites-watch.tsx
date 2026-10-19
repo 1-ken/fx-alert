@@ -33,7 +33,10 @@ import {
   type DefaultNotifyChannel,
 } from "@/lib/alert-preferences";
 import {
+  DEFAULT_FVG_WATCH_INTERVAL,
   DEFAULT_WATCH_MESSAGE,
+  FVG_WATCH_INTERVALS,
+  WATCH_FVG_INTERVAL_STORAGE_KEY,
   WATCH_MESSAGE_STORAGE_KEY,
   watchMessageMaxChars,
   watchNeedsMessage,
@@ -43,10 +46,12 @@ import {
   checkWatchRequest,
   collectWatchAlertIds,
   errorMessage,
+  normalizeFvgWatchInterval,
   pairKey,
   pairLabel,
   planWatchSteps,
   summarizeWatched,
+  type FvgWatchInterval,
   type WatchStep,
   type WatchType,
 } from "@/lib/favorite-watch";
@@ -77,6 +82,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const [channel, setChannel] = useState<DefaultNotifyChannel>("sound");
   const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<WatchType[]>([...WATCH_TYPES]);
+  const [fvgInterval, setFvgInterval] = useState<FvgWatchInterval>(DEFAULT_FVG_WATCH_INTERVAL);
   const [message, setMessage] = useState(DEFAULT_WATCH_MESSAGE);
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<StepResult[] | null>(null);
@@ -105,6 +111,9 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const openWatch = () => {
     setChannel(getDefaultNotifyChannel() ?? "sound");
     setMessage(window.localStorage.getItem(WATCH_MESSAGE_STORAGE_KEY) || DEFAULT_WATCH_MESSAGE);
+    setFvgInterval(
+      normalizeFvgWatchInterval(window.localStorage.getItem(WATCH_FVG_INTERVAL_STORAGE_KEY)),
+    );
     setSelectedPairs(favorites.map(pairKey));
     setSelectedTypes([...WATCH_TYPES]);
     setResults(null);
@@ -131,6 +140,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     phone,
     email,
     message,
+    fvgInterval,
     bootstrap,
     activeCount,
   });
@@ -159,6 +169,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               phone,
               email,
               message,
+              fvgInterval,
               now: Date.now(),
             }),
             { silent: true },
@@ -221,6 +232,9 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     if (!check.ok) return;
     if (watchNeedsMessage(channel)) {
       window.localStorage.setItem(WATCH_MESSAGE_STORAGE_KEY, message.trim());
+    }
+    if (selectedTypes.includes("fvg")) {
+      window.localStorage.setItem(WATCH_FVG_INTERVAL_STORAGE_KEY, fvgInterval);
     }
     setResults([]);
     void run(planWatchSteps(selectedTypes, selectedPairs));
@@ -463,6 +477,35 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               </div>
             </div>
 
+            {selectedTypes.includes("fvg") ? (
+              <div className="rounded-lg border border-border/80 bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-foreground">
+                    FVG timeframe (all selected pairs)
+                  </p>
+                  <span className="text-xs font-semibold text-primary">{fvgInterval}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {FVG_WATCH_INTERVALS.map((iv) => (
+                    <Button
+                      key={iv}
+                      type="button"
+                      size="sm"
+                      variant={fvgInterval === iv ? "default" : "outline"}
+                      disabled={running}
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setFvgInterval(iv)}
+                    >
+                      {iv}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Monitors unmitigated bullish &amp; bearish fair value gaps formed on {fvgInterval} candles.
+                </p>
+              </div>
+            ) : null}
+
             <p className="text-xs text-muted-foreground">
               Notify via {defaultNotifyLabel(channel)} (and in-app sound).{" "}
               <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
@@ -517,7 +560,8 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
                 </p>
                 {results.map((r, index) => (
                   <p key={`${r.step.type}-${index}`} className={r.ok ? "" : "text-destructive"}>
-                    {WATCH_TYPE_LABELS[r.step.type]} ({r.step.pairs.length}):{" "}
+                    {WATCH_TYPE_LABELS[r.step.type]}
+                    {r.step.type === "fvg" ? ` (${fvgInterval})` : ""} ({r.step.pairs.length}):{" "}
                     {r.ok ? "created" : `failed: ${r.message}`}
                   </p>
                 ))}

@@ -14,6 +14,7 @@ export const WATCH_TYPES = [
   "structure_session",
   "sweep_confirm",
   "hour_sweep_cisd",
+  "fvg",
 ] as const;
 
 export type WatchType = (typeof WATCH_TYPES)[number];
@@ -23,7 +24,21 @@ export const WATCH_TYPE_LABELS: Record<WatchType, string> = {
   structure_session: "Session",
   sweep_confirm: "Sweep confirm",
   hour_sweep_cisd: "1h sweep + CISD",
+  fvg: "FVG",
 };
+
+export const FVG_WATCH_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
+export type FvgWatchInterval = (typeof FVG_WATCH_INTERVALS)[number];
+export const DEFAULT_FVG_WATCH_INTERVAL: FvgWatchInterval = "15m";
+export const WATCH_FVG_INTERVAL_STORAGE_KEY = "fx-alert:watch-fvg-interval";
+
+export function isFvgWatchInterval(value: unknown): value is FvgWatchInterval {
+  return typeof value === "string" && (FVG_WATCH_INTERVALS as readonly string[]).includes(value);
+}
+
+export function normalizeFvgWatchInterval(value: unknown): FvgWatchInterval {
+  return isFvgWatchInterval(value) ? value : DEFAULT_FVG_WATCH_INTERVAL;
+}
 
 /** Must match kMaxBatchPairs in ctraderplus-cpp/src/alerts/AlertManager.h. */
 export const MAX_BATCH_PAIRS = 100;
@@ -72,6 +87,8 @@ export interface WatchPayloadContext {
   email: string;
   /** Required by the server for Call and SMS. Ignored for Sound and Email. */
   message?: string;
+  /** Timeframe for FVG alerts across all selected pairs. Defaults to 15m. */
+  fvgInterval?: FvgWatchInterval | string;
   now: number;
 }
 
@@ -135,6 +152,12 @@ export function buildWatchPayload(
         structure_event: ["cisd"],
         structure_direction: "any",
       };
+    case "fvg":
+      return {
+        ...base,
+        interval: normalizeFvgWatchInterval(ctx.fvgInterval),
+        structure_direction: "any",
+      };
   }
 }
 
@@ -181,12 +204,20 @@ export function checkWatchRequest(args: {
   phone: string;
   email: string;
   message?: string;
+  fvgInterval?: string;
   bootstrap: BootstrapData | null | undefined;
   activeCount: number;
 }): WatchCheck {
   const pairCount = new Set(args.pairs.map(pairKey).filter(Boolean)).size;
   if (pairCount === 0) return { ok: false, error: "Add favorites first." };
   if (args.types.length === 0) return { ok: false, error: "Select at least one alert type." };
+  if (
+    args.types.includes("fvg") &&
+    args.fvgInterval !== undefined &&
+    !isFvgWatchInterval(args.fvgInterval)
+  ) {
+    return { ok: false, error: "Select a valid FVG timeframe." };
+  }
   if ((args.channel === "sms" || args.channel === "call") && !args.phone.trim()) {
     return { ok: false, error: "Add a phone number in Settings to use Call or SMS." };
   }
@@ -234,10 +265,11 @@ function emptyByType(): Record<WatchType, string[]> {
     structure_session: [],
     sweep_confirm: [],
     hour_sweep_cisd: [],
+    fvg: [],
   };
 }
 
-/** Active or waiting alerts of the four watch types, grouped by pair. */
+/** Active or waiting alerts of the watch types, grouped by pair. */
 export function summarizeWatched(
   alerts: readonly Alert[],
   favorites: readonly string[],

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_FVG_WATCH_INTERVAL,
+  FVG_WATCH_INTERVALS,
   buildWatchPayload,
   checkWatchRequest,
   chunkPairs,
   collectWatchAlertIds,
   defaultWatchExpiry,
+  isFvgWatchInterval,
+  normalizeFvgWatchInterval,
   planWatchSteps,
   summarizeWatched,
   validateSessionDirection,
@@ -19,7 +23,7 @@ function alert(partial: Partial<Alert> & Pick<Alert, "id" | "pair" | "alert_type
 }
 
 describe("buildWatchPayload", () => {
-  it("builds the four default payloads", () => {
+  it("builds the default payloads including FVG", () => {
     const pdh = buildWatchPayload("prev_day_level", ["EUR/USD", "gbpusd"], ctx);
     expect(pdh.pairs).toEqual(["EURUSD", "GBPUSD"]);
     expect(pdh.level_ref).toBe("both");
@@ -41,6 +45,21 @@ describe("buildWatchPayload", () => {
     const hour = buildWatchPayload("hour_sweep_cisd", ["EURUSD"], ctx);
     expect(hour.structure_event).toEqual(["cisd"]);
     expect(hour.structure_direction).toBe("any");
+
+    const fvgDefault = buildWatchPayload("fvg", ["EURUSD"], ctx);
+    expect(fvgDefault.alert_type).toBe("fvg");
+    expect(fvgDefault.interval).toBe("15m");
+    expect(fvgDefault.structure_direction).toBe("any");
+    expect(fvgDefault.expires_at).toBe("2026-06-04T10:00:00.000Z");
+
+    const fvgCustom = buildWatchPayload("fvg", ["EURUSD"], { ...ctx, fvgInterval: "1h" });
+    expect(fvgCustom.interval).toBe("1h");
+
+    const fvgFallback = buildWatchPayload("fvg", ["EURUSD"], {
+      ...ctx,
+      fvgInterval: "invalid" as never,
+    });
+    expect(fvgFallback.interval).toBe("15m");
   });
 
   it("sends the trimmed message for call and sms, never for sound or email", () => {
@@ -77,6 +96,24 @@ describe("buildWatchPayload", () => {
   it("uses end of day for PDH and 24h for the rest", () => {
     expect(defaultWatchExpiry("prev_day_level", NOW)).toBe("2026-06-03T23:59:59.999Z");
     expect(defaultWatchExpiry("hour_sweep_cisd", NOW)).toBe("2026-06-04T10:00:00.000Z");
+    expect(defaultWatchExpiry("fvg", NOW)).toBe("2026-06-04T10:00:00.000Z");
+  });
+});
+
+describe("fvg intervals", () => {
+  it("validates supported timeframes", () => {
+    for (const iv of FVG_WATCH_INTERVALS) {
+      expect(isFvgWatchInterval(iv)).toBe(true);
+    }
+    expect(isFvgWatchInterval("2h")).toBe(false);
+    expect(isFvgWatchInterval("")).toBe(false);
+    expect(isFvgWatchInterval(null)).toBe(false);
+  });
+
+  it("normalizes to 15m default when unknown", () => {
+    expect(normalizeFvgWatchInterval("30m")).toBe("30m");
+    expect(normalizeFvgWatchInterval("invalid")).toBe(DEFAULT_FVG_WATCH_INTERVAL);
+    expect(normalizeFvgWatchInterval(undefined)).toBe("15m");
   });
 });
 
@@ -110,6 +147,11 @@ describe("planWatchSteps", () => {
     const steps = planWatchSteps(["sweep_confirm"], ["EUR/USD", "EURUSD"]);
     expect(steps).toEqual([{ type: "sweep_confirm", pairs: ["EURUSD"] }]);
   });
+
+  it("orders types including fvg according to WATCH_TYPES", () => {
+    const steps = planWatchSteps(["fvg", "prev_day_level", "hour_sweep_cisd"], ["EURUSD"]);
+    expect(steps.map((s) => s.type)).toEqual(["prev_day_level", "hour_sweep_cisd", "fvg"]);
+  });
 });
 
 describe("checkWatchRequest", () => {
@@ -130,6 +172,16 @@ describe("checkWatchRequest", () => {
   it("blocks empty favorites and empty types", () => {
     expect(checkWatchRequest({ ...base, pairs: [] }).ok).toBe(false);
     expect(checkWatchRequest({ ...base, types: [] }).ok).toBe(false);
+  });
+
+  it("validates fvg interval when fvg is selected", () => {
+    const withFvg = { ...base, types: ["fvg"] as const };
+    expect(checkWatchRequest({ ...withFvg, fvgInterval: "15m" }).ok).toBe(true);
+    expect(checkWatchRequest({ ...withFvg, fvgInterval: "1d" }).ok).toBe(true);
+    expect(checkWatchRequest({ ...withFvg, fvgInterval: "invalid" })).toEqual({
+      ok: false,
+      error: "Select a valid FVG timeframe.",
+    });
   });
 
   it("requires a message for call and sms only", () => {
@@ -173,19 +225,21 @@ describe("checkWatchRequest", () => {
 });
 
 describe("summarizeWatched", () => {
-  it("groups the four types by normalized pair and counts duplicates", () => {
+  it("groups the watch types by normalized pair and counts duplicates", () => {
     const summary = summarizeWatched(
       [
         alert({ id: "a", pair: "EURUSD", alert_type: "structure_session" }),
         alert({ id: "b", pair: "EUR/USD", alert_type: "structure_session" }),
         alert({ id: "c", pair: "EURUSD", alert_type: "hour_sweep_cisd" }),
         alert({ id: "d", pair: "GBPUSD", alert_type: "sweep_confirm", status: "waiting" }),
+        alert({ id: "g", pair: "EURUSD", alert_type: "fvg" }),
       ],
       ["EUR/USD", "GBP/USD", "USD/JPY"],
     );
     expect(summary.pairs.map((p) => p.pair)).toEqual(["EUR/USD", "GBP/USD"]);
     expect(summary.pairs[0].byType.structure_session).toEqual(["a", "b"]);
     expect(summary.pairs[0].byType.hour_sweep_cisd).toEqual(["c"]);
+    expect(summary.pairs[0].byType.fvg).toEqual(["g"]);
     expect(summary.unwatchedFavorites).toEqual(["USD/JPY"]);
   });
 
@@ -226,6 +280,7 @@ describe("collectWatchAlertIds", () => {
       alert({ id: "d", pair: "EURUSD", alert_type: "hour_sweep_cisd" }),
       alert({ id: "e", pair: "GBPUSD", alert_type: "prev_day_level" }),
       alert({ id: "f", pair: "AUDUSD", alert_type: "prev_day_level" }),
+      alert({ id: "g", pair: "EURUSD", alert_type: "fvg" }),
       alert({ id: "p", pair: "EURUSD", alert_type: "price" }),
       alert({ id: "t", pair: "EURUSD", alert_type: "prev_day_level", status: "triggered" }),
     ],
@@ -233,13 +288,14 @@ describe("collectWatchAlertIds", () => {
   );
 
   it("returns every watch type for the selected pairs only", () => {
-    expect(collectWatchAlertIds(summary, ["EURUSD"]).sort()).toEqual(["a", "b", "c", "d"]);
+    expect(collectWatchAlertIds(summary, ["EURUSD"]).sort()).toEqual(["a", "b", "c", "d", "g"]);
     expect(collectWatchAlertIds(summary, ["eur/usd", "GBPUSD"]).sort()).toEqual([
       "a",
       "b",
       "c",
       "d",
       "e",
+      "g",
     ]);
   });
 
@@ -259,6 +315,7 @@ describe("collectWatchAlertIds", () => {
       "b",
       "c",
       "d",
+      "g",
     ]);
     expect(collectWatchAlertIds(summary, [])).toEqual([]);
   });
