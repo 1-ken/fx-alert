@@ -23,6 +23,8 @@ export function formatAlertTypeLabel(alertType: string): string {
     case "fvg":
     case "fair_value_gap":
       return "Fair Value Gap (FVG)";
+    case "candle2_closure":
+      return "Candle 2 Closure";
     case "price":
       return "Price";
     default:
@@ -102,7 +104,9 @@ export function AlertEventDetailDialog({
               ? "Prev 1h high/low swept, 5m CISD"
               : alert?.alert_type === "fvg"
                 ? `${alert.structure_direction ?? "any"} FVG on ${alert.interval ?? ""}`
-                : null;
+                : alert?.alert_type === "candle2_closure"
+                  ? `${alert.structure_direction ?? "any"} Candle 2 closure on ${alert.interval ?? ""}`
+                  : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

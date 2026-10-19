@@ -241,6 +241,28 @@ export default function AlertDetailPage() {
                     }`
                   : ""}
               </p>
+            ) : alert.alert_type === "fvg" ? (
+              <p className="text-sm">
+                {alert.interval} · {alert.structure_direction ?? "any"} FVG
+                {alert.chain_id || alert.depends_on_alert_id
+                  ? ` · queue step ${(alert.sequence_index ?? 0) + 1}${
+                      alert.status === "waiting" ? " (waiting)" : ""
+                    }`
+                  : ""}
+              </p>
+            ) : alert.alert_type === "candle2_closure" ? (
+              <p className="text-sm">
+                {alert.interval} · {alert.structure_direction ?? "any"} Candle 2 closure
+                {alert.chain_id || alert.depends_on_alert_id
+                  ? ` · queue step ${(alert.sequence_index ?? 0) + 1}${
+                      alert.status === "waiting" ? " (waiting)" : ""
+                    }`
+                  : ""}
+              </p>
+            ) : alert.alert_type === "prev_day_level" ? (
+              <p className="text-sm">
+                Prev-day {(alert.dol_trigger ?? []).join("/")} · {alert.level_ref}
+              </p>
             ) : (
               <Input
                 id="level"

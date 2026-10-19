@@ -60,7 +60,9 @@ function normalizeAlert(rawAlert: unknown): Alert | null {
                 ? "hour_sweep_cisd"
                 : record.alert_type === "fvg"
                   ? "fvg"
-                  : "price";
+                  : record.alert_type === "candle2_closure"
+                    ? "candle2_closure"
+                    : "price";
   const levelRef =
     record.level_ref === "high" || record.level_ref === "low" || record.level_ref === "both"
       ? record.level_ref

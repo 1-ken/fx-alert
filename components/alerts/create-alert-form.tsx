@@ -230,6 +230,7 @@ const alertFormSchema = z
       "sweep_confirm",
       "hour_sweep_cisd",
       "fvg",
+      "candle2_closure",
     ]),
     pair: z.string().optional(),
     pairs: z.array(z.string()).optional(),
@@ -278,6 +279,7 @@ const alertFormSchema = z
       value.alert_type !== "sweep_confirm" &&
       value.alert_type !== "hour_sweep_cisd" &&
       value.alert_type !== "fvg" &&
+      value.alert_type !== "candle2_closure" &&
       !value.pair
     ) {
       ctx.addIssue({
@@ -516,6 +518,46 @@ const alertFormSchema = z
       }
     }
 
+    if (value.alert_type === "candle2_closure") {
+      if (!value.pairs || value.pairs.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: "Select at least one pair",
+        });
+      } else if (value.pairs.length > MAX_BATCH_PAIRS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["pairs"],
+          message: `Select at most ${MAX_BATCH_PAIRS} pairs`,
+        });
+      }
+
+      if (value.pairs && value.pairs.length > 1 && value.depends_on_alert_id) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["depends_on_alert_id"],
+          message: "Chained alert dependency cannot be used with multi-pair batch alerts",
+        });
+      }
+
+      if (!value.interval) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["interval"],
+          message: "Select a timeframe",
+        });
+      }
+
+      if (!value.structure_direction) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["structure_direction"],
+          message: "Select a direction",
+        });
+      }
+    }
+
     if (selectedSet.has("sms") && !value.phone) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -675,7 +717,9 @@ export function CreateAlertForm({
                     ? "hour_sweep_cisd"
                     : initialAlertType === "fvg"
                       ? "fvg"
-                      : "price",
+                      : initialAlertType === "candle2_closure"
+                        ? "candle2_closure"
+                        : "price",
       pair: normalizedInitialPair,
       pairs: normalizedInitialPair ? [normalizedInitialPair] : [],
       level_ref: "both",
@@ -815,6 +859,13 @@ export function CreateAlertForm({
         shouldValidate: true,
       });
     }
+
+    if (initialAlertType === "candle2_closure") {
+      form.setValue("alert_type", "candle2_closure", {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
   }, [form, initialAlertType]);
 
   useEffect(() => {
@@ -881,7 +932,9 @@ export function CreateAlertForm({
 
   const queueParents = useMemo(() => {
     const pairRaw =
-      selectedAlertType === "prev_day_level" || selectedAlertType === "fvg"
+      selectedAlertType === "prev_day_level" ||
+      selectedAlertType === "fvg" ||
+      selectedAlertType === "candle2_closure"
         ? (selectedDolPairs[0] || selectedPair)
         : selectedPair;
     if (!pairRaw) {
@@ -907,6 +960,8 @@ export function CreateAlertForm({
       base = `Session ${(alert.intervals ?? []).join("→")} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
     } else if (alert.alert_type === "fvg") {
       base = `FVG ${alert.interval} ${alert.structure_direction ?? "any"}${step} (${alert.status})`;
+    } else if (alert.alert_type === "candle2_closure") {
+      base = `Candle 2 ${alert.interval} ${alert.structure_direction ?? "any"}${step} (${alert.status})`;
     } else {
       base = `Structure ${alert.interval} ${alert.structure_direction} ${(alert.structure_event ?? []).join("/")}${step} (${alert.status})`;
     }
@@ -1149,6 +1204,21 @@ export function CreateAlertForm({
           interval: values.interval,
           structure_direction: values.structure_direction ?? "any",
         });
+      } else if (alertType === "candle2_closure") {
+        const normalizedPairs = (values.pairs ?? [])
+          .map((pair) => normalizePair(pair).replace("/", ""))
+          .filter((pair, index, all) => pair && all.indexOf(pair) === index);
+        const c2Payload = { ...basePayload };
+        if (normalizedPairs.length > 1) {
+          delete c2Payload.depends_on_alert_id;
+        }
+        await createAlert({
+          ...c2Payload,
+          pair: normalizedPairs[0] ?? "",
+          pairs: normalizedPairs,
+          interval: values.interval,
+          structure_direction: values.structure_direction ?? "any",
+        });
       } else {
         await createAlert({
           ...basePayload,
@@ -1230,7 +1300,8 @@ export function CreateAlertForm({
                             value === "structure_session" ||
                             value === "sweep_confirm" ||
                             value === "hour_sweep_cisd" ||
-                            value === "fvg"
+                            value === "fvg" ||
+                            value === "candle2_closure"
                           ) {
                             const currentPairs = form.getValues("pairs") ?? [];
                             const singlePair = form.getValues("pair");
@@ -1291,7 +1362,7 @@ export function CreateAlertForm({
                           ]);
                         }}
                       >
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-5">
                           {(
                             [
                               ["price", "Price"],
@@ -1302,6 +1373,7 @@ export function CreateAlertForm({
                               ["sweep_confirm", "Sweep confirm"],
                               ["hour_sweep_cisd", "1h sweep + CISD"],
                               ["fvg", "Fair Value Gap (FVG)"],
+                              ["candle2_closure", "Candle 2 Closure"],
                             ] as const
                           ).map(([value, label]) => (
                             <TabsTrigger
@@ -1324,7 +1396,8 @@ export function CreateAlertForm({
               selectedAlertType !== "structure_session" &&
               selectedAlertType !== "sweep_confirm" &&
               selectedAlertType !== "hour_sweep_cisd" &&
-              selectedAlertType !== "fvg" ? (
+              selectedAlertType !== "fvg" &&
+              selectedAlertType !== "candle2_closure" ? (
               <FormField
                 control={form.control}
                 name="pair"
@@ -1419,7 +1492,8 @@ export function CreateAlertForm({
               selectedAlertType === "structure_session" ||
               selectedAlertType === "sweep_confirm" ||
               selectedAlertType === "hour_sweep_cisd" ||
-              selectedAlertType === "fvg" ? (
+              selectedAlertType === "fvg" ||
+              selectedAlertType === "candle2_closure" ? (
                 <>
                   <FormField
                     control={form.control}
@@ -2245,12 +2319,82 @@ export function CreateAlertForm({
                     )}
                   />
                 </>
+              ) : selectedAlertType === "candle2_closure" ? (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Triggers when Candle 2 sweeps Candle 1&apos;s high or low and closes back inside Candle 1&apos;s range (Fractal Model reversal) on the selected timeframe. Formed strictly on closed candles to avoid false alerts.
+                  </p>
+                  <FormField
+                    control={form.control}
+                    name="interval"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Timeframe</FormLabel>
+                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                          {candleIntervalOptions.map((interval) => {
+                            const active = field.value === interval;
+                            return (
+                              <button
+                                key={interval}
+                                type="button"
+                                onClick={() => field.onChange(interval)}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-sm transition",
+                                  active
+                                    ? "border-primary/40 bg-primary/10 text-foreground"
+                                    : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                                )}
+                              >
+                                {interval}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="structure_direction"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Direction</FormLabel>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(
+                            [
+                              ["bull", "Bullish (Swept Low)"],
+                              ["bear", "Bearish (Swept High)"],
+                              ["any", "Any Direction"],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => field.onChange(value)}
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm transition",
+                                (field.value ?? "any") === value
+                                  ? "border-primary/40 bg-primary/10 text-foreground font-medium"
+                                  : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/40",
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
               ) : null}
 
               {selectedAlertType === "structure_session" ||
               selectedAlertType === "sweep_confirm" ||
               selectedAlertType === "hour_sweep_cisd" ||
-              (selectedAlertType === "fvg" && (form.watch("pairs") ?? []).length > 1) ? null : (
+              (selectedAlertType === "fvg" && (form.watch("pairs") ?? []).length > 1) ||
+              (selectedAlertType === "candle2_closure" && (form.watch("pairs") ?? []).length > 1) ? null : (
               <FormField
                 control={form.control}
                 name="depends_on_alert_id"

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CANDLE2_WATCH_INTERVALS,
+  DEFAULT_CANDLE2_WATCH_INTERVAL,
   DEFAULT_FVG_WATCH_INTERVAL,
   FVG_WATCH_INTERVALS,
   buildWatchPayload,
@@ -7,7 +9,9 @@ import {
   chunkPairs,
   collectWatchAlertIds,
   defaultWatchExpiry,
+  isCandle2WatchInterval,
   isFvgWatchInterval,
+  normalizeCandle2WatchInterval,
   normalizeFvgWatchInterval,
   planWatchSteps,
   summarizeWatched,
@@ -60,6 +64,24 @@ describe("buildWatchPayload", () => {
       fvgInterval: "invalid" as never,
     });
     expect(fvgFallback.interval).toBe("15m");
+
+    const candle2Default = buildWatchPayload("candle2_closure", ["EURUSD"], ctx);
+    expect(candle2Default.alert_type).toBe("candle2_closure");
+    expect(candle2Default.interval).toBe("15m");
+    expect(candle2Default.structure_direction).toBe("any");
+    expect(candle2Default.expires_at).toBe("2026-06-04T10:00:00.000Z");
+
+    const candle2Custom = buildWatchPayload("candle2_closure", ["EURUSD"], {
+      ...ctx,
+      candle2Interval: "4h",
+    });
+    expect(candle2Custom.interval).toBe("4h");
+
+    const candle2Fallback = buildWatchPayload("candle2_closure", ["EURUSD"], {
+      ...ctx,
+      candle2Interval: "invalid" as never,
+    });
+    expect(candle2Fallback.interval).toBe("15m");
   });
 
   it("sends the trimmed message for call and sms, never for sound or email", () => {
@@ -97,6 +119,7 @@ describe("buildWatchPayload", () => {
     expect(defaultWatchExpiry("prev_day_level", NOW)).toBe("2026-06-03T23:59:59.999Z");
     expect(defaultWatchExpiry("hour_sweep_cisd", NOW)).toBe("2026-06-04T10:00:00.000Z");
     expect(defaultWatchExpiry("fvg", NOW)).toBe("2026-06-04T10:00:00.000Z");
+    expect(defaultWatchExpiry("candle2_closure", NOW)).toBe("2026-06-04T10:00:00.000Z");
   });
 });
 
@@ -114,6 +137,23 @@ describe("fvg intervals", () => {
     expect(normalizeFvgWatchInterval("30m")).toBe("30m");
     expect(normalizeFvgWatchInterval("invalid")).toBe(DEFAULT_FVG_WATCH_INTERVAL);
     expect(normalizeFvgWatchInterval(undefined)).toBe("15m");
+  });
+});
+
+describe("candle2 intervals", () => {
+  it("validates supported timeframes", () => {
+    for (const iv of CANDLE2_WATCH_INTERVALS) {
+      expect(isCandle2WatchInterval(iv)).toBe(true);
+    }
+    expect(isCandle2WatchInterval("2h")).toBe(false);
+    expect(isCandle2WatchInterval("")).toBe(false);
+    expect(isCandle2WatchInterval(null)).toBe(false);
+  });
+
+  it("normalizes to 15m default when unknown", () => {
+    expect(normalizeCandle2WatchInterval("1h")).toBe("1h");
+    expect(normalizeCandle2WatchInterval("invalid")).toBe(DEFAULT_CANDLE2_WATCH_INTERVAL);
+    expect(normalizeCandle2WatchInterval(undefined)).toBe("15m");
   });
 });
 
@@ -148,9 +188,17 @@ describe("planWatchSteps", () => {
     expect(steps).toEqual([{ type: "sweep_confirm", pairs: ["EURUSD"] }]);
   });
 
-  it("orders types including fvg according to WATCH_TYPES", () => {
-    const steps = planWatchSteps(["fvg", "prev_day_level", "hour_sweep_cisd"], ["EURUSD"]);
-    expect(steps.map((s) => s.type)).toEqual(["prev_day_level", "hour_sweep_cisd", "fvg"]);
+  it("orders types including fvg and candle2_closure according to WATCH_TYPES", () => {
+    const steps = planWatchSteps(
+      ["candle2_closure", "fvg", "prev_day_level", "hour_sweep_cisd"],
+      ["EURUSD"],
+    );
+    expect(steps.map((s) => s.type)).toEqual([
+      "prev_day_level",
+      "hour_sweep_cisd",
+      "fvg",
+      "candle2_closure",
+    ]);
   });
 });
 
@@ -181,6 +229,16 @@ describe("checkWatchRequest", () => {
     expect(checkWatchRequest({ ...withFvg, fvgInterval: "invalid" })).toEqual({
       ok: false,
       error: "Select a valid FVG timeframe.",
+    });
+  });
+
+  it("validates candle2 interval when candle2_closure is selected", () => {
+    const withCandle2 = { ...base, types: ["candle2_closure"] as const };
+    expect(checkWatchRequest({ ...withCandle2, candle2Interval: "15m" }).ok).toBe(true);
+    expect(checkWatchRequest({ ...withCandle2, candle2Interval: "4h" }).ok).toBe(true);
+    expect(checkWatchRequest({ ...withCandle2, candle2Interval: "invalid" })).toEqual({
+      ok: false,
+      error: "Select a valid Candle 2 timeframe.",
     });
   });
 
@@ -233,6 +291,7 @@ describe("summarizeWatched", () => {
         alert({ id: "c", pair: "EURUSD", alert_type: "hour_sweep_cisd" }),
         alert({ id: "d", pair: "GBPUSD", alert_type: "sweep_confirm", status: "waiting" }),
         alert({ id: "g", pair: "EURUSD", alert_type: "fvg" }),
+        alert({ id: "h", pair: "EURUSD", alert_type: "candle2_closure" }),
       ],
       ["EUR/USD", "GBP/USD", "USD/JPY"],
     );
@@ -240,6 +299,7 @@ describe("summarizeWatched", () => {
     expect(summary.pairs[0].byType.structure_session).toEqual(["a", "b"]);
     expect(summary.pairs[0].byType.hour_sweep_cisd).toEqual(["c"]);
     expect(summary.pairs[0].byType.fvg).toEqual(["g"]);
+    expect(summary.pairs[0].byType.candle2_closure).toEqual(["h"]);
     expect(summary.unwatchedFavorites).toEqual(["USD/JPY"]);
   });
 
@@ -281,6 +341,7 @@ describe("collectWatchAlertIds", () => {
       alert({ id: "e", pair: "GBPUSD", alert_type: "prev_day_level" }),
       alert({ id: "f", pair: "AUDUSD", alert_type: "prev_day_level" }),
       alert({ id: "g", pair: "EURUSD", alert_type: "fvg" }),
+      alert({ id: "h", pair: "EURUSD", alert_type: "candle2_closure" }),
       alert({ id: "p", pair: "EURUSD", alert_type: "price" }),
       alert({ id: "t", pair: "EURUSD", alert_type: "prev_day_level", status: "triggered" }),
     ],
@@ -288,7 +349,7 @@ describe("collectWatchAlertIds", () => {
   );
 
   it("returns every watch type for the selected pairs only", () => {
-    expect(collectWatchAlertIds(summary, ["EURUSD"]).sort()).toEqual(["a", "b", "c", "d", "g"]);
+    expect(collectWatchAlertIds(summary, ["EURUSD"]).sort()).toEqual(["a", "b", "c", "d", "g", "h"]);
     expect(collectWatchAlertIds(summary, ["eur/usd", "GBPUSD"]).sort()).toEqual([
       "a",
       "b",
@@ -296,6 +357,7 @@ describe("collectWatchAlertIds", () => {
       "d",
       "e",
       "g",
+      "h",
     ]);
   });
 
@@ -316,6 +378,7 @@ describe("collectWatchAlertIds", () => {
       "c",
       "d",
       "g",
+      "h",
     ]);
     expect(collectWatchAlertIds(summary, [])).toEqual([]);
   });

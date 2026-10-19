@@ -28,6 +28,12 @@ export function summarizeAlertCondition(alert: Alert): string {
   if (alert.alert_type === "prev_day_level") {
     return `Prev-day ${formatEventList(alert.dol_trigger, "?")} ${alert.level_ref ?? ""}`.trim();
   }
+  if (alert.alert_type === "fvg") {
+    return `FVG ${alert.interval ?? "?"} ${alert.structure_direction ?? "any"}`.trim();
+  }
+  if (alert.alert_type === "candle2_closure") {
+    return `Candle 2 ${alert.interval ?? "?"} ${alert.structure_direction ?? "any"}`.trim();
+  }
   return `Structure ${alert.interval ?? "?"} ${alert.structure_direction ?? "?"} ${formatEventList(alert.structure_event, "?")}`.trim();
 }
 

@@ -15,6 +15,7 @@ export const WATCH_TYPES = [
   "sweep_confirm",
   "hour_sweep_cisd",
   "fvg",
+  "candle2_closure",
 ] as const;
 
 export type WatchType = (typeof WATCH_TYPES)[number];
@@ -25,6 +26,7 @@ export const WATCH_TYPE_LABELS: Record<WatchType, string> = {
   sweep_confirm: "Sweep confirm",
   hour_sweep_cisd: "1h sweep + CISD",
   fvg: "FVG",
+  candle2_closure: "Candle 2",
 };
 
 export const FVG_WATCH_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
@@ -38,6 +40,21 @@ export function isFvgWatchInterval(value: unknown): value is FvgWatchInterval {
 
 export function normalizeFvgWatchInterval(value: unknown): FvgWatchInterval {
   return isFvgWatchInterval(value) ? value : DEFAULT_FVG_WATCH_INTERVAL;
+}
+
+export const CANDLE2_WATCH_INTERVALS = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"] as const;
+export type Candle2WatchInterval = (typeof CANDLE2_WATCH_INTERVALS)[number];
+export const DEFAULT_CANDLE2_WATCH_INTERVAL: Candle2WatchInterval = "15m";
+export const WATCH_CANDLE2_INTERVAL_STORAGE_KEY = "fx-alert:watch-candle2-interval";
+
+export function isCandle2WatchInterval(value: unknown): value is Candle2WatchInterval {
+  return (
+    typeof value === "string" && (CANDLE2_WATCH_INTERVALS as readonly string[]).includes(value)
+  );
+}
+
+export function normalizeCandle2WatchInterval(value: unknown): Candle2WatchInterval {
+  return isCandle2WatchInterval(value) ? value : DEFAULT_CANDLE2_WATCH_INTERVAL;
 }
 
 /** Must match kMaxBatchPairs in ctraderplus-cpp/src/alerts/AlertManager.h. */
@@ -89,6 +106,8 @@ export interface WatchPayloadContext {
   message?: string;
   /** Timeframe for FVG alerts across all selected pairs. Defaults to 15m. */
   fvgInterval?: FvgWatchInterval | string;
+  /** Timeframe for Candle 2 alerts across all selected pairs. Defaults to 15m. */
+  candle2Interval?: Candle2WatchInterval | string;
   now: number;
 }
 
@@ -158,6 +177,12 @@ export function buildWatchPayload(
         interval: normalizeFvgWatchInterval(ctx.fvgInterval),
         structure_direction: "any",
       };
+    case "candle2_closure":
+      return {
+        ...base,
+        interval: normalizeCandle2WatchInterval(ctx.candle2Interval),
+        structure_direction: "any",
+      };
   }
 }
 
@@ -205,6 +230,7 @@ export function checkWatchRequest(args: {
   email: string;
   message?: string;
   fvgInterval?: string;
+  candle2Interval?: string;
   bootstrap: BootstrapData | null | undefined;
   activeCount: number;
 }): WatchCheck {
@@ -217,6 +243,13 @@ export function checkWatchRequest(args: {
     !isFvgWatchInterval(args.fvgInterval)
   ) {
     return { ok: false, error: "Select a valid FVG timeframe." };
+  }
+  if (
+    args.types.includes("candle2_closure") &&
+    args.candle2Interval !== undefined &&
+    !isCandle2WatchInterval(args.candle2Interval)
+  ) {
+    return { ok: false, error: "Select a valid Candle 2 timeframe." };
   }
   if ((args.channel === "sms" || args.channel === "call") && !args.phone.trim()) {
     return { ok: false, error: "Add a phone number in Settings to use Call or SMS." };
@@ -266,6 +299,7 @@ function emptyByType(): Record<WatchType, string[]> {
     sweep_confirm: [],
     hour_sweep_cisd: [],
     fvg: [],
+    candle2_closure: [],
   };
 }
 

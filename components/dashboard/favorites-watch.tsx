@@ -37,9 +37,12 @@ import {
   type DefaultNotifyChannel,
 } from "@/lib/alert-preferences";
 import {
+  CANDLE2_WATCH_INTERVALS,
+  DEFAULT_CANDLE2_WATCH_INTERVAL,
   DEFAULT_FVG_WATCH_INTERVAL,
   DEFAULT_WATCH_MESSAGE,
   FVG_WATCH_INTERVALS,
+  WATCH_CANDLE2_INTERVAL_STORAGE_KEY,
   WATCH_FVG_INTERVAL_STORAGE_KEY,
   WATCH_MESSAGE_STORAGE_KEY,
   watchMessageMaxChars,
@@ -50,11 +53,13 @@ import {
   checkWatchRequest,
   collectWatchAlertIds,
   errorMessage,
+  normalizeCandle2WatchInterval,
   normalizeFvgWatchInterval,
   pairKey,
   pairLabel,
   planWatchSteps,
   summarizeWatched,
+  type Candle2WatchInterval,
   type FvgWatchInterval,
   type WatchStep,
   type WatchType,
@@ -87,6 +92,8 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
   const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
   const [selectedTypes, setSelectedTypes] = useState<WatchType[]>([...WATCH_TYPES]);
   const [fvgInterval, setFvgInterval] = useState<FvgWatchInterval>(DEFAULT_FVG_WATCH_INTERVAL);
+  const [candle2Interval, setCandle2Interval] =
+    useState<Candle2WatchInterval>(DEFAULT_CANDLE2_WATCH_INTERVAL);
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState(DEFAULT_WATCH_MESSAGE);
   const [running, setRunning] = useState(false);
@@ -126,6 +133,11 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     setFvgInterval(
       normalizeFvgWatchInterval(window.localStorage.getItem(WATCH_FVG_INTERVAL_STORAGE_KEY)),
     );
+    setCandle2Interval(
+      normalizeCandle2WatchInterval(
+        window.localStorage.getItem(WATCH_CANDLE2_INTERVAL_STORAGE_KEY),
+      ),
+    );
     setSelectedPairs(favorites.map(pairKey));
     setSelectedTypes([...WATCH_TYPES]);
     setResults(null);
@@ -153,6 +165,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     email,
     message,
     fvgInterval,
+    candle2Interval,
     bootstrap,
     activeCount,
   });
@@ -182,6 +195,7 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               email,
               message,
               fvgInterval,
+              candle2Interval,
               now: Date.now(),
             }),
             { silent: true },
@@ -254,6 +268,9 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
     }
     if (selectedTypes.includes("fvg")) {
       window.localStorage.setItem(WATCH_FVG_INTERVAL_STORAGE_KEY, fvgInterval);
+    }
+    if (selectedTypes.includes("candle2_closure")) {
+      window.localStorage.setItem(WATCH_CANDLE2_INTERVAL_STORAGE_KEY, candle2Interval);
     }
     setResults([]);
     void run(planWatchSteps(selectedTypes, selectedPairs));
@@ -525,6 +542,35 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
               </div>
             ) : null}
 
+            {selectedTypes.includes("candle2_closure") ? (
+              <div className="rounded-lg border border-border/80 bg-muted/30 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-foreground">
+                    Candle 2 timeframe (all selected pairs)
+                  </p>
+                  <span className="text-xs font-semibold text-primary">{candle2Interval}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {CANDLE2_WATCH_INTERVALS.map((iv) => (
+                    <Button
+                      key={iv}
+                      type="button"
+                      size="sm"
+                      variant={candle2Interval === iv ? "default" : "outline"}
+                      disabled={running}
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => setCandle2Interval(iv)}
+                    >
+                      {iv}
+                    </Button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Monitors Candle 2 sweeping Candle 1 and closing back inside its range on {candle2Interval} candles.
+                </p>
+              </div>
+            ) : null}
+
             <p className="text-xs text-muted-foreground">
               Notify via {defaultNotifyLabel(channel)} (and in-app sound).{" "}
               <Link href="/settings" className="text-primary underline-offset-4 hover:underline">
@@ -595,8 +641,12 @@ export function FavoritesWatch({ favorites }: { favorites: string[] }) {
                 {results.map((r, index) => (
                   <p key={`${r.step.type}-${index}`} className={r.ok ? "" : "text-destructive"}>
                     {WATCH_TYPE_LABELS[r.step.type]}
-                    {r.step.type === "fvg" ? ` (${fvgInterval})` : ""} ({r.step.pairs.length}):{" "}
-                    {r.ok ? "created" : `failed: ${r.message}`}
+                    {r.step.type === "fvg"
+                      ? ` (${fvgInterval})`
+                      : r.step.type === "candle2_closure"
+                        ? ` (${candle2Interval})`
+                        : ""}{" "}
+                    ({r.step.pairs.length}): {r.ok ? "created" : `failed: ${r.message}`}
                   </p>
                 ))}
               </div>

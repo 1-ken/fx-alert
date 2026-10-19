@@ -49,7 +49,8 @@ type AlertTypeFilter =
   | "structure_session"
   | "sweep_confirm"
   | "hour_sweep_cisd"
-  | "fvg";
+  | "fvg"
+  | "candle2_closure";
 
 interface AlertsListPageProps {
   initialStatus?: string;
@@ -83,7 +84,8 @@ function normalizeType(value?: string): AlertTypeFilter {
     value === "structure_session" ||
     value === "sweep_confirm" ||
     value === "hour_sweep_cisd" ||
-    value === "fvg"
+    value === "fvg" ||
+    value === "candle2_closure"
   ) {
     return value;
   }
@@ -200,6 +202,9 @@ function formatAlertTypeBadge(
   }
   if (alertType === "fvg") {
     return "Fair Value Gap (FVG)";
+  }
+  if (alertType === "candle2_closure") {
+    return "Candle 2 Closure";
   }
   return "price";
 }
@@ -391,6 +396,7 @@ export function AlertsListPage({
       sweep_confirm: source.filter((alert) => alert.alert_type === "sweep_confirm").length,
       hour_sweep_cisd: source.filter((alert) => alert.alert_type === "hour_sweep_cisd").length,
       fvg: source.filter((alert) => alert.alert_type === "fvg").length,
+      candle2_closure: source.filter((alert) => alert.alert_type === "candle2_closure").length,
     };
   }, [alerts?.all]);
 
@@ -540,6 +546,11 @@ export function AlertsListPage({
               <Button asChild variant={type === "fvg" ? "default" : "outline"} size="sm">
                 <Link href={hrefFor(status, "fvg")}>
                   FVG ({typeCounts.fvg})
+                </Link>
+              </Button>
+              <Button asChild variant={type === "candle2_closure" ? "default" : "outline"} size="sm">
+                <Link href={hrefFor(status, "candle2_closure")}>
+                  Candle 2 ({typeCounts.candle2_closure})
                 </Link>
               </Button>
             </div>
@@ -878,6 +889,19 @@ export function AlertsListPage({
                       </p>
                     </>
                   ) : alert.alert_type === "fvg" ? (
+                    <>
+                      <p>
+                        Timeframe:{" "}
+                        <span className="text-foreground">{alert.interval ?? "-"}</span>
+                      </p>
+                      <p>
+                        Direction:{" "}
+                        <span className="text-foreground capitalize">
+                          {alert.structure_direction ?? "any"}
+                        </span>
+                      </p>
+                    </>
+                  ) : alert.alert_type === "candle2_closure" ? (
                     <>
                       <p>
                         Timeframe:{" "}
