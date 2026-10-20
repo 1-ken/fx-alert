@@ -13,6 +13,21 @@ export interface FreeTierLimits {
   allowedChannels: string[];
 }
 
+export interface AlertDeliverySettings {
+  userId?: string;
+  alertsPaused: boolean;
+  effectivelyPaused: boolean;
+  alertsPausedUntil: string | null;
+  alertsPausedUntilEpoch: number | null;
+  scheduleEnabled: boolean;
+  startMinute: number;
+  endMinute: number;
+  startTime: string;
+  endTime: string;
+  daysOfWeek: number[];
+  tzOffsetMinutes: number;
+}
+
 export interface BootstrapData {
   userId: string;
   isFirstTimeUser: boolean;
@@ -29,6 +44,7 @@ export interface BootstrapData {
   requiresPricingIntro?: boolean;
   dailyUsage?: DailyUsage;
   freeTierLimits?: FreeTierLimits;
+  alertDelivery?: AlertDeliverySettings;
 }
 
 /**
@@ -131,6 +147,81 @@ export async function saveUserPhone(
       success: false,
       phone: null,
       error: error instanceof Error ? error.message : "Failed to save phone number",
+    };
+  }
+}
+
+export interface SaveAlertDeliveryPayload {
+  alertsPaused?: boolean;
+  paused?: boolean;
+  pauseDurationMinutes?: number | null;
+  alertsPausedUntil?: string | null;
+  pausedUntil?: string | null;
+  scheduleEnabled?: boolean;
+  startMinute?: number;
+  endMinute?: number;
+  startTime?: string;
+  endTime?: string;
+  daysOfWeek?: number[];
+  tzOffsetMinutes?: number;
+}
+
+export interface SaveAlertDeliveryResult {
+  success: boolean;
+  alertDelivery?: AlertDeliverySettings;
+  error?: string;
+}
+
+/**
+ * Save user alert delivery settings (pause switch, timer, quiet hours delivery schedule).
+ */
+export async function saveAlertDeliverySettings(
+  session: Session | null,
+  payload: SaveAlertDeliveryPayload,
+): Promise<SaveAlertDeliveryResult> {
+  if (!session?.user?.id) {
+    return { success: false, error: "Not signed in" };
+  }
+
+  try {
+    const token = (session as { accessToken?: string }).accessToken;
+    const response = await fetch("/api/bootstrap/user/alert-delivery", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      let error = "Failed to update alert delivery settings";
+      try {
+        const data = (await response.json()) as { detail?: string; error?: string };
+        error = data.detail?.trim() || data.error?.trim() || error;
+      } catch {
+        // ignore parse error
+      }
+      return { success: false, error };
+    }
+
+    const data = (await response.json()) as {
+      success?: boolean;
+      alertDelivery?: AlertDeliverySettings;
+    };
+    return {
+      success: data.success ?? true,
+      alertDelivery: data.alertDelivery,
+    };
+  } catch (error) {
+    console.error("[saveAlertDeliverySettings] failed:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to update alert delivery settings",
     };
   }
 }
